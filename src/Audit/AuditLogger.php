@@ -151,4 +151,27 @@ final class AuditLogger
 
         return ['ok' => true, 'first_bad_log_id' => null];
     }
+
+    /**
+     * Return the most recent audit entries, newest first, for the admin security
+     * monitoring view (spec §6.6, §9.8). Read-only: the log itself stays
+     * append-only. $limit is clamped to a sane range so a caller can never request
+     * an unbounded or non-positive page size.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function recent(int $limit = 50): array
+    {
+        $limit = max(1, min($limit, 500));
+
+        // LIMIT cannot be bound as a parameter portably across MySQL/SQLite, so we
+        // cast to int ourselves (the clamp above guarantees it is a safe integer).
+        $stmt = $this->pdo->query(
+            'SELECT log_id, user_id, user_role, action, module, affected_record_id,
+                    ip_address, user_agent, status, anomaly_flag, created_at
+             FROM audit_logs ORDER BY log_id DESC LIMIT ' . (int) $limit
+        );
+
+        return $stmt->fetchAll();
+    }
 }

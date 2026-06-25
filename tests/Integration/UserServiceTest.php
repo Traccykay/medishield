@@ -80,4 +80,59 @@ final class UserServiceTest extends TestCase
         self::assertFalse($result['ok']);
         self::assertContains('Full name is required.', $result['errors']);
     }
+
+    public function testChangePasswordSucceedsAndClearsMustChange(): void
+    {
+        $created = $this->service->createUser('Dora Doctor', 'dora@example.com', 'Old!Pass123', 'doctor');
+        $userId  = (int) $created['user_id'];
+
+        $result = $this->service->changePassword($userId, 'Old!Pass123', 'New!Pass456');
+
+        self::assertTrue($result['ok']);
+        self::assertSame([], $result['errors']);
+
+        $row = $this->repo->findById($userId);
+        self::assertSame(0, (int) $row['must_change_password']);
+        self::assertTrue(password_verify('New!Pass456', $row['password_hash']));
+        self::assertFalse(password_verify('Old!Pass123', $row['password_hash']));
+    }
+
+    public function testChangePasswordRejectsWrongCurrentPassword(): void
+    {
+        $created = $this->service->createUser('Dora Doctor', 'dora2@example.com', 'Old!Pass123', 'doctor');
+        $userId  = (int) $created['user_id'];
+
+        $result = $this->service->changePassword($userId, 'WrongCurrent1!', 'New!Pass456');
+
+        self::assertFalse($result['ok']);
+        self::assertContains('Your current password is incorrect.', $result['errors']);
+        // Password must be unchanged.
+        $row = $this->repo->findById($userId);
+        self::assertTrue(password_verify('Old!Pass123', $row['password_hash']));
+    }
+
+    public function testChangePasswordRejectsSameAsCurrent(): void
+    {
+        $created = $this->service->createUser('Dora Doctor', 'dora3@example.com', 'Old!Pass123', 'doctor');
+        $userId  = (int) $created['user_id'];
+
+        $result = $this->service->changePassword($userId, 'Old!Pass123', 'Old!Pass123');
+
+        self::assertFalse($result['ok']);
+        self::assertContains('The new password must be different from the current password.', $result['errors']);
+    }
+
+    public function testChangePasswordRejectsWeakNewPassword(): void
+    {
+        $created = $this->service->createUser('Dora Doctor', 'dora4@example.com', 'Old!Pass123', 'doctor');
+        $userId  = (int) $created['user_id'];
+
+        $result = $this->service->changePassword($userId, 'Old!Pass123', 'weak');
+
+        self::assertFalse($result['ok']);
+        self::assertNotEmpty($result['errors']);
+        // Password must be unchanged.
+        $row = $this->repo->findById($userId);
+        self::assertTrue(password_verify('Old!Pass123', $row['password_hash']));
+    }
 }

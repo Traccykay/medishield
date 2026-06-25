@@ -157,4 +157,22 @@ final class UserRepository
             ':id'     => $userId,
         ]);
     }
+
+    /**
+     * Replace a user's password hash and clear the must_change_password flag.
+     * Called after a user chooses a new password (e.g. the forced change at first
+     * login). The caller is responsible for hashing with password_hash().
+     */
+    public function updatePassword(int $userId, string $passwordHash): void
+    {
+        $this->pdo->prepare(
+            'UPDATE users
+                SET password_hash = :hash, must_change_password = 0, updated_at = :now
+              WHERE user_id = :id'
+        )->execute([
+            ':hash' => $passwordHash,
+            ':now'  => $this->clock->nowString(),
+            ':id'   => $userId,
+        ]);
+    }
 }

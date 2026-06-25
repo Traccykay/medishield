@@ -78,4 +78,50 @@ final class UserService
 
         return ['ok' => true, 'errors' => [], 'user_id' => $userId];
     }
+
+    /**
+     * Change an existing user's password. Verifies the current password, enforces
+     * the password policy on the new one (including "must differ from current"),
+     * then persists the new hash and clears the must_change_password flag.
+     *
+     * Looks the user up by id so the caller (a page) never has to trust a hash or
+     * email coming from the request.
+     *
+     * @return array{ok:bool, errors:string[]}
+     */
+    public function changePassword(
+        int $userId,
+        string $currentPassword,
+        string $newPassword
+    ): array {
+        $user = $this->users->findById($userId);
+        if ($user === null) {
+            return ['ok' => false, 'errors' => ['Account not found.']];
+        }
+
+        $errors = [];
+
+        // The user must prove they know the current password before changing it.
+        if (!password_verify($currentPassword, (string) $user['password_hash'])) {
+            $errors[] = 'Your current password is incorrect.';
+        }
+
+        // Enforce strength rules (length, character classes, not-equal-to-email).
+        foreach ($this->passwordPolicy->validate($newPassword, (string) $user['email']) as $passwordError) {
+            $errors[] = $passwordError;
+        }
+
+        // A password change must actually change the password.
+        if ($newPassword !== '' && password_verify($newPassword, (string) $user['password_hash'])) {
+            $errors[] = 'The new password must be different from the current password.';
+        }
+
+        if ($errors !== []) {
+            return ['ok' => false, 'errors' => $errors];
+        }
+
+        $this->users->updatePassword($userId, password_hash($newPassword, PASSWORD_DEFAULT));
+
+        return ['ok' => true, 'errors' => []];
+    }
 }

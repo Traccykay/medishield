@@ -8,8 +8,8 @@ service orchestration actually work end-to-end, not just in isolation.
 |------|--------------------|
 | `UserRepositoryTest.php` | `Auth/UserRepository` — create / find / uniqueness, failed-login counting, lock/unlock, status changes. |
 | `AuthServiceTest.php` | `Auth/AuthService` — login success/failure, anti-enumeration timing, lockout at the configured threshold, `SUSPICIOUS`/`HIGH_RISK` flags, force-password-change. |
-| `UserServiceTest.php` | `Auth/UserService` — admin user creation: validation, password policy, unique email, hashing. |
-| `AuditLoggerTest.php` | `Audit/AuditLogger` — append-only HMAC hash-chain writes and `verifyChain()` tamper detection. |
+| `UserServiceTest.php` | `Auth/UserService` — admin user creation (validation, password policy, unique email, hashing) and `changePassword()` (verifies current password, enforces policy, rejects reuse). |
+| `AuditLoggerTest.php` | `Audit/AuditLogger` — append-only HMAC hash-chain writes, `verifyChain()` tamper detection, and `recent()` newest-first reads with limit clamping. |
 
 ## How the DB is provided
 

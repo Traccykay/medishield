@@ -79,4 +79,36 @@ final class AuditLoggerTest extends TestCase
         self::assertFalse($result['ok']);
         self::assertSame(1, $result['first_bad_log_id']);
     }
+
+    public function testRecentReturnsNewestFirst(): void
+    {
+        $this->logger->log($this->sampleEvent('LOGIN_SUCCESS'));
+        $this->logger->log($this->sampleEvent('USER_CREATED'));
+        $this->logger->log($this->sampleEvent('LOGOUT'));
+
+        $recent = $this->logger->recent(10);
+
+        self::assertCount(3, $recent);
+        // Newest first => the last action logged is at index 0.
+        self::assertSame('LOGOUT', $recent[0]['action']);
+        self::assertSame('LOGIN_SUCCESS', $recent[2]['action']);
+    }
+
+    public function testRecentRespectsLimit(): void
+    {
+        for ($i = 0; $i < 5; $i++) {
+            $this->logger->log($this->sampleEvent('LOGIN_SUCCESS'));
+        }
+
+        self::assertCount(2, $this->logger->recent(2));
+    }
+
+    public function testRecentClampsNonPositiveLimitToOne(): void
+    {
+        $this->logger->log($this->sampleEvent('LOGIN_SUCCESS'));
+        $this->logger->log($this->sampleEvent('LOGOUT'));
+
+        // A zero/negative limit must not return everything (or error); it clamps to 1.
+        self::assertCount(1, $this->logger->recent(0));
+    }
 }

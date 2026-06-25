@@ -1,0 +1,211 @@
+/*
+ * style.css
+ * ---------
+ * MediShield's self-contained stylesheet. It is deliberately NOT a third-party
+ * CDN bundle: serving styles from our own origin keeps the demo working offline
+ * and lets the Content-Security-Policy stay strict (no external style origin).
+ *
+ * The look is a small, Bootstrap-inspired utility set. Every class is prefixed
+ * "ms-" so it cannot collide with anything else and so markup reads clearly.
+ * Pages reference these classes via the layout helpers in includes/layout.php.
+ */
+
+:root {
+    --ms-bg: #f4f6f8;
+    --ms-surface: #ffffff;
+    --ms-ink: #1c2733;
+    --ms-muted: #5b6b7b;
+    --ms-primary: #0b6e99;
+    --ms-primary-ink: #ffffff;
+    --ms-border: #d7dee5;
+    --ms-ok: #1d7a46;
+    --ms-warn: #b25e00;
+    --ms-bad: #b3261e;
+    --ms-radius: 8px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ms-ink);
+    background: var(--ms-bg);
+    line-height: 1.5;
+}
+
+/* ---- Top navigation ---- */
+.ms-nav {
+    background: var(--ms-primary);
+    color: var(--ms-primary-ink);
+}
+.ms-nav-inner {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 0.75rem 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.ms-brand {
+    color: var(--ms-primary-ink);
+    font-weight: 700;
+    font-size: 1.1rem;
+    text-decoration: none;
+}
+.ms-nav-user {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.9rem;
+}
+
+/* ---- Layout shell ---- */
+.ms-main {
+    max-width: 1000px;
+    margin: 1.5rem auto;
+    padding: 0 1rem;
+}
+.ms-footer {
+    max-width: 1000px;
+    margin: 2rem auto;
+    padding: 1rem;
+    color: var(--ms-muted);
+    font-size: 0.85rem;
+    text-align: center;
+}
+
+/* ---- Cards ---- */
+.ms-card {
+    background: var(--ms-surface);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius);
+    padding: 1.5rem;
+    margin-bottom: 1.25rem;
+}
+.ms-card-narrow {
+    max-width: 440px;
+    margin-left: auto;
+    margin-right: auto;
+}
+.ms-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+/* ---- Typography ---- */
+.ms-h1 { font-size: 1.5rem; margin: 0 0 0.5rem; }
+.ms-h2 { font-size: 1.2rem; margin: 0 0 0.75rem; }
+.ms-muted { color: var(--ms-muted); }
+.ms-help { color: var(--ms-muted); font-size: 0.85rem; margin: 0.25rem 0 0.75rem; }
+.ms-mt { margin-top: 1rem; }
+
+/* ---- Forms ---- */
+.ms-label {
+    display: block;
+    font-weight: 600;
+    margin: 0.75rem 0 0.25rem;
+}
+.ms-input {
+    display: block;
+    width: 100%;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius);
+    font-size: 1rem;
+    background: #fff;
+}
+.ms-input:focus {
+    outline: 2px solid var(--ms-primary);
+    outline-offset: 1px;
+}
+
+/* ---- Buttons ---- */
+.ms-btn {
+    display: inline-block;
+    padding: 0.5rem 0.9rem;
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius);
+    background: #eef2f5;
+    color: var(--ms-ink);
+    font-size: 0.95rem;
+    text-decoration: none;
+    cursor: pointer;
+}
+.ms-btn:hover { background: #e2e8ee; }
+.ms-btn-primary {
+    background: var(--ms-primary);
+    border-color: var(--ms-primary);
+    color: var(--ms-primary-ink);
+}
+.ms-btn-primary:hover { background: #095978; }
+.ms-btn-sm { padding: 0.3rem 0.6rem; font-size: 0.85rem; }
+.ms-btn-block { width: 100%; margin-top: 1rem; }
+
+/* ---- Alerts ---- */
+.ms-alert {
+    padding: 0.7rem 0.9rem;
+    border-radius: var(--ms-radius);
+    margin: 0.5rem 0 1rem;
+    border: 1px solid transparent;
+    font-size: 0.95rem;
+}
+.ms-alert-success { background: #e6f4ec; border-color: #b6dcc4; color: var(--ms-ok); }
+.ms-alert-danger  { background: #fbe9e8; border-color: #f0c2bf; color: var(--ms-bad); }
+.ms-alert-warning { background: #fdf1e3; border-color: #f3d7af; color: var(--ms-warn); }
+.ms-alert-info    { background: #e7f1f6; border-color: #bcd9e7; color: #0b5772; }
+
+/* ---- Lists / actions ---- */
+.ms-list { padding-left: 1.1rem; }
+.ms-list li { margin: 0.25rem 0; }
+.ms-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+
+/* ---- Dashboard stat grid ---- */
+.ms-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+.ms-stat { text-align: center; }
+.ms-stat-num { font-size: 1.8rem; font-weight: 700; }
+.ms-stat-label { color: var(--ms-muted); font-size: 0.85rem; }
+.ms-stat-ok   .ms-stat-num { color: var(--ms-ok); }
+.ms-stat-bad  .ms-stat-num { color: var(--ms-bad); }
+.ms-stat-warn .ms-stat-num { color: var(--ms-warn); }
+
+/* ---- Tables ---- */
+.ms-table-wrap { overflow-x: auto; }
+.ms-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+.ms-table th, .ms-table td {
+    padding: 0.5rem 0.6rem;
+    border-bottom: 1px solid var(--ms-border);
+    text-align: left;
+    white-space: nowrap;
+}
+.ms-table th {
+    background: #f0f4f7;
+    font-weight: 600;
+}
+.ms-row-warn { background: #fdf1e3; }
+
+/* ---- Badges ---- */
+.ms-badge {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+.ms-badge-ok { background: #e6f4ec; color: var(--ms-ok); }
+.ms-badge-muted { background: #eceff2; color: var(--ms-muted); }
+
+/* ---- Inline forms (e.g. activate/deactivate buttons in a table) ---- */
+.ms-inline-form { display: inline; margin: 0; }

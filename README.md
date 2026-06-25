@@ -152,12 +152,16 @@ php vendor/bin/phpunit
 
 Deliverable 1 includes:
 
-- Admin create-user registration flow
-- Login and logout
-- Seeded superadmin account
-- Admin page
-- Database schema
-- Unit and integration tests
+- Login and logout with secure sessions (id regeneration, idle + absolute timeout)
+- Seeded superadmin account (forced password change at first login)
+- Admin "registration" flow: create users and assign one of the six roles
+- Admin user management: list users, activate/deactivate accounts
+- Admin dashboard with security monitoring: recent audit events, failed-login /
+  anomaly counts, and audit-chain integrity status
+- Role-Based Access Control enforced server-side (admin area is admin-only)
+- Forensic audit logging (HMAC hash-chain) wired into every security event
+- Database schema + seed and a reproducible XAMPP setup
+- Unit and integration tests (TDD): run with `php vendor/bin/phpunit`
 
 ### Later Deliverables
 
