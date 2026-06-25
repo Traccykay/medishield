@@ -3,7 +3,7 @@
 Installs MediShield development dependencies on Windows.
 
 .DESCRIPTION
-Run this from an elevated PowerShell prompt. The script installs XAMPP 8.1 and Composer with Chocolatey when needed, verifies PHP/MySQL locations, checks common PHP extensions, and runs composer install from the repository root.
+Run this from an elevated PowerShell prompt. The script bootstraps every prerequisite it needs using a check-then-install pattern: it installs Chocolatey if it is missing, then installs XAMPP 8.1 and Composer (via Chocolatey) when they are not already present, configures php.ini through configure-php-ini.ps1, and runs composer install from the repository root. Re-running is safe: anything already installed is detected and skipped.
 
 .USAGE
 powershell -ExecutionPolicy Bypass -File scripts\install-dependencies.ps1
@@ -56,6 +56,56 @@ function Refresh-PathFromEnvironment {
     $env:Path = "$machinePath;$userPath"
 }
 
+function Get-ChocolateyCommand {
+    # Resolve the choco command if Chocolatey is installed, or return $null.
+    # We check PATH first, then fall back to the default install location in case
+    # PATH has not been refreshed in the current process yet.
+    $choco = Get-Command choco -ErrorAction SilentlyContinue
+    if (-not $choco) {
+        $default = 'C:\ProgramData\chocolatey\bin\choco.exe'
+        if (Test-Path -LiteralPath $default) {
+            $choco = Get-Command $default -ErrorAction SilentlyContinue
+        }
+    }
+    return $choco
+}
+
+function Install-Chocolatey {
+    # Bootstrap Chocolatey using the official install script. Chocolatey is the
+    # package manager every other dependency (XAMPP, Composer) is installed with,
+    # so it must exist before anything else. Requires Administrator (already
+    # enforced by the caller). Returns the resolved choco command.
+    Write-Host 'Chocolatey was not found. Installing Chocolatey...' -ForegroundColor Yellow
+
+    $previousExecutionPolicy = Get-ExecutionPolicy -Scope Process
+    try {
+        # The official one-liner from https://chocolatey.org/install.
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        # Force TLS 1.2 (3072) so the HTTPS download succeeds on stock Windows
+        # PowerShell 5.1, which still negotiates older protocols by default.
+        [System.Net.ServicePointManager]::SecurityProtocol =
+            [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+
+        $installScript = (New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1')
+        Invoke-Expression $installScript
+    }
+    finally {
+        # Restore the process execution policy we changed above.
+        Set-ExecutionPolicy $previousExecutionPolicy -Scope Process -Force -ErrorAction SilentlyContinue
+    }
+
+    # choco was just added to the machine PATH; make it visible to this process.
+    Refresh-PathFromEnvironment
+
+    $choco = Get-ChocolateyCommand
+    if (-not $choco) {
+        throw 'Chocolatey installation completed but the choco command is still not available. Open a NEW elevated PowerShell prompt and rerun this script.'
+    }
+
+    Write-Host "Chocolatey installed at: $($choco.Source)" -ForegroundColor Green
+    return $choco
+}
+
 try {
     Write-Host 'MediShield dependency installation starting...' -ForegroundColor Cyan
 
@@ -74,14 +124,14 @@ try {
         'C:\tools\xampp\mysql\bin\mysql.exe'
     )
 
-    $choco = Get-Command choco -ErrorAction SilentlyContinue
-    if (-not $choco -and (Test-Path -LiteralPath 'C:\ProgramData\chocolatey\bin\choco.exe')) {
-        $choco = Get-Command 'C:\ProgramData\chocolatey\bin\choco.exe' -ErrorAction SilentlyContinue
+    # Ensure Chocolatey (the package manager every other dependency relies on) is
+    # present. If it is missing we install it automatically rather than failing.
+    $choco = Get-ChocolateyCommand
+    if ($choco) {
+        Write-Host "Chocolatey already found at: $($choco.Source)"
     }
-
-    if (-not $choco) {
-        Write-Error "Chocolatey was not found. Install Chocolatey from https://chocolatey.org/install, then rerun: powershell -ExecutionPolicy Bypass -File scripts\install-dependencies.ps1"
-        exit 1
+    else {
+        $choco = Install-Chocolatey
     }
 
     $php = Find-XamppToolPath -Candidates $phpCandidates
