@@ -1,0 +1,24 @@
+# --- Secrets & local configuration (NEVER commit) ---
+# Only config/config.sample.php is committed. The real config (with DB creds and
+# encryption/HMAC keys) is generated locally by scripts\setup-db.ps1.
+config/config.php
+config/secrets.php
+
+# --- PHP / Composer ---
+/vendor/
+# composer.lock IS committed: this is an application, and pinning exact dependency
+# versions is part of giving every engineer/agent a reproducible environment.
+
+# --- PHPUnit ---
+.phpunit.cache/
+.phpunit.result.cache
+
+# --- Application runtime ---
+logs/*.log
+
+# --- OS / IDE noise ---
+Thumbs.db
+.DS_Store
+.idea/
+.vscode/
+*.swp

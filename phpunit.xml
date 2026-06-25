@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PHPUnit configuration for MediShield.
+
+  Two test suites:
+    - Unit:        pure-logic tests (no database, no network). Fast, run on every save.
+    - Integration: tests that exercise the data layer against an in-memory SQLite
+                   database (PDO sqlite::memory:), so they run anywhere without MySQL.
+
+  Run all:        vendor\bin\phpunit
+  Run one suite:  vendor\bin\phpunit (testsuite) Unit
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+         cacheDirectory=".phpunit.cache"
+         failOnWarning="true"
+         failOnRisky="true">
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Integration">
+            <directory>tests/Integration</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>src</directory>
+        </include>
+    </source>
+</phpunit>
