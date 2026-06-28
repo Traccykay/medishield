@@ -31,7 +31,7 @@ WHY THESE EXTENSIONS (keep this list in sync with any new runtime dependency):
   pdo_sqlite - PDO SQLite driver for the in-memory PHPUnit test database.
   sqlite3    - SQLite support used by the test suite.
   fileinfo   - MIME detection for lab-result uploads (later deliverables).
-  zip        - required by Composer to extract packages.
+  zip        - required by Composer to extract packages. This fixes the earlier Composer error where the zip extension and unzip/7z commands were missing.
 
 .PARAMETER PhpExe
 Full path to the php.exe to configure. If omitted, the script uses the first

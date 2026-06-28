@@ -3,7 +3,7 @@
 Installs MediShield development dependencies on Windows.
 
 .DESCRIPTION
-Run this from an elevated PowerShell prompt. The script bootstraps every prerequisite it needs using a check-then-install pattern: it installs Chocolatey if it is missing, then installs XAMPP 8.1 and Composer (via Chocolatey) when they are not already present, configures php.ini through configure-php-ini.ps1, and runs composer install from the repository root. Re-running is safe: anything already installed is detected and skipped.
+Run this from an elevated PowerShell prompt. The script bootstraps every prerequisite it needs using a check-then-install pattern: it installs Chocolatey if it is missing, then installs XAMPP 8.1, Git, 7-Zip and Composer (via Chocolatey) when they are not already present, configures php.ini through configure-php-ini.ps1, and runs composer install from the repository root. It also fixes the Composer/GitHub issues seen during setup by allowing source fallback, disabling HTTP/2 for Composer curl downloads in the current session, clearing Composer cache, and retrying with --prefer-source if normal ZIP download fails. Re-running is safe: anything already installed is detected and skipped.
 
 .USAGE
 powershell -ExecutionPolicy Bypass -File scripts\install-dependencies.ps1
@@ -70,6 +70,89 @@ function Get-ChocolateyCommand {
     return $choco
 }
 
+
+function Ensure-ChocoPackage {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$ChocoCommand,
+
+        [Parameter(Mandatory = $true)]
+        [string]$PackageName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$CheckCommand,
+
+        [string]$FriendlyName = $PackageName
+    )
+
+    $existing = Get-Command $CheckCommand -ErrorAction SilentlyContinue
+    if ($existing) {
+        Write-Host "$FriendlyName already found at: $($existing.Source)"
+        return $existing
+    }
+
+    Write-Host "Installing $FriendlyName with Chocolatey..."
+    & $ChocoCommand.Source install $PackageName -y --no-progress
+    if ($LASTEXITCODE -ne 0) {
+        throw "Chocolatey failed to install $PackageName (exit code $LASTEXITCODE)."
+    }
+
+    Refresh-PathFromEnvironment
+    $installed = Get-Command $CheckCommand -ErrorAction SilentlyContinue
+    if (-not $installed) {
+        throw "$FriendlyName was installed, but '$CheckCommand' is still not on PATH. Open a new elevated PowerShell prompt and rerun this script."
+    }
+
+    Write-Host "$FriendlyName installed at: $($installed.Source)" -ForegroundColor Green
+    return $installed
+}
+
+function Invoke-ComposerInstallWithRetry {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepositoryRoot
+    )
+
+    # Composer was previously failing with:
+    #   HTTP/2 504 from api.github.com
+    #   Source fallback is disabled. Not trying alternative sources.
+    # The lines below make Composer resilient by allowing source fallback, forcing
+    # GitHub downloads to have a Git fallback path, and disabling HTTP/2 for this
+    # PowerShell session because some networks/proxies break GitHub HTTP/2 ZIP downloads.
+    $env:COMPOSER_CURL_DISABLE_HTTP2 = '1'
+    [Environment]::SetEnvironmentVariable('COMPOSER_CURL_DISABLE_HTTP2', '1', 'User')
+
+    Write-Host 'Configuring Composer to allow source fallback...'
+    & composer config --global preferred-install auto
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning 'Could not set global Composer preferred-install. Continuing and will retry with --prefer-source if needed.'
+    }
+
+    Write-Host 'Clearing Composer cache...'
+    & composer clear-cache
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning 'Composer cache clear failed, continuing anyway.'
+    }
+
+    Write-Host "Running composer install in $RepositoryRoot..."
+    Push-Location $RepositoryRoot
+    try {
+        & composer install
+        if ($LASTEXITCODE -eq 0) {
+            return
+        }
+
+        Write-Warning "composer install failed with exit code $LASTEXITCODE. Retrying with Git source fallback..."
+        & composer install --prefer-source
+        if ($LASTEXITCODE -ne 0) {
+            throw "composer install failed even after retrying with --prefer-source (exit code $LASTEXITCODE). Check internet/proxy access to github.com, api.github.com, codeload.github.com, packagist.org and repo.packagist.org."
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
 function Install-Chocolatey {
     # Bootstrap Chocolatey using the official install script. Chocolatey is the
     # package manager every other dependency (XAMPP, Composer) is installed with,
@@ -116,6 +199,7 @@ try {
 
     $repoRoot = Split-Path -Parent $PSScriptRoot
     $phpCandidates = @(
+        'C:\tools\php85\php.exe',
         'C:\xampp\php\php.exe',
         'C:\tools\xampp\php\php.exe'
     )
@@ -135,15 +219,20 @@ try {
     }
 
     $php = Find-XamppToolPath -Candidates $phpCandidates
+    $mysql = Find-XamppToolPath -Candidates $mysqlCandidates
     if ($php) {
-        Write-Host "XAMPP PHP already found at: $php"
+        Write-Host "PHP already found at: $php"
     }
-    else {
-        Write-Host 'Installing XAMPP 8.1 with Chocolatey...'
+    if ($mysql) {
+        Write-Host "MySQL already found at: $mysql"
+    }
+    if (-not $php -or -not $mysql) {
+        Write-Host 'Installing XAMPP 8.1 with Chocolatey because PHP or MySQL is missing...'
         & $choco.Source install xampp-81 -y --no-progress
         if ($LASTEXITCODE -ne 0) {
             throw "Chocolatey failed to install xampp-81 (exit code $LASTEXITCODE)."
         }
+        Refresh-PathFromEnvironment
     }
 
     $composer = Get-Command composer -ErrorAction SilentlyContinue
@@ -169,6 +258,14 @@ try {
     Write-Host "Discovered PHP:   $php" -ForegroundColor Green
     Write-Host "Discovered MySQL: $mysql" -ForegroundColor Green
 
+    # Make Composer use the same PHP binary we just configured. This avoids the
+    # situation where php -m looks correct in one PHP install, but Composer runs
+    # against another PHP install with zip missing.
+    $selectedPhpDir = Split-Path -Parent $php
+    if ($env:Path -notlike "*$selectedPhpDir*") {
+        $env:Path = "$selectedPhpDir;$env:Path"
+    }
+
     # Configure php.ini to the canonical MediShield baseline (enables every
     # required extension + timezone/memory settings). This is the single source
     # of truth for the PHP runtime config so all engineers share one environment.
@@ -188,17 +285,17 @@ try {
         throw 'Composer is not available on PATH after refresh.'
     }
 
-    Write-Host "Running composer install in $repoRoot..."
-    Push-Location $repoRoot
-    try {
-        & composer install
-        if ($LASTEXITCODE -ne 0) {
-            throw "composer install failed with exit code $LASTEXITCODE."
-        }
+    # Git is required for Composer source fallback. 7-Zip is useful if a package
+    # still arrives as an archive and PHP zip/unzip support is unavailable.
+    Ensure-ChocoPackage -ChocoCommand $choco -PackageName 'git' -CheckCommand 'git' -FriendlyName 'Git' | Out-Null
+    Ensure-ChocoPackage -ChocoCommand $choco -PackageName '7zip' -CheckCommand '7z' -FriendlyName '7-Zip' | Out-Null
+
+    # Ensure package installs did not refresh PATH back to a different PHP.
+    if ($env:Path -notlike "*$selectedPhpDir*") {
+        $env:Path = "$selectedPhpDir;$env:Path"
     }
-    finally {
-        Pop-Location
-    }
+
+    Invoke-ComposerInstallWithRetry -RepositoryRoot $repoRoot
 
     Write-Host ''
     Write-Host 'NEXT STEPS' -ForegroundColor Cyan

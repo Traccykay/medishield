@@ -23,7 +23,8 @@ $ErrorActionPreference = 'Stop'
 function Get-XamppMysqlPath {
     $candidates = @(
         'C:\xampp\mysql\bin\mysql.exe',
-        'C:\tools\xampp\mysql\bin\mysql.exe'
+        'C:\tools\xampp\mysql\bin\mysql.exe',
+        'C:\tools\mysql\bin\mysql.exe'
     )
 
     foreach ($candidate in $candidates) {
