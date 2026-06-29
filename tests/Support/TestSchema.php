@@ -55,6 +55,7 @@ final class TestSchema
             user_agent         TEXT    NULL,
             status             TEXT    NOT NULL,
             anomaly_flag       TEXT    NOT NULL DEFAULT 'NORMAL',
+            attempted_identifier TEXT  NULL,
             previous_hash      TEXT    NOT NULL,
             current_hash       TEXT    NOT NULL,
             created_at         TEXT    NOT NULL

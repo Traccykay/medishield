@@ -181,6 +181,11 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     user_agent         TEXT NULL,
     status             ENUM('SUCCESS','FAILED','BLOCKED') NOT NULL,
     anomaly_flag       ENUM('NORMAL','SUSPICIOUS','HIGH_RISK') NOT NULL DEFAULT 'NORMAL',
+    -- attempted_identifier: the email/username typed on a failed login. Captured so
+    -- an admin can follow up on possibly-leaked credentials (even for unknown users).
+    -- This is PII and is DELIBERATELY NOT part of the HMAC hash chain, so it can be
+    -- scrubbed (set NULL) after the retention window without breaking verifyChain().
+    attempted_identifier VARCHAR(255) NULL,
     previous_hash      VARCHAR(255) NOT NULL,
     current_hash       VARCHAR(255) NOT NULL,
     created_at         DATETIME NOT NULL,

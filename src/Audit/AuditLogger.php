@@ -46,8 +46,13 @@ final class AuditLogger
      *   ip_address?: string,
      *   user_agent?: string|null,
      *   status?: string,
-     *   anomaly_flag?: string
+     *   anomaly_flag?: string,
+     *   attempted_identifier?: string|null
      * } $event
+     *
+     * `attempted_identifier` (the email/username typed on a failed login) is stored
+     * verbatim but is DELIBERATELY excluded from the hash-chain computation below,
+     * so it can later be scrubbed as PII without breaking verifyChain().
      */
     public function log(array $event): int
     {
@@ -84,11 +89,11 @@ final class AuditLogger
                 'INSERT INTO audit_logs
                     (user_id, user_role, action, module, affected_record_id,
                      ip_address, user_agent, status, anomaly_flag,
-                     previous_hash, current_hash, created_at)
+                     attempted_identifier, previous_hash, current_hash, created_at)
                  VALUES
                     (:user_id, :user_role, :action, :module, :affected_record_id,
                      :ip_address, :user_agent, :status, :anomaly_flag,
-                     :previous_hash, :current_hash, :created_at)'
+                     :attempted_identifier, :previous_hash, :current_hash, :created_at)'
             );
             $stmt->execute([
                 ':user_id'            => $entry['user_id'],
@@ -100,6 +105,10 @@ final class AuditLogger
                 ':user_agent'         => $event['user_agent'] ?? null,
                 ':status'             => $entry['status'],
                 ':anomaly_flag'       => $entry['anomaly_flag'],
+                // PII, intentionally NOT in $entry (the hashed fields) above.
+                ':attempted_identifier' => isset($event['attempted_identifier'])
+                    ? substr((string) $event['attempted_identifier'], 0, 255)
+                    : null,
                 ':previous_hash'      => (string) $previousHash,
                 ':current_hash'       => $currentHash,
                 ':created_at'         => $createdAt,
@@ -168,7 +177,8 @@ final class AuditLogger
         // cast to int ourselves (the clamp above guarantees it is a safe integer).
         $stmt = $this->pdo->query(
             'SELECT log_id, user_id, user_role, action, module, affected_record_id,
-                    ip_address, user_agent, status, anomaly_flag, created_at
+                    ip_address, user_agent, status, anomaly_flag,
+                    attempted_identifier, created_at
              FROM audit_logs ORDER BY log_id DESC LIMIT ' . (int) $limit
         );
 

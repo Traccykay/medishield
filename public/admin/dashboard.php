@@ -95,6 +95,7 @@ layout_header('Admin dashboard', $user);
                         <th>Module</th>
                         <th>Status</th>
                         <th>Anomaly</th>
+                        <th>Attempted email</th>
                         <th>IP</th>
                     </tr>
                 </thead>
@@ -114,6 +115,7 @@ layout_header('Admin dashboard', $user);
                             <td><?= e((string) ($row['module'] ?? '')) ?></td>
                             <td><?= e($status) ?></td>
                             <td><?= e($anomaly) ?></td>
+                            <td><?= e((string) ($row['attempted_identifier'] ?? '—')) ?></td>
                             <td><?= e((string) ($row['ip_address'] ?? '')) ?></td>
                         </tr>
                     <?php } ?>

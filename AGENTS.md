@@ -15,6 +15,7 @@ MediShield is a plain PHP 8.1 + PDO + MySQL healthcare records system for XAMPP,
 - Passwords must use `password_hash()` and `password_verify()` only; never store plaintext or encrypted passwords.
 - Sensitive clinical fields must use AES-256-GCM through the project `Crypto` class only.
 - Audit logs are append-only and must use the HMAC-SHA256 hash chain through `AuditChain` / the audit helper; never edit or delete audit rows in app code.
+  - The ONLY exception is the PII retention scrub: `audit_logs.attempted_identifier` (the email typed on a failed login) is held OUTSIDE the hash chain and is nulled by the privileged maintenance task `scripts/purge-audit-pii.php` (class `Audit\AuditRetention`), governed by `audit.pii_retention_days`. App/request code must NEVER perform this scrub — it nulls only that one non-chained column, never deletes rows, and must keep `verifyChain()` ok. Any new audit field that should be scrubbable must likewise be kept out of `AuditLogger::computeHash()`.
 - Every protected page must enforce server-side `require_login()`, `require_role(...)`, and object-level ownership / assignment / queue checks. Hidden UI is not authorization.
 - Every state-changing form must include and validate a CSRF token.
 - Show generic errors to users; log real errors to `logs/app_errors.log`.

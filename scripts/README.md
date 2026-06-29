@@ -11,7 +11,22 @@ Run them from the repository root in this order:
 |---|--------|-----------|--------------|
 | 1 | `install-dependencies.ps1` | **Administrator** | Bootstraps every prerequisite with a check-then-install pattern: installs **Chocolatey** if missing, then XAMPP 8.1 + Composer (via Chocolatey) if missing, then calls `configure-php-ini.ps1`, then runs `composer install`. Safe to re-run — already-installed tools are detected and skipped. |
 | 2 | `configure-php-ini.ps1` | not required | Configures the target PHP's `php.ini` to the canonical MediShield baseline (extensions + settings). Called automatically by script #1, but can be run standalone. |
-| 3 | `setup-db.ps1` | not required | Creates the `medishield_db` database, loads `sql/schema.sql` + `sql/seed.sql`, and generates `config/config.php` from the sample template. |
+| 3 | `setup-db.ps1` | not required | Creates the `medishield_db` database, loads `sql/schema.sql` + `sql/seed.sql`, applies every idempotent migration in `sql/migrations/`, and generates `config/config.php` from the sample template. |
+
+### Maintenance scripts (run on a schedule, not part of setup)
+
+| Script | When | What it does |
+|--------|------|--------------|
+| `purge-audit-pii.php` | cron / Task Scheduler (e.g. daily) | Scrubs PII (`attempted_identifier`, the email typed on a failed login) from `audit_logs` rows older than `audit.pii_retention_days`. Never deletes rows and never touches the hash chain, so `verifyChain()` stays ok. Needs a DB account with `UPDATE` on `audit_logs`. See `src/Audit/README.md`. |
+
+```powershell
+# Use the retention window from config (audit.pii_retention_days, default 90):
+php scripts\purge-audit-pii.php
+
+# Preview how many rows would be scrubbed, or override the window:
+php scripts\purge-audit-pii.php --dry-run
+php scripts\purge-audit-pii.php --days 30
+```
 
 ---
 

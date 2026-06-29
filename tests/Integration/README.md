@@ -9,7 +9,8 @@ service orchestration actually work end-to-end, not just in isolation.
 | `UserRepositoryTest.php` | `Auth/UserRepository` — create / find / uniqueness, failed-login counting, lock/unlock, status changes. |
 | `AuthServiceTest.php` | `Auth/AuthService` — login success/failure, anti-enumeration timing, lockout at the configured threshold, `SUSPICIOUS`/`HIGH_RISK` flags, force-password-change, and **failed-login attribution** (a wrong password against a real account exposes `target_user_id`/`target_user_role` for the audit log; an unknown email does not). |
 | `UserServiceTest.php` | `Auth/UserService` — admin user creation (validation, password policy, unique email, hashing) and `changePassword()` (verifies current password, enforces policy, rejects reuse). |
-| `AuditLoggerTest.php` | `Audit/AuditLogger` — append-only HMAC hash-chain writes, `verifyChain()` tamper detection, and `recent()` newest-first reads with limit clamping. |
+| `AuditLoggerTest.php` | `Audit/AuditLogger` — append-only HMAC hash-chain writes, `verifyChain()` tamper detection, `recent()` newest-first reads with limit clamping, and the **`attempted_identifier`** column (stored/returned, defaults to NULL, and is NOT part of the hash chain so it can be scrubbed later). |
+| `AuditRetentionTest.php` | `Audit/AuditRetention` — the PII scrub: `purgeIdentifiersOlderThan()` nulls `attempted_identifier` only on rows older than the cutoff, returns the affected count, **keeps `verifyChain()` ok**, and never deletes a row. |
 
 ## How the DB is provided
 

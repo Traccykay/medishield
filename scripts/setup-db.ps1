@@ -126,6 +126,17 @@ try {
     Write-Host "Loading seed data from $seedPath"
     Invoke-MySqlScriptFile -MySqlPath $mysql -BaseArguments $baseArgs -DatabaseName $DbName -ScriptPath $seedPath -Description 'Seed load'
 
+    # Apply incremental migrations (idempotent) so EXISTING databases pick up new
+    # columns that schema.sql's CREATE TABLE IF NOT EXISTS would otherwise skip.
+    $migrationsDir = Join-Path $repoRoot 'sql\migrations'
+    if (Test-Path -LiteralPath $migrationsDir) {
+        $migrations = Get-ChildItem -LiteralPath $migrationsDir -Filter '*.sql' | Sort-Object Name
+        foreach ($migration in $migrations) {
+            Write-Host "Applying migration $($migration.Name)"
+            Invoke-MySqlScriptFile -MySqlPath $mysql -BaseArguments $baseArgs -DatabaseName $DbName -ScriptPath $migration.FullName -Description "Migration $($migration.Name)"
+        }
+    }
+
     $configSamplePath = Join-Path $repoRoot 'config\config.sample.php'
     $configPath = Join-Path $repoRoot 'config\config.php'
     if (-not (Test-Path -LiteralPath $configPath)) {

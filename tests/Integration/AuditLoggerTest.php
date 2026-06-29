@@ -94,6 +94,47 @@ final class AuditLoggerTest extends TestCase
         self::assertSame('LOGIN_SUCCESS', $recent[2]['action']);
     }
 
+    public function testStoresAndReturnsAttemptedIdentifier(): void
+    {
+        // A failed login against a known/unknown email records what was typed.
+        $event = $this->sampleEvent('LOGIN_FAILED');
+        $event['attempted_identifier'] = 'attacker@example.com';
+        $this->logger->log($event);
+
+        $recent = $this->logger->recent(1);
+        self::assertSame('attacker@example.com', $recent[0]['attempted_identifier']);
+    }
+
+    public function testAttemptedIdentifierDefaultsToNull(): void
+    {
+        // Most events (e.g. a successful login) carry no typed identifier.
+        $this->logger->log($this->sampleEvent('LOGIN_SUCCESS'));
+
+        $recent = $this->logger->recent(1);
+        self::assertNull($recent[0]['attempted_identifier']);
+    }
+
+    public function testAttemptedIdentifierIsNotPartOfHashChain(): void
+    {
+        // Storing PII outside the hash chain is what lets us scrub it later
+        // without breaking integrity verification. Prove it: mutating the column
+        // directly must NOT make verifyChain() fail.
+        $event = $this->sampleEvent('LOGIN_FAILED');
+        $event['attempted_identifier'] = 'leaked@example.com';
+        $this->logger->log($event);
+        $this->logger->log($this->sampleEvent('LOGOUT'));
+
+        self::assertTrue($this->logger->verifyChain()['ok']);
+
+        // Simulate the PII scrub editing only the non-chained column.
+        $this->pdo->exec('UPDATE audit_logs SET attempted_identifier = NULL WHERE log_id = 1');
+
+        self::assertTrue(
+            $this->logger->verifyChain()['ok'],
+            'Nulling the non-chained attempted_identifier must not break the chain.'
+        );
+    }
+
     public function testRecentRespectsLimit(): void
     {
         for ($i = 0; $i < 5; $i++) {

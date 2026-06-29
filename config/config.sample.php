@@ -51,6 +51,16 @@ return [
         'lock_minutes'        => 15,  // lockout duration
     ],
 
+    // --- Audit log retention ---
+    // attempted_identifier (the email typed on a failed login) is PII. It is kept
+    // for follow-up on possible credential compromise, then scrubbed (set NULL) by
+    // scripts/purge-audit-pii.php once it is older than this many days. The audit
+    // ROW and its hash chain are never deleted — only the personal identifier is
+    // removed (data minimisation).
+    'audit' => [
+        'pii_retention_days' => 90,
+    ],
+
     // --- Paths ---
     'error_log' => __DIR__ . '/../logs/app_errors.log',
 ];

@@ -7,6 +7,7 @@ the engine XAMPP bundles).
 |------|---------|
 | `schema.sql` | Creates all tables for the full system (spec §10): `users`, `patients`, `patient_assignments`, `vitals`, `medical_records`, `lab_requests`, `lab_results`, `prescriptions`, `dispensing_records`, `audit_logs`. Uses `CREATE TABLE IF NOT EXISTS`, so it is safe to re-run. |
 | `seed.sql` | Inserts the bootstrap **superadmin** account (`INSERT IGNORE`, safe to re-run). |
+| `migrations/` | Idempotent incremental changes (`ALTER TABLE ...`) that bring an **existing** database up to date — because `CREATE TABLE IF NOT EXISTS` leaves an already-created table untouched. `setup-db.ps1` applies these after `schema.sql`. See `migrations/README.md`. |
 
 ## Loading
 The easy way (creates the DB, loads both files, copies config):
@@ -33,3 +34,9 @@ This account is used to register all other users. Re-generate the hash in
   later modules slot in without migrations.
 - Timestamps are stored in UTC. `audit_logs` is designed to be append-only — in a
   hardened deployment the application DB user is granted only `SELECT, INSERT` on it.
+- `audit_logs.attempted_identifier` stores the email typed on a failed login (so an
+  admin can follow up on possibly-leaked credentials, even for unknown accounts).
+  It is **PII held outside the HMAC hash chain** and is scrubbed after the retention
+  window by `scripts/purge-audit-pii.php` — the one privileged, audited exception to
+  the append-only rule (it nulls only this column, never deletes rows, and the
+  scrub does not break `verifyChain()`).

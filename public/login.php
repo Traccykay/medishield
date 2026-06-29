@@ -46,6 +46,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'module'       => 'auth',
             'status'       => 'BLOCKED',
             'anomaly_flag' => 'SUSPICIOUS',
+            // Capture the typed email (PII, retention-scrubbed) so an admin can see
+            // which account a blocked attempt was aimed at.
+            'attempted_identifier' => $email !== '' ? $email : null,
         ]);
         $error = 'Your session has expired. Please try again.';
     } else {
@@ -77,6 +80,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'module'       => 'auth',
             'status'       => 'FAILED',
             'anomaly_flag' => (string) ($result['anomaly'] ?? 'NORMAL'),
+            // Always record the typed email — including for unknown accounts, where
+            // it is the ONLY identifier we have. It is stored as PII outside the
+            // hash chain and removed after the retention window
+            // (scripts/purge-audit-pii.php).
+            'attempted_identifier' => $email !== '' ? $email : null,
         ]);
 
         $error = $result['status'] === 'locked'
