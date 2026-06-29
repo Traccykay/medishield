@@ -36,16 +36,16 @@ if (!function_exists('layout_header')) {
         echo '<title>' . e($title) . " &middot; MediShield</title>\n";
         // Bootstrap from local assets keeps the demo working offline and avoids a
         // third-party origin in the Content-Security-Policy.
-        echo "<link rel=\"stylesheet\" href=\"/assets/css/style.css\">\n";
+        echo "<link rel=\"stylesheet\" href=\"" . e(ms_url('/assets/css/style.css')) . "\">\n";
         echo "</head>\n<body>\n";
 
         echo "<nav class=\"ms-nav\">\n";
         echo "<div class=\"ms-nav-inner\">\n";
-        echo "<a class=\"ms-brand\" href=\"/index.php\">MediShield</a>\n";
+        echo '<a class="ms-brand" href="' . e(ms_url('/index.php')) . "\">MediShield</a>\n";
         if ($user !== null) {
             echo "<div class=\"ms-nav-user\">\n";
             echo '<span>' . e($user['full_name'] ?? '') . ' (' . e($user['role'] ?? '') . ")</span>\n";
-            echo "<a class=\"ms-btn ms-btn-sm\" href=\"/logout.php\">Log out</a>\n";
+            echo '<a class="ms-btn ms-btn-sm" href="' . e(ms_url('/logout.php')) . "\">Log out</a>\n";
             echo "</div>\n";
         }
         echo "</div>\n</nav>\n";

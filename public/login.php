@@ -90,7 +90,7 @@ layout_header('Login');
     <?php if ($notice !== null) { layout_alert('info', $notice); } ?>
     <?php if ($error !== null) { layout_alert('danger', $error); } ?>
 
-    <form method="post" action="/login.php" autocomplete="off" novalidate>
+    <form method="post" action="<?= e(ms_url('/login.php')) ?>" autocomplete="off" novalidate>
         <input type="hidden" name="<?= e(Csrf::FIELD) ?>" value="<?= e($token) ?>">
 
         <label class="ms-label" for="email">Email</label>

@@ -54,8 +54,8 @@ layout_header('Admin dashboard', $user);
     <p class="ms-muted">Manage users and monitor security activity.</p>
 
     <div class="ms-actions">
-        <a class="ms-btn ms-btn-primary" href="/admin/create_user.php">Create user</a>
-        <a class="ms-btn" href="/admin/users.php">Manage users</a>
+        <a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/admin/create_user.php')) ?>">Create user</a>
+        <a class="ms-btn" href="<?= e(ms_url('/admin/users.php')) ?>">Manage users</a>
     </div>
 </section>
 

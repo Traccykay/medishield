@@ -74,7 +74,7 @@ layout_header('Manage users', $admin);
 <section class="ms-card">
     <div class="ms-card-head">
         <h1 class="ms-h1">Manage users</h1>
-        <a class="ms-btn ms-btn-primary" href="/admin/create_user.php">Create user</a>
+        <a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/admin/create_user.php')) ?>">Create user</a>
     </div>
 
     <?php if ($success !== null) { layout_alert('success', $success); } ?>
@@ -120,7 +120,7 @@ layout_header('Manage users', $admin);
                                 <?php if ($isSelf) { ?>
                                     <span class="ms-muted">(you)</span>
                                 <?php } else { ?>
-                                    <form method="post" action="/admin/users.php" class="ms-inline-form">
+                                    <form method="post" action="<?= e(ms_url('/admin/users.php')) ?>" class="ms-inline-form">
                                         <input type="hidden" name="<?= e(Csrf::FIELD) ?>" value="<?= e($token) ?>">
                                         <input type="hidden" name="user_id" value="<?= e((string) $u['user_id']) ?>">
                                         <input type="hidden" name="status" value="<?= e($toggle) ?>">

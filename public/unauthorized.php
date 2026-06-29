@@ -23,9 +23,9 @@ layout_header('Access denied', $user);
     <h1 class="ms-h1">Access denied</h1>
     <p>You do not have permission to view that page.</p>
     <?php if ($user !== null) { ?>
-        <a class="ms-btn ms-btn-primary" href="<?= e(landing_path_for($user['role'])) ?>">Back to your dashboard</a>
+        <a class="ms-btn ms-btn-primary" href="<?= e(ms_url(landing_path_for($user['role']))) ?>">Back to your dashboard</a>
     <?php } else { ?>
-        <a class="ms-btn ms-btn-primary" href="/login.php">Go to login</a>
+        <a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/login.php')) ?>">Go to login</a>
     <?php } ?>
 </section>
 <?php

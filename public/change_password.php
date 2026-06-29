@@ -97,7 +97,7 @@ layout_header('Change password', $user);
 
     <?php foreach ($errors as $msg) { layout_alert('danger', $msg); } ?>
 
-    <form method="post" action="/change_password.php" autocomplete="off" novalidate>
+    <form method="post" action="<?= e(ms_url('/change_password.php')) ?>" autocomplete="off" novalidate>
         <input type="hidden" name="<?= e(Csrf::FIELD) ?>" value="<?= e($token) ?>">
 
         <label class="ms-label" for="current_password">Current password</label>

@@ -203,13 +203,65 @@ if (!function_exists('e')) {
 }
 
 if (!function_exists('redirect')) {
-    /** Send a Location redirect (root-relative path) and stop. */
+    /** Send a Location redirect (app-relative path) and stop. */
     function redirect(string $path): never
     {
+        // App-relative paths ("/login.php") are rewritten to include the base path
+        // so redirects work whether the app is served from the web root or from a
+        // sub-folder such as http://localhost/medishield/public/.
+        $target = (isset($path[0]) && $path[0] === '/') ? ms_url($path) : $path;
         if (!headers_sent()) {
-            header('Location: ' . $path);
+            header('Location: ' . $target);
         }
         exit;
+    }
+}
+
+if (!function_exists('ms_base')) {
+    /**
+     * The URL path prefix the application is served from, without a trailing slash.
+     *
+     * - Served from the web root (DocumentRoot = public/)  => ''        (empty)
+     * - Copied into htdocs as htdocs/medishield            => '/medishield/public'
+     *
+     * Computed once by diffing the real public/ directory against the request's
+     * DOCUMENT_ROOT, so every internal link keeps working no matter where the
+     * project is dropped — the #1 cause of "CSS won't load / links 404" reports.
+     */
+    function ms_base(): string
+    {
+        static $base = null;
+        if ($base !== null) {
+            return $base;
+        }
+
+        $docRoot   = isset($_SERVER['DOCUMENT_ROOT']) ? realpath($_SERVER['DOCUMENT_ROOT']) : false;
+        $publicDir = realpath(__DIR__ . '/../public');
+
+        if ($docRoot === false || $publicDir === false) {
+            return $base = '';
+        }
+
+        $docRoot   = str_replace('\\', '/', $docRoot);
+        $publicDir = str_replace('\\', '/', $publicDir);
+
+        // If public/ lives under the document root, the leftover is our base path.
+        $base = str_starts_with($publicDir, $docRoot)
+            ? rtrim(substr($publicDir, strlen($docRoot)), '/')
+            : '';
+
+        return $base;
+    }
+}
+
+if (!function_exists('ms_url')) {
+    /** Build an app-absolute URL for a "/path", honouring the base path. */
+    function ms_url(string $path): string
+    {
+        if ($path === '' || $path[0] !== '/') {
+            return $path; // already relative/absolute; leave it alone
+        }
+        return ms_base() . $path;
     }
 }
 

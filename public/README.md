@@ -31,6 +31,10 @@ without a web server.
 - **CSRF on every POST.** `Csrf::check($_SESSION, $_POST[Csrf::FIELD])` runs
   before any state change; failures are audited as `CSRF_REJECTED`.
 - **Escape every output** with `e()` (HTML-escaping) — defence against XSS.
+- **Build internal links/redirects with `ms_url('/path')`** (and let `redirect()`
+  handle base paths) — never hardcode `/login.php`. This makes the app work both
+  at the web root and under a sub-folder like `http://localhost/medishield/public/`,
+  so CSS and links don't 404 when copied into XAMPP's `htdocs`.
 - **Audit security events** with `ms_audit_log([...])`; it never crashes the page.
 - **No secrets or stack traces** are sent to the browser (see `bootstrap.php`).
 

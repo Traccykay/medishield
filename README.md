@@ -45,9 +45,9 @@ Cybersecurity is central to the project: authentication, role-based access contr
 ```text
 medishield/
   config/ (config.sample.php, config.php[gitignored])
-  public/ (index.php, login.php, logout.php, unauthorized.php, admin/{dashboard,users,create_user}.php, assets/css/style.css)
+  public/ (WEB ROOT: index.php, login.php, logout.php, change_password.php, dashboard.php, unauthorized.php, admin/{dashboard,users,create_user}.php, assets/css/style.css)
   src/ (Support/, Database/, Security/, Auth/  — PSR-4 namespace MediShield\)
-  includes/ (bootstrap.php, guard.php, headers.php)
+  includes/ (bootstrap.php, guard.php, headers.php, layout.php)
   sql/ (schema.sql, seed.sql)
   scripts/ (install-dependencies.ps1, configure-php-ini.ps1, setup-db.ps1, create-superadmin.php)
   tests/ (Unit/, Integration/)
@@ -112,13 +112,44 @@ medishield/
 
 5. **Serve through XAMPP**
 
-   Place the project under XAMPP `htdocs`, for example:
+   The application is served from the **`public/`** folder (the web root). Two
+   supported options:
 
-   ```powershell
-   C:\xampp\htdocs\medishield
+   **Option A — copy the project into `htdocs` (simplest):**
+
+   Copy the **entire `medishield` folder** into XAMPP's `htdocs`, so the path is:
+
+   ```text
+   C:\xampp\htdocs\medishield\        <- the whole repo (config, src, public, ...)
+   C:\xampp\htdocs\medishield\public\ <- the only folder the browser reaches
    ```
 
-   Alternatively, configure an Apache virtual host pointing to the project. Start **Apache** and **MySQL** from the XAMPP Control Panel, then open the application in a browser.
+   Start **Apache** and **MySQL** from the XAMPP Control Panel, then browse to:
+
+   ```text
+   http://localhost/medishield/public/
+   ```
+
+   The app auto-detects this sub-folder, so CSS, links, and redirects all work
+   from `/medishield/public/...` without any edits.
+
+   **Option B — virtual host with DocumentRoot = `public/` (cleaner URLs):**
+
+   Point an Apache virtual host's `DocumentRoot` (and `<Directory>`) at the
+   project's `public\` folder, then browse to `http://localhost/`. Keep `config/`,
+   `src/`, `includes/`, `sql/`, and `vendor/` **outside** the web root — only
+   `public/` should be reachable over HTTP.
+
+   > Do **not** open `http://localhost/medishield/` (without `/public/`): the web
+   > root is `public/`, so the entry point is `.../public/index.php`. Opening the
+   > repo root will show a directory listing or 404, not the app.
+
+   **Option C — quick run without XAMPP (PHP built-in server):**
+
+   ```powershell
+   php -S 127.0.0.1:8000 -t public
+   # then open http://127.0.0.1:8000/
+   ```
 
 ## Default Superadmin Credentials
 

@@ -87,7 +87,7 @@ layout_header('Create user', $admin);
     <?php if ($success !== null) { layout_alert('success', $success); } ?>
     <?php foreach ($errors as $msg) { layout_alert('danger', $msg); } ?>
 
-    <form method="post" action="/admin/create_user.php" autocomplete="off" novalidate>
+    <form method="post" action="<?= e(ms_url('/admin/create_user.php')) ?>" autocomplete="off" novalidate>
         <input type="hidden" name="<?= e(Csrf::FIELD) ?>" value="<?= e($token) ?>">
 
         <label class="ms-label" for="full_name">Full name</label>
@@ -113,7 +113,7 @@ layout_header('Create user', $admin);
         <button class="ms-btn ms-btn-primary ms-btn-block" type="submit">Create user</button>
     </form>
 
-    <p class="ms-mt"><a href="/admin/users.php">Back to user list</a></p>
+    <p class="ms-mt"><a href="<?= e(ms_url('/admin/users.php')) ?>">Back to user list</a></p>
 </section>
 <?php
 layout_footer();

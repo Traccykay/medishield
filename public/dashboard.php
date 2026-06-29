@@ -34,8 +34,8 @@ layout_header('Dashboard', $user);
     </div>
 
     <ul class="ms-list">
-        <li><a href="/change_password.php">Change my password</a></li>
-        <li><a href="/logout.php">Log out</a></li>
+        <li><a href="<?= e(ms_url('/change_password.php')) ?>">Change my password</a></li>
+        <li><a href="<?= e(ms_url('/logout.php')) ?>">Log out</a></li>
     </ul>
 </section>
 <?php
