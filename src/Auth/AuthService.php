@@ -26,13 +26,21 @@ use MediShield\Support\Clock;
  * so the response time is similar to a real account, and the page always shows the
  * single generic message "Invalid login credentials."
  *
+ * Forensic attribution: a FAILED attempt against a real account still records WHICH
+ * account was targeted (target_user_id / target_user_role) so an administrator can
+ * follow up on a possible credential compromise. This is safe because the audit log
+ * is admin-only and never shown to the person logging in — the user-facing response
+ * stays generic. An unknown email has no account to attribute, so the target is null.
+ *
  * Result shape:
  *   [
  *     'status'  => 'success' | 'invalid' | 'locked',
- *     'user'    => array|null,            // the user row on success
+ *     'user'    => array|null,            // the authenticated user row, success only
  *     'anomaly' => 'NORMAL' | 'SUSPICIOUS' | 'HIGH_RISK',
  *     'failed_count' => int,              // current failed count (0 on success)
  *     'must_change'  => bool,             // force password change at first login
+ *     'target_user_id'   => int|null,     // the account a FAILED attempt was against
+ *     'target_user_role' => string|null,  // that account's role (for audit triage)
  *   ]
  */
 final class AuthService
@@ -53,37 +61,41 @@ final class AuthService
     /**
      * Attempt to authenticate.
      *
-     * @return array{status:string,user:?array,anomaly:string,failed_count:int,must_change:bool}
+     * @return array{status:string,user:?array,anomaly:string,failed_count:int,must_change:bool,target_user_id:?int,target_user_role:?string}
      */
     public function attemptLogin(string $email, string $password): array
     {
         $user = $this->users->findByEmail($email);
 
-        // Unknown email: spend similar time, then fail generically.
+        // Unknown email: spend similar time, then fail generically. There is no
+        // account to attribute the attempt to.
         if ($user === null) {
             password_verify($password, $this->dummyHash);
             return $this->result('invalid');
         }
 
-        // Inactive accounts cannot log in; reveal nothing specific.
+        // Inactive accounts cannot log in; reveal nothing specific to the user, but
+        // still attribute the attempt to the real account in the audit log.
         if (($user['status'] ?? 'active') !== 'active') {
-            return $this->result('invalid');
+            return $this->result('invalid', 'NORMAL', 0, $user);
         }
 
         // Currently locked? Reject without even checking the password.
         if ($this->isLocked($user)) {
-            return $this->result('locked');
+            return $this->result('locked', 'NORMAL', 0, $user);
         }
 
         // Correct password -> success.
         if (password_verify($password, (string) $user['password_hash'])) {
             $this->users->resetFailedAndUnlock((int) $user['user_id']);
             return [
-                'status'       => 'success',
-                'user'         => $user,
-                'anomaly'      => 'NORMAL',
-                'failed_count' => 0,
-                'must_change'  => (bool) ($user['must_change_password'] ?? false),
+                'status'           => 'success',
+                'user'             => $user,
+                'anomaly'          => 'NORMAL',
+                'failed_count'     => 0,
+                'must_change'      => (bool) ($user['must_change_password'] ?? false),
+                'target_user_id'   => (int) $user['user_id'],
+                'target_user_role' => (string) $user['role'],
             ];
         }
 
@@ -95,14 +107,14 @@ final class AuthService
                 (int) $user['user_id'],
                 $this->clock->plusMinutesString($this->lockMinutes)
             );
-            return $this->result('locked', 'HIGH_RISK', $count);
+            return $this->result('locked', 'HIGH_RISK', $count, $user);
         }
 
         if ($count >= $this->suspiciousAt) {
-            return $this->result('invalid', 'SUSPICIOUS', $count);
+            return $this->result('invalid', 'SUSPICIOUS', $count, $user);
         }
 
-        return $this->result('invalid', 'NORMAL', $count);
+        return $this->result('invalid', 'NORMAL', $count, $user);
     }
 
     /** Is the account's lock still in the future relative to the injected clock? */
@@ -120,15 +132,23 @@ final class AuthService
         return $lockedUntil > $this->clock->now();
     }
 
-    /** Build a non-success result array. */
-    private function result(string $status, string $anomaly = 'NORMAL', int $failedCount = 0): array
+    /**
+     * Build a non-success result array.
+     *
+     * @param array<string,mixed>|null $user The targeted account, when one exists,
+     *                                        so a FAILED attempt can be attributed
+     *                                        to it in the (admin-only) audit log.
+     */
+    private function result(string $status, string $anomaly = 'NORMAL', int $failedCount = 0, ?array $user = null): array
     {
         return [
-            'status'       => $status,
-            'user'         => null,
-            'anomaly'      => $anomaly,
-            'failed_count' => $failedCount,
-            'must_change'  => false,
+            'status'           => $status,
+            'user'             => null,
+            'anomaly'          => $anomaly,
+            'failed_count'     => $failedCount,
+            'must_change'      => false,
+            'target_user_id'   => $user !== null ? (int) $user['user_id'] : null,
+            'target_user_role' => $user !== null ? (string) $user['role'] : null,
         ];
     }
 }

@@ -65,8 +65,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         // Any failure: audit with the computed anomaly flag, show a generic message.
+        // When the email matched a real account we attribute the failed attempt to
+        // that user (target_user_id/role) so an admin can follow up on a possible
+        // credential compromise; an unknown email stays an anonymous 'guest' event.
+        $targetId   = $result['target_user_id'] ?? null;
+        $targetRole = $result['target_user_role'] ?? null;
         ms_audit_log([
-            'user_role'    => 'guest',
+            'user_id'      => $targetId,
+            'user_role'    => $targetRole ?? 'guest',
             'action'       => 'LOGIN_FAILED',
             'module'       => 'auth',
             'status'       => 'FAILED',

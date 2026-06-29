@@ -57,6 +57,44 @@ final class AuthServiceTest extends TestCase
         self::assertNull($result['user']);
     }
 
+    public function testFailedLoginIdentifiesTargetedAccount(): void
+    {
+        // A wrong password against a REAL account should record which account was
+        // targeted, so an admin can follow up on possible credential compromise.
+        $id = $this->seedUser('alice@example.com');
+
+        $result = $this->auth->attemptLogin('alice@example.com', 'wrong-password');
+
+        self::assertSame('invalid', $result['status']);
+        self::assertNull($result['user']); // no session is established on failure
+        self::assertSame($id, $result['target_user_id']);
+        self::assertSame('doctor', $result['target_user_role']);
+    }
+
+    public function testUnknownEmailHasNoTargetedAccount(): void
+    {
+        // An unknown email cannot be attributed to any account (anti-enumeration):
+        // there is genuinely no user to follow up with, so the target is null.
+        $result = $this->auth->attemptLogin('ghost@example.com', 'whatever');
+
+        self::assertNull($result['target_user_id']);
+        self::assertNull($result['target_user_role']);
+    }
+
+    public function testLockedAccountStillIdentifiesTarget(): void
+    {
+        $id = $this->seedUser('bob@example.com');
+        for ($i = 0; $i < 5; $i++) {
+            $this->auth->attemptLogin('bob@example.com', 'wrong');
+        }
+        // Even the lockout (HIGH_RISK) event must name the account under attack.
+        $result = $this->auth->attemptLogin('bob@example.com', 'Str0ng!Pass1');
+
+        self::assertSame('locked', $result['status']);
+        self::assertSame($id, $result['target_user_id']);
+        self::assertSame('doctor', $result['target_user_role']);
+    }
+
     public function testInactiveAccountCannotLogin(): void
     {
         $this->seedUser('inactive@example.com', 'Str0ng!Pass1', 'inactive');
