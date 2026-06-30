@@ -7,14 +7,19 @@ declare(strict_types=1);
  * ---------------------
  * The administrator "registration" form (spec §9.2). MediShield has NO public
  * self-registration: only an admin (e.g. the seeded superadmin) creates accounts
- * and assigns one of the six roles. New accounts start with
- * must_change_password = 1, so the user sets their own password at first login.
+ * and assigns one of the six roles.
  *
- * Gated by require_area('admin'). All creation logic, validation and password
- * policy live in UserService::createUser(); this page is thin glue that:
+ * Account-activation-link flow: the admin does NOT set a password. The account is
+ * created PENDING (status 'inactive', no usable password) and an activation token
+ * is emailed to the user. The user follows the link (activate.php), sets their own
+ * password, and the account becomes active. This means a password is never typed by
+ * the admin or transmitted second-hand.
+ *
+ * Gated by require_area('admin'). This page is thin glue that:
  *   - checks CSRF on POST,
- *   - calls the service,
- *   - audits USER_CREATED (SUCCESS) or the failure,
+ *   - calls UserService::createPendingUser(),
+ *   - issues an activation token and emails the link,
+ *   - audits USER_CREATED and ACTIVATION_SENT (or the failure),
  *   - re-renders the form with field values + errors, or a success banner.
  */
 
@@ -36,7 +41,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $fullName = trim((string) ($_POST['full_name'] ?? ''));
     $email    = trim((string) ($_POST['email'] ?? ''));
     $role     = (string) ($_POST['role'] ?? '');
-    $password = (string) ($_POST['password'] ?? '');
 
     if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
         ms_audit_log([
@@ -49,18 +53,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ]);
         $errors[] = 'Your session has expired. Please try again.';
     } else {
-        $result = ms_user_service()->createUser($fullName, $email, $password, $role);
+        $result = ms_user_service()->createPendingUser($fullName, $email, $role);
 
         if ($result['ok']) {
+            $newUserId = (int) $result['user_id'];
+
             ms_audit_log([
                 'user_id'            => (int) $admin['user_id'],
                 'user_role'          => (string) $admin['role'],
                 'action'             => 'USER_CREATED',
                 'module'             => 'admin',
-                'affected_record_id' => (int) $result['user_id'],
+                'affected_record_id' => $newUserId,
                 'status'             => 'SUCCESS',
             ]);
-            $success = 'User created. They will be required to set their own password at first login.';
+
+            // Mint an activation token and email the link. The token is single-use
+            // and time-limited (see ActivationService); only its hash is stored.
+            $activationToken = ms_activation_service()->issueFor($newUserId);
+            $baseUrl = rtrim((string) (ms_config()['mail']['app_base_url'] ?? ''), '/');
+            $link = $baseUrl . '/activate.php?token=' . urlencode($activationToken);
+
+            ms_mailer()->send(
+                $email,
+                $fullName,
+                'Activate your MediShield account',
+                "Hello " . $fullName . ",\n\n"
+                . "An administrator has created a MediShield account for you.\n"
+                . "To activate it and choose your password, open this link:\n\n"
+                . $link . "\n\n"
+                . "The link expires in " . (int) (ms_config()['activation']['ttl_hours'] ?? 48)
+                . " hours. If you were not expecting this, you can ignore this email.\n"
+            );
+
+            ms_audit_log([
+                'user_id'            => (int) $admin['user_id'],
+                'user_role'          => (string) $admin['role'],
+                'action'             => 'ACTIVATION_SENT',
+                'module'             => 'admin',
+                'affected_record_id' => $newUserId,
+                'status'             => 'SUCCESS',
+            ]);
+
+            $success = 'User created. An activation link has been emailed so they can set their own password and activate the account.';
             // Clear the form for the next entry.
             $fullName = $email = $role = '';
         } else {
@@ -78,11 +112,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $token = Csrf::token($_SESSION);
 
-layout_header('Create user', $admin);
+layout_app_header('Create user', $admin, 'users');
 ?>
 <section class="ms-card ms-card-narrow">
     <h1 class="ms-h1">Create user</h1>
-    <p class="ms-muted">Register a new account and assign its role.</p>
+    <p class="ms-muted">Register a new account and assign its role. The user will
+        receive an email link to activate the account and set their own password.</p>
 
     <?php if ($success !== null) { layout_alert('success', $success); } ?>
     <?php foreach ($errors as $msg) { layout_alert('danger', $msg); } ?>
@@ -106,9 +141,8 @@ layout_header('Create user', $admin);
             <?php } ?>
         </select>
 
-        <label class="ms-label" for="password">Temporary password</label>
-        <input class="ms-input" type="password" id="password" name="password" required>
-        <p class="ms-help">Minimum 12 characters with upper/lower case, a number and a symbol. The user must change it at first login.</p>
+        <p class="ms-help">No password is set here. The user chooses their own
+            password when they activate via the emailed link.</p>
 
         <button class="ms-btn ms-btn-primary ms-btn-block" type="submit">Create user</button>
     </form>
@@ -116,4 +150,4 @@ layout_header('Create user', $admin);
     <p class="ms-mt"><a href="<?= e(ms_url('/admin/users.php')) ?>">Back to user list</a></p>
 </section>
 <?php
-layout_footer();
+layout_app_footer();

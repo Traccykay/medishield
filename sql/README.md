@@ -23,7 +23,7 @@ mysql -u root medishield_db < sql\seed.sql
 ```
 
 ## Default superadmin
-- **Email:** `superadmin@medishield.local`
+- **Email:** `medishield.superadmin@gmail.com`
 - **Password:** `ChangeMe!2026`  (you are forced to change it on first login)
 
 This account is used to register all other users. Re-generate the hash in

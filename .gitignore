@@ -15,6 +15,8 @@ config/secrets.php
 
 # --- Application runtime ---
 logs/*.log
+# OTP codes and activation links are dumped here by the dev LogMailer — never commit.
+logs/mail/
 
 # --- OS / IDE noise ---
 Thumbs.db

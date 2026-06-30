@@ -33,6 +33,11 @@ if (is_logged_in()) {
 $error  = null;
 $email  = '';
 $notice = isset($_GET['timeout']) ? 'Your session expired. Please log in again.' : null;
+if (isset($_GET['otp']) && $_GET['otp'] === 'expired') {
+    $notice = 'Your verification code expired. Please sign in again to get a new one.';
+} elseif (isset($_GET['otp']) && $_GET['otp'] === 'too_many') {
+    $notice = 'Too many incorrect codes were entered. Please sign in again.';
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email    = trim((string) ($_POST['email'] ?? ''));
@@ -56,15 +61,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($result['status'] === 'success') {
             $user = $result['user'];
+
+            // Password was correct, but login is NOT complete yet: MediShield uses
+            // email OTP as a second factor (2FA). We issue a one-time code, email it,
+            // and stash a *pending* login in the session — distinct from the real
+            // $_SESSION['auth'], so the user is NOT yet authenticated. They must pass
+            // verify_otp.php before login_user() runs. (Lockout/failed-login tracking
+            // already happened above in AuthService and is untouched by this stage.)
+            $code = ms_otp_service()->issue((int) $user['user_id']);
+
             ms_audit_log([
                 'user_id'   => (int) $user['user_id'],
                 'user_role' => (string) $user['role'],
-                'action'    => 'LOGIN_SUCCESS',
+                'action'    => 'OTP_SENT',
                 'module'    => 'auth',
                 'status'    => 'SUCCESS',
             ]);
-            login_user($user);
-            redirect($result['must_change'] ? '/change_password.php' : landing_path_for($user['role']));
+
+            ms_mailer()->send(
+                (string) $user['email'],
+                (string) $user['full_name'],
+                'Your MediShield verification code',
+                "Hello " . (string) $user['full_name'] . ",\n\n"
+                . "Your MediShield one-time verification code is: " . $code . "\n\n"
+                . "It expires in " . (int) (ms_config()['otp']['ttl_minutes'] ?? 10)
+                . " minutes. If you did not try to sign in, please tell an administrator.\n"
+            );
+
+            // Only non-sensitive routing data lives in the pending record.
+            $_SESSION['pending_login'] = [
+                'user_id'    => (int) $user['user_id'],
+                'role'       => (string) $user['role'],
+                'started_at' => time(),
+            ];
+
+            redirect('/verify_otp.php');
         }
 
         // Any failure: audit with the computed anomaly flag, show a generic message.

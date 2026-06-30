@@ -69,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $users = ms_user_repo()->listAll();
 $token = Csrf::token($_SESSION);
 
-layout_header('Manage users', $admin);
+layout_app_header('Manage users', $admin, 'users');
 ?>
 <section class="ms-card">
     <div class="ms-card-head">
@@ -136,4 +136,4 @@ layout_header('Manage users', $admin);
     <?php } ?>
 </section>
 <?php
-layout_footer();
+layout_app_footer();

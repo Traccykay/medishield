@@ -65,13 +65,18 @@ final class UserRepository
      * @param bool $mustChangePassword When true (default) the user is forced to set
      *                                 a new password at first login. Admin-created
      *                                 accounts always start this way (spec §9.2).
+     * @param string $status Initial account status. Defaults to 'active'. Accounts
+     *                       created via the activation-link flow start 'inactive'
+     *                       and are flipped to 'active' by {@see activate()} once the
+     *                       user follows the emailed link and sets a password.
      */
     public function create(
         string $fullName,
         string $email,
         string $passwordHash,
         string $role,
-        bool $mustChangePassword = true
+        bool $mustChangePassword = true,
+        string $status = 'active'
     ): int {
         $now = $this->clock->nowString();
         $sql = 'INSERT INTO users
@@ -87,12 +92,33 @@ final class UserRepository
             ':email'         => $email,
             ':password_hash' => $passwordHash,
             ':role'          => $role,
-            ':status'        => 'active',
+            ':status'        => $status,
             ':must_change'   => $mustChangePassword ? 1 : 0,
             ':created_at'    => $now,
             ':updated_at'    => $now,
         ]);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * Activate a pending account: set its (freshly chosen) password hash, flip the
+     * status to 'active' and clear the must_change_password flag. This is the final
+     * step of the account-activation-link flow — the only place a pending account
+     * gains a usable password. The caller hashes the password with password_hash().
+     */
+    public function activate(int $userId, string $passwordHash): void
+    {
+        $this->pdo->prepare(
+            'UPDATE users
+                SET password_hash = :hash, status = :status,
+                    must_change_password = 0, updated_at = :now
+              WHERE user_id = :id'
+        )->execute([
+            ':hash'   => $passwordHash,
+            ':status' => 'active',
+            ':now'    => $this->clock->nowString(),
+            ':id'     => $userId,
+        ]);
     }
 
     /** All users (for the admin user-list page), newest first. */

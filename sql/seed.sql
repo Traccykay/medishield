@@ -6,7 +6,7 @@
 -- the admin pages (spec: admins create users, there is no public sign-up).
 --
 -- Login (CHANGE IMMEDIATELY after first login):
---   email    : superadmin@medishield.local
+--   email    : medishield.superadmin@gmail.com
 --   password : ChangeMe!2026
 --
 -- must_change_password = 1 forces a password change on first login.
@@ -22,7 +22,7 @@ INSERT IGNORE INTO users
      failed_login_count, locked_until, must_change_password, created_at, updated_at)
 VALUES
     ('Super Administrator',
-     'superadmin@medishield.local',
+     'medishield.superadmin@gmail.com',
      '$2y$12$pNrBEkehOVvfp2GXMwMYP.he90heHfKoOxzoVLazmBfIRm4vA2qry',
      'admin',
      'active',

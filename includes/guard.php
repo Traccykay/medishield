@@ -212,6 +212,28 @@ if (!function_exists('require_area')) {
     }
 }
 
+if (!function_exists('require_nav')) {
+    /**
+     * Require that the user's role may access the given sidebar nav key (e.g.
+     * 'reports', 'payments'). This is the SERVER-SIDE enforcement behind a sidebar
+     * link — the sidebar only hides links, so each page that a nav item points to
+     * must call this so a user cannot reach it by typing the URL. Audits and blocks
+     * on failure.
+     *
+     * @return array{user_id:int,role:string,full_name:string,email:string,must_change:bool}
+     */
+    function require_nav(string $navKey): array
+    {
+        $user = require_login();
+
+        if (!Rbac::canAccessNav($user['role'], $navKey)) {
+            deny_access($user, "nav:$navKey");
+        }
+
+        return $user;
+    }
+}
+
 if (!function_exists('deny_access')) {
     /**
      * Record an UNAUTHORIZED_ACCESS audit event (status BLOCKED) and render the

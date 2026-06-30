@@ -209,3 +209,75 @@ body {
 
 /* ---- Inline forms (e.g. activate/deactivate buttons in a table) ---- */
 .ms-inline-form { display: inline; margin: 0; }
+
+/* ---- Authenticated app shell (header + left sidebar) ----
+ * Used by layout_app_header()/layout_app_footer() for every page behind a login.
+ * Guest pages (login, OTP, activation, 403) keep the simpler .ms-nav/.ms-main. */
+.ms-shell {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+.ms-topbar {
+    background: var(--ms-primary);
+    color: var(--ms-primary-ink);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1.25rem;
+}
+.ms-topbar .ms-brand { color: var(--ms-primary-ink); }
+.ms-topbar-user {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.9rem;
+}
+.ms-topbar-name { display: flex; align-items: center; gap: 0.4rem; }
+
+.ms-body {
+    flex: 1;
+    display: flex;
+    align-items: stretch;
+}
+.ms-sidebar {
+    flex: 0 0 220px;
+    background: var(--ms-surface);
+    border-right: 1px solid var(--ms-border);
+    padding: 1rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+.ms-sidebar-link {
+    display: block;
+    padding: 0.55rem 0.8rem;
+    border-radius: var(--ms-radius);
+    color: var(--ms-ink);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+.ms-sidebar-link:hover { background: #eef2f5; }
+.ms-sidebar-link.active {
+    background: var(--ms-primary);
+    color: var(--ms-primary-ink);
+}
+.ms-content {
+    flex: 1;
+    min-width: 0;            /* allow tables to scroll instead of overflowing */
+    padding: 1.5rem;
+    max-width: 1000px;
+}
+
+/* Stack the sidebar above the content on narrow screens. */
+@media (max-width: 720px) {
+    .ms-body { flex-direction: column; }
+    .ms-sidebar {
+        flex-basis: auto;
+        flex-direction: row;
+        flex-wrap: wrap;
+        border-right: none;
+        border-bottom: 1px solid var(--ms-border);
+    }
+}

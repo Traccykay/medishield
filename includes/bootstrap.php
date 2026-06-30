@@ -24,11 +24,18 @@ declare(strict_types=1);
  */
 
 use MediShield\Audit\AuditLogger;
+use MediShield\Auth\ActivationRepository;
+use MediShield\Auth\ActivationService;
 use MediShield\Auth\AuthService;
+use MediShield\Auth\OtpRepository;
+use MediShield\Auth\OtpService;
 use MediShield\Auth\Rbac;
 use MediShield\Auth\UserRepository;
 use MediShield\Auth\UserService;
 use MediShield\Database\Connection;
+use MediShield\Mail\LogMailer;
+use MediShield\Mail\Mailer;
+use MediShield\Mail\SmtpMailer;
 use MediShield\Security\AuditChain;
 use MediShield\Security\Crypto;
 use MediShield\Security\PasswordPolicy;
@@ -187,6 +194,73 @@ if (!function_exists('ms_audit')) {
             $logger = new AuditLogger(ms_db(), $chain, ms_clock());
         }
         return $logger;
+    }
+}
+
+if (!function_exists('ms_mailer')) {
+    /**
+     * The configured mail transport. 'log' (default) writes each message to
+     * logs/mail/ for local development; 'smtp' sends real email via PHPMailer.
+     * SmtpMailer is only constructed when actually selected, so PHPMailer is not
+     * required to be installed for the default dev flow.
+     */
+    function ms_mailer(): Mailer
+    {
+        static $mailer = null;
+        if ($mailer === null) {
+            $cfg       = ms_config()['mail'] ?? [];
+            $transport = $cfg['transport'] ?? 'log';
+
+            if ($transport === 'smtp') {
+                $mailer = new SmtpMailer(
+                    (array) ($cfg['smtp'] ?? []),
+                    (string) ($cfg['from_email'] ?? 'no-reply@medishield.local'),
+                    (string) ($cfg['from_name'] ?? 'MediShield')
+                );
+            } else {
+                $mailer = new LogMailer(
+                    (string) ($cfg['dump_dir'] ?? (__DIR__ . '/../logs/mail')),
+                    ms_clock()
+                );
+            }
+        }
+        return $mailer;
+    }
+}
+
+if (!function_exists('ms_otp_service')) {
+    function ms_otp_service(): OtpService
+    {
+        static $svc = null;
+        if ($svc === null) {
+            $cfg = ms_config()['otp'] ?? [];
+            $svc = new OtpService(
+                new OtpRepository(ms_db(), ms_clock()),
+                ms_clock(),
+                (int) ($cfg['length'] ?? 6),
+                (int) ($cfg['ttl_minutes'] ?? 10),
+                (int) ($cfg['max_attempts'] ?? 5)
+            );
+        }
+        return $svc;
+    }
+}
+
+if (!function_exists('ms_activation_service')) {
+    function ms_activation_service(): ActivationService
+    {
+        static $svc = null;
+        if ($svc === null) {
+            $cfg = ms_config()['activation'] ?? [];
+            $svc = new ActivationService(
+                new ActivationRepository(ms_db(), ms_clock()),
+                ms_user_repo(),
+                new PasswordPolicy(),
+                ms_clock(),
+                (int) ($cfg['ttl_hours'] ?? 48)
+            );
+        }
+        return $svc;
     }
 }
 

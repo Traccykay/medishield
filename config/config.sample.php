@@ -61,6 +61,44 @@ return [
         'pii_retention_days' => 90,
     ],
 
+    // --- Email (used for OTP codes and account-activation links) ---
+    // 'transport' selects how mail is delivered:
+    //   'log'  : DEV default — no real email is sent. Each message is written as a
+    //            file under dump_dir (logs/mail/) so you can read the OTP/activation
+    //            link locally without an SMTP server.
+    //   'smtp' : PRODUCTION — send via the SMTP settings below using PHPMailer.
+    // NEVER hardcode a real mailbox password here; supply it via the environment or
+    // an untracked config/config.php in real deployments.
+    'mail' => [
+        'transport'    => 'log',
+        'from_email'   => 'no-reply@medishield.local',
+        'from_name'    => 'MediShield',
+        // Base URL the app is reached at, used to build absolute activation links.
+        // Include the /public path if served from a sub-folder under XAMPP.
+        'app_base_url' => 'http://localhost/medishield/public',
+        'dump_dir'     => __DIR__ . '/../logs/mail',
+        'smtp' => [
+            'host'       => 'smtp.gmail.com',
+            'port'       => 587,
+            'encryption' => 'tls',          // 'tls' or 'ssl'
+            'username'   => '',             // e.g. medishield.mailer@gmail.com
+            'password'   => '',             // Gmail App Password — set via env/secret
+            'timeout'    => 15,
+        ],
+    ],
+
+    // --- One-time passcode (login second factor / 2FA) ---
+    'otp' => [
+        'length'       => 6,    // characters in the emailed code
+        'ttl_minutes'  => 10,   // how long a code stays valid
+        'max_attempts' => 5,    // wrong tries before the code is killed
+    ],
+
+    // --- Account activation links ---
+    'activation' => [
+        'ttl_hours' => 48,      // how long an activation link stays valid
+    ],
+
     // --- Paths ---
     'error_log' => __DIR__ . '/../logs/app_errors.log',
 ];

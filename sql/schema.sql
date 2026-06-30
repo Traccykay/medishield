@@ -193,3 +193,42 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     INDEX idx_audit_flag (anomaly_flag),
     INDEX idx_audit_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- otp_codes : one-time passcodes for the second login factor (2FA).
+-- After a correct email+password, a short-lived 6-char code is generated,
+-- emailed to the user, and must be entered to finish logging in.
+-- Only a HASH of the code is stored (never the plaintext), so a database
+-- leak does not reveal usable codes. Rows are short-lived and disposable.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS otp_codes (
+    otp_id      INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+    user_id     INT UNSIGNED NOT NULL,
+    code_hash   VARCHAR(255) NOT NULL,                 -- bcrypt hash of the 6-char code
+    attempts    INT UNSIGNED NOT NULL DEFAULT 0,       -- wrong tries against this code
+    expires_at  DATETIME NOT NULL,                     -- code is invalid after this (UTC)
+    used_at     DATETIME NULL,                         -- set once the code is consumed
+    created_at  DATETIME NOT NULL,
+    INDEX idx_otp_user (user_id),
+    INDEX idx_otp_expires (expires_at),
+    CONSTRAINT fk_otp_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- account_activations : email-verification / activation links for new users.
+-- When an admin creates an account it is created INACTIVE with no usable
+-- password. A random token is emailed as a link; clicking it lets the user
+-- set their own password, which activates the account. Only a SHA-256 hash
+-- of the token is stored, so the database never holds a usable link.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS account_activations (
+    activation_id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+    user_id       INT UNSIGNED NOT NULL,
+    token_hash    CHAR(64) NOT NULL,                   -- sha256(token) hex
+    expires_at    DATETIME NOT NULL,                   -- link is invalid after this (UTC)
+    used_at       DATETIME NULL,                       -- set once the link is consumed
+    created_at    DATETIME NOT NULL,
+    UNIQUE KEY uq_activation_token (token_hash),
+    INDEX idx_activation_user (user_id),
+    CONSTRAINT fk_activation_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

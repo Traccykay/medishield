@@ -157,10 +157,17 @@ Use these credentials for the first login:
 
 | Field | Value |
 | --- | --- |
-| Email | `superadmin@medishield.local` |
+| Email | `medishield.superadmin@gmail.com` |
 | Password | `ChangeMe!2026` |
 
 The default password must be changed on first login. The superadmin account is used to register all other users and assign roles.
+
+> **Two-factor login & account activation:** after the email + password step, login
+> requires a one-time code (OTP), and admin-created users activate their account via
+> an emailed link where they set their own password. In development no real email is
+> sent — each message (OTP code / activation link) is written to `logs/mail/`. See
+> [`docs/DESIGN_DATAFLOW.md`](docs/DESIGN_DATAFLOW.md) for the full data flow, the
+> files changed, how to test each feature, and the design tradeoffs.
 
 ## Running Tests
 

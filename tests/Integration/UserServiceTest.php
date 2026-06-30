@@ -135,4 +135,42 @@ final class UserServiceTest extends TestCase
         $row = $this->repo->findById($userId);
         self::assertTrue(password_verify('Old!Pass123', $row['password_hash']));
     }
+
+    public function testCreatePendingUserStartsInactiveWithNoUsablePassword(): void
+    {
+        $result = $this->service->createPendingUser('Pat Pending', 'pat@example.com', 'doctor');
+
+        self::assertTrue($result['ok']);
+        self::assertSame([], $result['errors']);
+        self::assertIsInt($result['user_id']);
+
+        $row = $this->repo->findByEmail('pat@example.com');
+        self::assertNotNull($row);
+        self::assertSame('inactive', $row['status']);
+        self::assertSame(0, (int) $row['must_change_password']);
+        // The sentinel must never be a hash that any password verifies against.
+        self::assertSame(UserService::PENDING_PASSWORD_SENTINEL, $row['password_hash']);
+        self::assertFalse(password_verify('anything', (string) $row['password_hash']));
+    }
+
+    public function testCreatePendingUserRejectsDuplicateEmail(): void
+    {
+        $this->service->createPendingUser('First', 'dupe-pending@example.com', 'doctor');
+        $result = $this->service->createPendingUser('Second', 'dupe-pending@example.com', 'nurse');
+
+        self::assertFalse($result['ok']);
+        self::assertContains('An account with this email already exists.', $result['errors']);
+        self::assertNull($result['user_id']);
+    }
+
+    public function testCreatePendingUserRejectsInvalidRoleAndEmail(): void
+    {
+        $badRole = $this->service->createPendingUser('Bad Role', 'okpending@example.com', 'superuser');
+        self::assertFalse($badRole['ok']);
+        self::assertContains('A valid role must be selected.', $badRole['errors']);
+
+        $badEmail = $this->service->createPendingUser('Bad Email', 'not-an-email', 'doctor');
+        self::assertFalse($badEmail['ok']);
+        self::assertContains('A valid email address is required.', $badEmail['errors']);
+    }
 }

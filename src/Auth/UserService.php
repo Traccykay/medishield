@@ -25,6 +25,15 @@ use MediShield\Security\PasswordPolicy;
  */
 final class UserService
 {
+    /**
+     * Sentinel stored in password_hash for accounts created via the activation-link
+     * flow. It is NOT a valid bcrypt hash, so password_verify() against it always
+     * returns false — a pending account therefore cannot be logged into until the
+     * user follows the emailed link and {@see UserRepository::activate()} replaces
+     * this sentinel with a real hash.
+     */
+    public const PENDING_PASSWORD_SENTINEL = 'PENDING_ACTIVATION';
+
     public function __construct(
         private UserRepository $users,
         private PasswordPolicy $passwordPolicy
@@ -75,6 +84,61 @@ final class UserService
 
         $hash = password_hash($password, PASSWORD_DEFAULT);
         $userId = $this->users->create($fullName, $email, $hash, $role, $mustChangePassword);
+
+        return ['ok' => true, 'errors' => [], 'user_id' => $userId];
+    }
+
+    /**
+     * Create a PENDING user with no usable password (account-activation-link flow,
+     * spec §9.2 / Deliverable). Unlike {@see createUser()} the admin does NOT set a
+     * password here — instead the account is stored with status 'inactive' and a
+     * sentinel password hash. The caller then issues an activation token (see
+     * ActivationService) and emails the user a link to choose their own password,
+     * which activates the account.
+     *
+     * Validates name/email/role and email uniqueness exactly like createUser() but
+     * deliberately skips the password policy (there is no password yet).
+     *
+     * @return array{ok:bool, errors:string[], user_id:?int}
+     */
+    public function createPendingUser(
+        string $fullName,
+        string $email,
+        string $role
+    ): array {
+        $fullName = trim($fullName);
+        $email    = trim($email);
+        $errors   = [];
+
+        if ($fullName === '') {
+            $errors[] = 'Full name is required.';
+        }
+
+        if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+            $errors[] = 'A valid email address is required.';
+        }
+
+        if (!Rbac::isValidRole($role)) {
+            $errors[] = 'A valid role must be selected.';
+        }
+
+        if (filter_var($email, FILTER_VALIDATE_EMAIL) !== false && $this->users->emailExists($email)) {
+            $errors[] = 'An account with this email already exists.';
+        }
+
+        if ($errors !== []) {
+            return ['ok' => false, 'errors' => $errors, 'user_id' => null];
+        }
+
+        // No usable password and inactive until the user activates via the link.
+        $userId = $this->users->create(
+            $fullName,
+            $email,
+            self::PENDING_PASSWORD_SENTINEL,
+            $role,
+            false,        // must_change_password — activation sets the password instead
+            'inactive'
+        );
 
         return ['ok' => true, 'errors' => [], 'user_id' => $userId];
     }

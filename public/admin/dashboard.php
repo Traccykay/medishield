@@ -13,10 +13,11 @@ declare(strict_types=1);
  * Shown here for Deliverable 1:
  *   - Quick links to create and manage users.
  *   - The integrity status of the forensic audit chain (verifyChain()).
- *   - The most recent audit events, with failed logins / anomalies highlighted,
- *     satisfying "view audit logs / anomaly flags / failed login attempts".
+ *   - At-a-glance counts of recent failed events and anomaly flags.
  *
- * This page only READS the audit log (recent()); it can never edit or delete it,
+ * The detailed recent-activity TABLE now lives on its own page
+ * (admin/audit.php — "Forensic Auditing"), reachable from the sidebar and the link
+ * below. This page only READS the audit log; it can never edit or delete it,
  * matching the rule that even admins cannot tamper with the log.
  */
 
@@ -25,7 +26,7 @@ require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('admin');
 
-// Pull a small recent slice for the monitoring panel and check chain integrity.
+// Pull a small recent slice for the monitoring counters and check chain integrity.
 // Both are read-only and must never take the page down, so we degrade gracefully.
 $recent    = [];
 $integrity = ['ok' => true, 'first_bad_log_id' => null];
@@ -47,7 +48,7 @@ foreach ($recent as $row) {
     }
 }
 
-layout_header('Admin dashboard', $user);
+layout_app_header('Admin dashboard', $user, 'dashboard');
 ?>
 <section class="ms-card">
     <h1 class="ms-h1">Administrator dashboard</h1>
@@ -56,6 +57,7 @@ layout_header('Admin dashboard', $user);
     <div class="ms-actions">
         <a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/admin/create_user.php')) ?>">Create user</a>
         <a class="ms-btn" href="<?= e(ms_url('/admin/users.php')) ?>">Manage users</a>
+        <a class="ms-btn" href="<?= e(ms_url('/admin/audit.php')) ?>">Forensic auditing</a>
     </div>
 </section>
 
@@ -79,50 +81,10 @@ layout_header('Admin dashboard', $user);
 </section>
 
 <section class="ms-card">
-    <h2 class="ms-h2">Recent security activity</h2>
-
-    <?php if ($recent === []) { ?>
-        <p class="ms-muted">No audit events recorded yet.</p>
-    <?php } else { ?>
-        <div class="ms-table-wrap">
-            <table class="ms-table">
-                <thead>
-                    <tr>
-                        <th>Time (UTC)</th>
-                        <th>User</th>
-                        <th>Role</th>
-                        <th>Action</th>
-                        <th>Module</th>
-                        <th>Status</th>
-                        <th>Anomaly</th>
-                        <th>Attempted email</th>
-                        <th>IP</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($recent as $row) {
-                        $status  = (string) ($row['status'] ?? '');
-                        $anomaly = (string) ($row['anomaly_flag'] ?? 'NORMAL');
-                        $rowClass = $status === 'FAILED' || $status === 'BLOCKED'
-                            ? 'ms-row-warn'
-                            : ($anomaly !== 'NORMAL' ? 'ms-row-warn' : '');
-                    ?>
-                        <tr class="<?= e($rowClass) ?>">
-                            <td><?= e((string) ($row['created_at'] ?? '')) ?></td>
-                            <td><?= e((string) ($row['user_id'] ?? '—')) ?></td>
-                            <td><?= e((string) ($row['user_role'] ?? '')) ?></td>
-                            <td><?= e((string) ($row['action'] ?? '')) ?></td>
-                            <td><?= e((string) ($row['module'] ?? '')) ?></td>
-                            <td><?= e($status) ?></td>
-                            <td><?= e($anomaly) ?></td>
-                            <td><?= e((string) ($row['attempted_identifier'] ?? '—')) ?></td>
-                            <td><?= e((string) ($row['ip_address'] ?? '')) ?></td>
-                        </tr>
-                    <?php } ?>
-                </tbody>
-            </table>
-        </div>
-    <?php } ?>
+    <h2 class="ms-h2">Security monitoring</h2>
+    <p class="ms-muted">The full forensic audit log — recent logins, failed
+        attempts, anomaly flags and account activity — is on its own page.</p>
+    <p class="ms-mt"><a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/admin/audit.php')) ?>">Open Forensic Auditing</a></p>
 </section>
 <?php
-layout_footer();
+layout_app_footer();

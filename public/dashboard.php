@@ -22,7 +22,7 @@ require_once __DIR__ . '/../includes/layout.php';
 
 $user = require_login();
 
-layout_header('Dashboard', $user);
+layout_app_header('Dashboard', $user, 'dashboard');
 ?>
 <section class="ms-card">
     <h1 class="ms-h1">Welcome, <?= e($user['full_name']) ?></h1>
@@ -39,4 +39,4 @@ layout_header('Dashboard', $user);
     </ul>
 </section>
 <?php
-layout_footer();
+layout_app_footer();

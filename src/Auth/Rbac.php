@@ -71,6 +71,70 @@ final class Rbac
         return $role === self::ROLE_ADMIN;
     }
 
+    /**
+     * Sidebar navigation visibility (spec §6, §7). This is PRESENTATION-level
+     * filtering — it decides which links a role sees in the sidebar. It is NOT a
+     * substitute for the server-side page guards: every page must still enforce its
+     * own access with require_login/require_role/require_nav. Hiding a link only
+     * declutters the UI; it never grants or denies real authorization.
+     *
+     * Nav keys are abstract (not URLs) so the layout owns the labels/hrefs while
+     * authorization stays here. Order matters: it is the order links render in.
+     *
+     * @var array<string, string[]>
+     */
+    private const NAV_ROLES = [
+        // Everyone who is logged in has a dashboard and can log out.
+        'dashboard' => self::ROLES,
+        'logout'    => self::ROLES,
+        // Admin-only management + security surfaces.
+        'users'     => [self::ROLE_ADMIN],
+        'audit'     => [self::ROLE_ADMIN],
+        // Clinical/operational staff (everyone except patients) see reports.
+        'reports'   => [
+            self::ROLE_ADMIN,
+            self::ROLE_NURSE,
+            self::ROLE_DOCTOR,
+            self::ROLE_LAB,
+            self::ROLE_PHARMACIST,
+        ],
+        // Billing surfaces: admins, the dispensing pharmacist, and patients.
+        'payments'  => [
+            self::ROLE_ADMIN,
+            self::ROLE_PHARMACIST,
+            self::ROLE_PATIENT,
+        ],
+    ];
+
+    /**
+     * Render order of the sidebar. dashboard first, logout last; everything else in
+     * between. {@see navFor()} returns this list filtered to a role.
+     *
+     * @var string[]
+     */
+    private const NAV_ORDER = ['dashboard', 'users', 'reports', 'payments', 'audit', 'logout'];
+
+    /** True if a role may see/use the given sidebar nav key. */
+    public static function canAccessNav(string $role, string $navKey): bool
+    {
+        $allowed = self::NAV_ROLES[$navKey] ?? [];
+        return in_array($role, $allowed, true);
+    }
+
+    /**
+     * The ordered list of nav keys a role is allowed to see, for building the
+     * sidebar. Always starts with 'dashboard' and ends with 'logout'.
+     *
+     * @return string[]
+     */
+    public static function navFor(string $role): array
+    {
+        return array_values(array_filter(
+            self::NAV_ORDER,
+            static fn (string $navKey): bool => self::canAccessNav($role, $navKey)
+        ));
+    }
+
     /** Convenience: the dashboard landing path for a role, used after login. */
     public static function dashboardPath(string $role): string
     {

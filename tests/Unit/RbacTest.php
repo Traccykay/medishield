@@ -48,4 +48,51 @@ final class RbacTest extends TestCase
         self::assertSame('/patient/dashboard.php', Rbac::dashboardPath('patient'));
         self::assertSame('/login.php', Rbac::dashboardPath('unknown'));
     }
+
+    public function testEveryRoleSeesDashboardAndLogoutNav(): void
+    {
+        foreach (Rbac::ROLES as $role) {
+            self::assertTrue(Rbac::canAccessNav($role, 'dashboard'), "$role should see dashboard");
+            self::assertTrue(Rbac::canAccessNav($role, 'logout'), "$role should see logout");
+        }
+    }
+
+    public function testOnlyAdminSeesUsersAndAuditNav(): void
+    {
+        self::assertTrue(Rbac::canAccessNav('admin', 'users'));
+        self::assertTrue(Rbac::canAccessNav('admin', 'audit'));
+        foreach (['patient', 'nurse', 'doctor', 'lab', 'pharmacist'] as $role) {
+            self::assertFalse(Rbac::canAccessNav($role, 'users'), "$role must not see users");
+            self::assertFalse(Rbac::canAccessNav($role, 'audit'), "$role must not see audit");
+        }
+    }
+
+    public function testPatientCannotSeeReports(): void
+    {
+        self::assertFalse(Rbac::canAccessNav('patient', 'reports'));
+        self::assertTrue(Rbac::canAccessNav('doctor', 'reports'));
+        self::assertTrue(Rbac::canAccessNav('admin', 'reports'));
+    }
+
+    public function testUnknownNavKeyIsDenied(): void
+    {
+        self::assertFalse(Rbac::canAccessNav('admin', 'nonexistent-nav'));
+    }
+
+    public function testNavForReturnsOrderedAllowedKeys(): void
+    {
+        $adminNav = Rbac::navFor('admin');
+        self::assertContains('dashboard', $adminNav);
+        self::assertContains('users', $adminNav);
+        self::assertContains('audit', $adminNav);
+        self::assertContains('logout', $adminNav);
+        // Dashboard always comes first, logout always last.
+        self::assertSame('dashboard', $adminNav[0]);
+        self::assertSame('logout', $adminNav[array_key_last($adminNav)]);
+
+        // A nurse never gets admin-only items.
+        $nurseNav = Rbac::navFor('nurse');
+        self::assertNotContains('users', $nurseNav);
+        self::assertNotContains('audit', $nurseNav);
+    }
 }

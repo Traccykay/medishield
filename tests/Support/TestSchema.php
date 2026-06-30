@@ -62,6 +62,35 @@ final class TestSchema
         );
     SQL;
 
+    /**
+     * SQLite-compatible mirror of the production `otp_codes` table (login 2FA).
+     */
+    private const OTP_CODES_DDL = <<<SQL
+        CREATE TABLE otp_codes (
+            otp_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     INTEGER NOT NULL,
+            code_hash   TEXT    NOT NULL,
+            attempts    INTEGER NOT NULL DEFAULT 0,
+            expires_at  TEXT    NOT NULL,
+            used_at     TEXT    NULL,
+            created_at  TEXT    NOT NULL
+        );
+    SQL;
+
+    /**
+     * SQLite-compatible mirror of the production `account_activations` table.
+     */
+    private const ACCOUNT_ACTIVATIONS_DDL = <<<SQL
+        CREATE TABLE account_activations (
+            activation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id       INTEGER NOT NULL,
+            token_hash    TEXT    NOT NULL UNIQUE,
+            expires_at    TEXT    NOT NULL,
+            used_at       TEXT    NULL,
+            created_at    TEXT    NOT NULL
+        );
+    SQL;
+
     /** Create a fresh in-memory SQLite PDO with the MediShield schema loaded. */
     public static function pdo(): PDO
     {
@@ -70,6 +99,8 @@ final class TestSchema
         $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
         $pdo->exec(self::USERS_DDL);
         $pdo->exec(self::AUDIT_LOGS_DDL);
+        $pdo->exec(self::OTP_CODES_DDL);
+        $pdo->exec(self::ACCOUNT_ACTIVATIONS_DDL);
         return $pdo;
     }
 }
