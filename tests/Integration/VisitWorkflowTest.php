@@ -58,6 +58,7 @@ final class VisitWorkflowTest extends TestCase
         self::assertTrue($assigned['ok']);
         self::assertSame('with_doctor', $visits->findById((int) $first['visit_id'])['status']);
         self::assertSame($availableDoctorId, (int) $visits->findById((int) $first['visit_id'])['doctor_id']);
+        self::assertSame('Visit Patient', $service->doctorVisits($availableDoctorId)[0]['full_name']);
     }
 
     public function testReceptionRejectsAnInvalidPaymentOption(): void

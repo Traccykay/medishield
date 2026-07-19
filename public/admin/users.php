@@ -27,6 +27,9 @@ $admin = require_area('admin');
 
 $errors  = [];
 $success = null;
+if (isset($_GET['reset'])) {
+    $success = 'Password reset link sent to the user.';
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $targetId  = (int) ($_POST['user_id'] ?? 0);
@@ -125,6 +128,11 @@ layout_app_header('Manage users', $admin, 'users');
                                         <input type="hidden" name="user_id" value="<?= e((string) $u['user_id']) ?>">
                                         <input type="hidden" name="status" value="<?= e($toggle) ?>">
                                         <button class="ms-btn ms-btn-sm" type="submit"><?= e($label) ?></button>
+                                    </form>
+                                    <form method="post" action="<?= e(ms_url('/admin/reset_password.php')) ?>" class="ms-inline-form">
+                                       <input type="hidden" name="<?= e(Csrf::FIELD) ?>" value="<?= e($token) ?>">
+                                       <input type="hidden" name="user_id" value="<?= e((string) $u['user_id']) ?>">
+                                       <button class="ms-btn ms-btn-sm" type="submit">Send password reset</button>
                                     </form>
                                 <?php } ?>
                             </td>

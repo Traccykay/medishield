@@ -20,7 +20,7 @@ layout_app_header('Pharmacy dashboard', $user, 'dashboard');
 <section class="ms-card">
     <h1 class="ms-h1">Pharmacy dashboard</h1>
     <p class="ms-muted">Process pending prescriptions, confirm billing, and record dispensing outcomes.</p>
-    <div class="ms-actions"><a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/pharmacy/prescriptions.php')) ?>">Open prescription queue</a></div>
+    <div class="ms-actions"><a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/pharmacy/prescriptions.php')) ?>">Open prescription queue</a><a class="ms-btn" href="<?= e(ms_url('/pharmacy/history.php')) ?>">View dispensed history</a></div>
 </section>
 <section class="ms-grid">
     <div class="ms-card ms-stat"><div class="ms-stat-num"><?= e((string) count($pending)) ?></div><div class="ms-stat-label">Pending prescriptions</div></div>

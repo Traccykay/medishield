@@ -29,7 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($result['ok']) {
             ms_visit_service()->routeFromDoctor($visitId, (int) $user['user_id'], 'pharmacy');
             ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'doctor', 'action' => 'PRESCRIPTION_ISSUED', 'module' => 'doctor', 'affected_record_id' => (string) $result['prescription_id'], 'status' => 'SUCCESS']);
-            redirect('/doctor/dashboard.php');
+            redirect('/doctor/history.php?patient_id=' . $patientId);
         }
         $errors = $result['errors'];
     }

@@ -117,7 +117,7 @@ final class VisitRepository
         }
 
         $stmt = $this->pdo->prepare(
-            'SELECT v.*, p.patient_number, p.full_name AS patient_name, p.date_of_birth
+            'SELECT v.*, p.patient_number, p.full_name, p.full_name AS patient_name, p.date_of_birth
                FROM visits v
                JOIN patients p ON p.patient_id = v.patient_id
               WHERE ' . implode(' AND ', $where) . '

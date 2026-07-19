@@ -14,6 +14,7 @@ $rx = $rxId > 0 ? ms_clinical_repo()->findPrescription($rxId) : null;
 if ($rx === null || (string) $rx['status'] !== 'pending') {
     redirect('/pharmacy/prescriptions.php');
 }
+$visit = $rx === null ? null : ms_visit_repo()->openVisitForPatient((int) $rx['patient_id']);
 $errors = [];
 $remarks = '';
 $status = 'dispensed';
@@ -42,6 +43,7 @@ layout_app_header('Dispense medication', $user, 'payments');
     <p class="ms-muted"><?= e((string) $rx['patient_name']) ?> (<?= e((string) $rx['patient_number']) ?>)</p>
     <p><strong>Medication:</strong> <?= e(ms_clinical_service()->decrypt((string) $rx['medication_encrypted'])) ?></p>
     <p><strong>Billable amount:</strong> KES <?= e(number_format(ClinicalCatalog::priceForMedication(ms_clinical_service()->decrypt((string) $rx['medication_encrypted']) ?? '') ?? 0)) ?></p>
+    <p><strong>Payment method:</strong> <?= e((string) ($visit['payment_method'] ?? 'Not recorded')) ?><?php if (($visit['insurer'] ?? null) !== null) { ?> · <?= e((string) $visit['insurer']) ?><?php } ?></p>
     <p><strong>Dosage:</strong> <?= e(ms_clinical_service()->decrypt((string) $rx['dosage_encrypted'])) ?></p>
     <p><strong>Instructions:</strong> <?= e(ms_clinical_service()->decrypt($rx['instructions_encrypted'] ?? null) ?? '') ?></p>
     <?php foreach ($errors as $msg) { layout_alert('danger', $msg); } ?>
