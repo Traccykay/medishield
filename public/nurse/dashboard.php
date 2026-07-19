@@ -18,6 +18,16 @@ layout_app_header('Nurse dashboard', $user, 'dashboard');
     <p class="ms-muted">Record vitals and symptoms for triaged patients, then route them to an available doctor.</p>
     <a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/nurse/triage.php')) ?>">Open triage queue</a>
 </section>
+<section class="ms-grid">
+    <div class="ms-card ms-stat">
+        <div class="ms-stat-num" data-testid="nurse-triage-count"><?= e((string) count($patients)) ?></div>
+        <div class="ms-stat-label">Patients in triage</div>
+    </div>
+    <div class="ms-card ms-stat">
+        <div class="ms-stat-num" data-testid="nurse-vitals-count"><?= e((string) count($recentVitals)) ?></div>
+        <div class="ms-stat-label">Recent vitals shown</div>
+    </div>
+</section>
 
 <section class="ms-card">
     <h2 class="ms-h2">Patients in triage</h2>

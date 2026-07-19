@@ -6,6 +6,7 @@ namespace MediShield\Patient;
 
 use MediShield\Auth\Rbac;
 use MediShield\Auth\UserRepository;
+use PDOException;
 
 /**
  * Validation and authorization layer for patient demographics and assignments.
@@ -17,23 +18,43 @@ use MediShield\Auth\UserRepository;
 final class PatientService
 {
     private const GENDERS = ['male', 'female', 'other'];
+    private const PATIENT_NUMBER_PATTERN = '/^MSH-[A-F0-9]{16}$/';
+    private const PATIENT_NUMBER_ATTEMPTS = 5;
+    private \Closure $patientNumberGenerator;
 
     public function __construct(
         private PatientRepository $patients,
-        private UserRepository $users
+        private UserRepository $users,
+        ?callable $patientNumberGenerator = null
     ) {
+        $this->patientNumberGenerator = $patientNumberGenerator !== null
+            ? \Closure::fromCallable($patientNumberGenerator)
+            : static fn (): string => 'MSH-' . strtoupper(bin2hex(random_bytes(8)));
+    }
+
+    /**
+     * Generate a displayable patient number. The database unique constraint remains
+     * authoritative because another request can register the same candidate after it
+     * is generated and before this request inserts it.
+     */
+    public function generatePatientNumber(): string
+    {
+        return $this->nextPatientNumber();
     }
 
     /**
      * Validate and create a patient demographic record.
      *
+     * `patient_number` in $input is deliberately ignored. The optional second
+     * argument is a candidate retained in the authenticated server session solely
+     * so the locked number displayed on the form matches the registered record.
+     *
      * @param array<string,mixed> $input
      * @return array{ok:bool, errors:string[], patient_id:?int}
      */
-    public function registerPatient(array $input): array
+    public function registerPatient(array $input, ?string $serverPatientNumber = null): array
     {
         $userIdRaw = trim((string) ($input['user_id'] ?? ''));
-        $patientNumber = trim((string) ($input['patient_number'] ?? ''));
         $fullName = trim((string) ($input['full_name'] ?? ''));
         $dateOfBirth = trim((string) ($input['date_of_birth'] ?? ''));
         $gender = trim((string) ($input['gender'] ?? ''));
@@ -42,14 +63,6 @@ final class PatientService
         $emergency = $this->nullableText($input['emergency_contact'] ?? null, 150);
         $errors = [];
         $userId = null;
-
-        if ($patientNumber === '') {
-            $errors[] = 'Patient number is required.';
-        } elseif (mb_strlen($patientNumber) > 50) {
-            $errors[] = 'Patient number must be 50 characters or fewer.';
-        } elseif ($this->patients->patientNumberExists($patientNumber)) {
-            $errors[] = 'A patient with this patient number already exists.';
-        }
 
         if ($fullName === '') {
             $errors[] = 'Full name is required.';
@@ -65,12 +78,23 @@ final class PatientService
             $errors[] = 'Gender must be male, female, or other.';
         }
 
+        $emergencyPhone = $emergency !== null ? $this->extractKenyanMobileNumber($emergency) : null;
+
         if ($phone !== null && !$this->isKenyanMobileNumber($phone)) {
             $errors[] = 'Phone must be a valid Kenyan mobile number.';
         }
 
-        if ($emergency !== null && !$this->containsKenyanMobileNumber($emergency)) {
+        if ($emergency !== null && $emergencyPhone === null) {
             $errors[] = 'Emergency contact must contain a valid Kenyan mobile number.';
+        }
+
+        if (
+            $phone !== null
+            && $this->isKenyanMobileNumber($phone)
+            && $emergencyPhone !== null
+            && $this->normalizeKenyanMobileNumber($phone) === $this->normalizeKenyanMobileNumber($emergencyPhone)
+        ) {
+            $errors[] = 'Patient phone and emergency contact number must be different.';
         }
 
         if ($userIdRaw !== '') {
@@ -91,18 +115,38 @@ final class PatientService
             return ['ok' => false, 'errors' => $errors, 'patient_id' => null];
         }
 
-        $patientId = $this->patients->create([
+        $patientData = [
             'user_id' => $userId,
-            'patient_number' => $patientNumber,
             'full_name' => $fullName,
             'date_of_birth' => $dateOfBirth,
             'gender' => $gender,
             'phone' => $phone,
             'address' => $address,
             'emergency_contact' => $emergency,
-        ]);
+        ];
+        $candidate = $this->isGeneratedPatientNumber($serverPatientNumber)
+            ? $serverPatientNumber
+            : null;
 
-        return ['ok' => true, 'errors' => [], 'patient_id' => $patientId];
+        for ($attempt = 0; $attempt < self::PATIENT_NUMBER_ATTEMPTS; $attempt++) {
+            $patientData['patient_number'] = $candidate ?? $this->nextPatientNumber();
+            $candidate = null;
+
+            try {
+                $patientId = $this->patients->create($patientData);
+                return ['ok' => true, 'errors' => [], 'patient_id' => $patientId];
+            } catch (PDOException $exception) {
+                if (!$this->isPatientNumberUniqueViolation($exception)) {
+                    throw $exception;
+                }
+            }
+        }
+
+        return [
+            'ok' => false,
+            'errors' => ['Unable to allocate a patient number. Please try again.'],
+            'patient_id' => null,
+        ];
     }
 
     /**
@@ -240,9 +284,50 @@ final class PatientService
         return preg_match('/^(?:\+254|254|0)[71]\d{8}$/', $value) === 1;
     }
 
-    /** Emergency contact permits a descriptive name but requires a Kenyan number. */
-    private function containsKenyanMobileNumber(string $value): bool
+    /**
+     * Emergency contacts may include a name and punctuation. Capture the embedded
+     * Kenyan number so it can be validated and compared without trusting its format.
+     */
+    private function extractKenyanMobileNumber(string $value): ?string
     {
-        return preg_match('/(?:^|[\s:,-])(?:\+254|254|0)[71]\d{8}(?:$|[\s,.-])/', $value) === 1;
+        $matched = preg_match(
+            '/(?:^|[\s:,-])((?:\+254|254|0)[71]\d{8})(?=$|[\s,.-])/',
+            $value,
+            $matches
+        );
+
+        return $matched === 1 ? $matches[1] : null;
+    }
+
+    /** Normalize accepted local and international representations to 254XXXXXXXXX. */
+    private function normalizeKenyanMobileNumber(string $number): string
+    {
+        if ($number[0] === '+') {
+            return substr($number, 1);
+        }
+
+        return $number[0] === '0' ? '254' . substr($number, 1) : $number;
+    }
+
+    private function nextPatientNumber(): string
+    {
+        $patientNumber = ($this->patientNumberGenerator)();
+        if (!is_string($patientNumber) || !$this->isGeneratedPatientNumber($patientNumber)) {
+            throw new \LogicException('Patient number generator returned an invalid value.');
+        }
+
+        return $patientNumber;
+    }
+
+    private function isGeneratedPatientNumber(?string $patientNumber): bool
+    {
+        return $patientNumber !== null
+            && preg_match(self::PATIENT_NUMBER_PATTERN, $patientNumber) === 1;
+    }
+
+    private function isPatientNumberUniqueViolation(PDOException $exception): bool
+    {
+        return $exception->getCode() === '23000'
+            && str_contains(strtolower($exception->getMessage()), 'patient_number');
     }
 }

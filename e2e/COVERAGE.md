@@ -8,7 +8,9 @@ skill.
 | --- | --- | --- |
 | OTP sign-in | Covered | Invalid OTP and lockout path |
 | Reception, triage, doctor, lab, pharmacy | Covered | Additional validation and retry paths |
-| Doctor/lab/pharmacy history and pharmacy payment | Covered | Empty-history states |
+| Patient registration contact validation | Covered — Kenyan-format validation and distinct normalized emergency-contact number rejection | Additional browser coverage for optional demographic fields |
+| Patient-number generation | Covered — prepopulated locked field and a tampered-number rejection | Exercise the rare database-collision retry with an end-to-end test double if one is introduced |
+| Doctor/lab/pharmacy history and pharmacy payment | Covered — an assigned doctor sees rendered vitals, diagnoses, lab results, prescription details, and dispensing outcome after the staff workflow; an unassigned doctor is denied without disclosure | Empty-history states |
 | Role denial | One receptionist-to-doctor denial covered | Full role and object-ownership matrix |
 | Account activation | Not covered | Create user, consume activation link, and OTP sign-in |
 | Change password | Not covered | Forced, voluntary, invalid-current-password, and mismatch paths |

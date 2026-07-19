@@ -18,8 +18,11 @@ $accounts = [
     ['UI Receptionist', 'ui.receptionist@medishield.test', 'receptionist'],
     ['UI Nurse', 'ui.nurse@medishield.test', 'nurse'],
     ['UI Doctor', 'ui.doctor@medishield.test', 'doctor'],
+    ['UI Other Doctor', 'ui.other-doctor@medishield.test', 'doctor'],
     ['UI Lab', 'ui.lab@medishield.test', 'lab'],
     ['UI Pharmacist', 'ui.pharmacist@medishield.test', 'pharmacist'],
+    ['UI Patient', 'ui.patient@medishield.test', 'patient'],
+    ['UI Administrator', 'ui.admin@medishield.test', 'admin'],
 ];
 $delete = $pdo->prepare('DELETE FROM users WHERE email = :email');
 $insert = $pdo->prepare(

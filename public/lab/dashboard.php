@@ -17,7 +17,7 @@ layout_app_header('Lab dashboard', $user, 'dashboard');
     <div class="ms-actions"><a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/lab/requests.php')) ?>">Open pending queue</a><a class="ms-btn" href="<?= e(ms_url('/lab/history.php')) ?>">View completed tests</a></div>
 </section>
 <section class="ms-grid">
-    <div class="ms-card ms-stat"><div class="ms-stat-num"><?= e((string) count($pending)) ?></div><div class="ms-stat-label">Pending requests</div></div>
-    <div class="ms-card ms-stat"><div class="ms-stat-num"><?= e((string) count($completed)) ?></div><div class="ms-stat-label">Completed requests</div></div>
+    <div class="ms-card ms-stat"><div class="ms-stat-num" data-testid="lab-pending-count"><?= e((string) count($pending)) ?></div><div class="ms-stat-label">Pending requests</div></div>
+    <div class="ms-card ms-stat"><div class="ms-stat-num" data-testid="lab-completed-count"><?= e((string) count($completed)) ?></div><div class="ms-stat-label">Completed requests</div></div>
 </section>
 <?php layout_app_footer(); ?>

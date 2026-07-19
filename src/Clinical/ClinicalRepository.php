@@ -264,6 +264,26 @@ final class ClinicalRepository
         return $stmt->fetchAll();
     }
 
+    /**
+     * Return every prescription issued for one patient, regardless of its current
+     * queue status. The caller must complete object-level authorization before
+     * requesting this clinical history.
+     */
+    public function prescriptionsForPatient(int $patientId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT rx.*, p.patient_number, p.full_name AS patient_name, p.date_of_birth, p.gender,
+                    u.full_name AS doctor_name
+               FROM prescriptions rx
+               JOIN patients p ON p.patient_id = rx.patient_id
+               JOIN users u ON u.user_id = rx.doctor_id
+              WHERE rx.patient_id = :patient_id
+              ORDER BY rx.created_at DESC, rx.prescription_id DESC'
+        );
+        $stmt->execute([':patient_id' => $patientId]);
+        return $stmt->fetchAll();
+    }
+
     public function findPrescription(int $prescriptionId): ?array
     {
         $stmt = $this->pdo->prepare(

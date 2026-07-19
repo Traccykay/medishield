@@ -39,12 +39,18 @@ try {
 
 $failedLogins = 0;
 $anomalies    = 0;
+$activeUsers  = 0;
 foreach ($recent as $row) {
     if (($row['status'] ?? '') === 'FAILED') {
         $failedLogins++;
     }
     if (($row['anomaly_flag'] ?? 'NORMAL') !== 'NORMAL') {
         $anomalies++;
+    }
+}
+foreach (ms_user_repo()->listAll() as $account) {
+    if (($account['status'] ?? '') === 'active') {
+        $activeUsers++;
     }
 }
 
@@ -63,8 +69,12 @@ layout_app_header('Admin dashboard', $user, 'dashboard');
 
 <section class="ms-grid">
     <div class="ms-card ms-stat">
-        <div class="ms-stat-num"><?= e((string) count($recent)) ?></div>
+        <div class="ms-stat-num" data-testid="admin-recent-audit-count"><?= e((string) count($recent)) ?></div>
         <div class="ms-stat-label">Recent audit events</div>
+    </div>
+    <div class="ms-card ms-stat">
+        <div class="ms-stat-num" data-testid="admin-active-users-count"><?= e((string) $activeUsers) ?></div>
+        <div class="ms-stat-label">Active accounts</div>
     </div>
     <div class="ms-card ms-stat <?= $failedLogins > 0 ? 'ms-stat-warn' : '' ?>">
         <div class="ms-stat-num"><?= e((string) $failedLogins) ?></div>

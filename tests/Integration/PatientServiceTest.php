@@ -35,7 +35,7 @@ final class PatientServiceTest extends TestCase
     public function testRegistersValidPatient(): void
     {
         $result = $this->service->registerPatient([
-            'patient_number' => 'MSH-0001',
+            'patient_number' => 'TAMPERED-CLIENT-NUMBER',
             'full_name' => 'Pat Patient',
             'date_of_birth' => '1990-05-20',
             'gender' => 'female',
@@ -49,7 +49,8 @@ final class PatientServiceTest extends TestCase
         self::assertIsInt($result['patient_id']);
 
         $row = $this->patients->findById((int) $result['patient_id']);
-        self::assertSame('MSH-0001', $row['patient_number']);
+        self::assertMatchesRegularExpression('/^MSH-[A-F0-9]{16}$/', $row['patient_number']);
+        self::assertNotSame('TAMPERED-CLIENT-NUMBER', $row['patient_number']);
         self::assertSame('Pat Patient', $row['full_name']);
         self::assertNull($row['user_id']);
     }
@@ -57,14 +58,12 @@ final class PatientServiceTest extends TestCase
     public function testRejectsInvalidPatientData(): void
     {
         $result = $this->service->registerPatient([
-            'patient_number' => '',
             'full_name' => '',
             'date_of_birth' => 'not-a-date',
             'gender' => 'unknown',
         ]);
 
         self::assertFalse($result['ok']);
-        self::assertContains('Patient number is required.', $result['errors']);
         self::assertContains('Full name is required.', $result['errors']);
         self::assertContains('Date of birth must use YYYY-MM-DD.', $result['errors']);
         self::assertContains('Gender must be male, female, or other.', $result['errors']);
@@ -74,7 +73,6 @@ final class PatientServiceTest extends TestCase
     {
         foreach (['0712345678', '254712345678', '+254712345678'] as $index => $phone) {
             $result = $this->service->registerPatient([
-                'patient_number' => 'MSH-PHONE-' . $index,
                 'full_name' => 'Phone Patient ' . $index,
                 'date_of_birth' => '1990-01-01',
                 'gender' => 'female',
@@ -86,10 +84,52 @@ final class PatientServiceTest extends TestCase
         }
     }
 
+    public function testRegistersPatientWithDistinctPhoneAndEmergencyContactNumbers(): void
+    {
+        $result = $this->service->registerPatient([
+            'full_name' => 'Distinct Contact Patient',
+            'date_of_birth' => '1990-01-01',
+            'gender' => 'female',
+            'phone' => '254712345678',
+            'emergency_contact' => 'Jane Doe 0712345679',
+        ]);
+
+        self::assertTrue($result['ok'], implode(', ', $result['errors']));
+    }
+
+    public function testRejectsPatientPhoneMatchingEmergencyContactNumber(): void
+    {
+        $result = $this->service->registerPatient([
+            'full_name' => 'Matching Contact Patient',
+            'date_of_birth' => '1990-01-01',
+            'gender' => 'female',
+            'phone' => '0712345678',
+            'emergency_contact' => 'Jane Doe: 254712345678',
+        ]);
+
+        self::assertFalse($result['ok']);
+        self::assertContains('Patient phone and emergency contact number must be different.', $result['errors']);
+        self::assertCount(0, $this->patients->search('Matching Contact Patient'));
+    }
+
+    public function testRejectsMatchingNumberWithInternationalFormattingAndPunctuation(): void
+    {
+        $result = $this->service->registerPatient([
+            'full_name' => 'Formatted Matching Contact Patient',
+            'date_of_birth' => '1990-01-01',
+            'gender' => 'female',
+            'phone' => '+254712345678',
+            'emergency_contact' => 'Jane Doe, 0712345678.',
+        ]);
+
+        self::assertFalse($result['ok']);
+        self::assertContains('Patient phone and emergency contact number must be different.', $result['errors']);
+        self::assertCount(0, $this->patients->search('Formatted Matching Contact Patient'));
+    }
+
     public function testRejectsMalformedOrNonKenyanPhoneNumbers(): void
     {
         $result = $this->service->registerPatient([
-            'patient_number' => 'MSH-PHONE-BAD',
             'full_name' => 'Invalid Phone Patient',
             'date_of_birth' => '1990-01-01',
             'gender' => 'female',
@@ -102,19 +142,39 @@ final class PatientServiceTest extends TestCase
         self::assertContains('Emergency contact must contain a valid Kenyan mobile number.', $result['errors']);
     }
 
-    public function testRejectsDuplicatePatientNumber(): void
+    public function testRetriesPatientNumberGenerationAfterConcurrentUniqueConstraintCollision(): void
     {
-        $this->registerFixturePatient('MSH-0002', 'First Patient');
+        $this->patients->create([
+            'user_id' => null,
+            'patient_number' => 'MSH-AAAAAAAAAAAAAAAA',
+            'full_name' => 'Existing Patient',
+            'date_of_birth' => '1980-01-01',
+            'gender' => 'female',
+            'phone' => null,
+            'address' => null,
+            'emergency_contact' => null,
+        ]);
+        $numbers = ['MSH-AAAAAAAAAAAAAAAA', 'MSH-BBBBBBBBBBBBBBBB'];
+        $service = new PatientService(
+            $this->patients,
+            $this->users,
+            static function () use (&$numbers): string {
+                return array_shift($numbers);
+            }
+        );
 
-        $result = $this->service->registerPatient([
-            'patient_number' => 'MSH-0002',
+        $result = $service->registerPatient([
+            'patient_number' => 'MSH-ATTACKER-CONTROLLED',
             'full_name' => 'Second Patient',
             'date_of_birth' => '1985-01-01',
             'gender' => 'male',
         ]);
 
-        self::assertFalse($result['ok']);
-        self::assertContains('A patient with this patient number already exists.', $result['errors']);
+        self::assertTrue($result['ok'], implode(', ', $result['errors']));
+        self::assertSame(
+            'MSH-BBBBBBBBBBBBBBBB',
+            $this->patients->findById((int) $result['patient_id'])['patient_number']
+        );
     }
 
     public function testRegistersPatientLinkedToPatientUser(): void
@@ -128,7 +188,6 @@ final class PatientServiceTest extends TestCase
 
         $result = $this->service->registerPatient([
             'user_id' => (string) $userId,
-            'patient_number' => 'MSH-0003',
             'full_name' => 'Linked Patient',
             'date_of_birth' => '2000-02-02',
             'gender' => 'other',
@@ -150,7 +209,6 @@ final class PatientServiceTest extends TestCase
 
         $result = $this->service->registerPatient([
             'user_id' => (string) $doctorId,
-            'patient_number' => 'MSH-0004',
             'full_name' => 'Bad Link',
             'date_of_birth' => '2000-02-02',
             'gender' => 'female',
@@ -205,11 +263,11 @@ final class PatientServiceTest extends TestCase
 
     public function testSearchFindsByNameNumberOrPhone(): void
     {
-        $this->registerFixturePatient('MSH-1000', 'Alice One', '0711111111');
-        $this->registerFixturePatient('MSH-2000', 'Benson Two', '0722222222');
+        $aliceId = $this->registerFixturePatient('MSH-1000', 'Alice One', '0711111111');
+        $bensonId = $this->registerFixturePatient('MSH-2000', 'Benson Two', '0722222222');
 
         self::assertCount(1, $this->patients->search('Alice'));
-        self::assertCount(1, $this->patients->search('2000'));
+        self::assertCount(1, $this->patients->search((string) $this->patients->findById($bensonId)['patient_number']));
         self::assertCount(1, $this->patients->search('0722'));
     }
 

@@ -23,8 +23,8 @@ layout_app_header('Pharmacy dashboard', $user, 'dashboard');
     <div class="ms-actions"><a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/pharmacy/prescriptions.php')) ?>">Open prescription queue</a><a class="ms-btn" href="<?= e(ms_url('/pharmacy/history.php')) ?>">View dispensed history</a></div>
 </section>
 <section class="ms-grid">
-    <div class="ms-card ms-stat"><div class="ms-stat-num"><?= e((string) count($pending)) ?></div><div class="ms-stat-label">Pending prescriptions</div></div>
-    <div class="ms-card ms-stat"><div class="ms-stat-num"><?= e((string) count($dispensed)) ?></div><div class="ms-stat-label">Dispensed prescriptions</div></div>
-    <div class="ms-card ms-stat"><div class="ms-stat-num">KES <?= e(number_format($pendingTotal)) ?></div><div class="ms-stat-label">Pending medication total</div></div>
+    <div class="ms-card ms-stat"><div class="ms-stat-num" data-testid="pharmacy-pending-count"><?= e((string) count($pending)) ?></div><div class="ms-stat-label">Pending prescriptions</div></div>
+    <div class="ms-card ms-stat"><div class="ms-stat-num" data-testid="pharmacy-dispensed-count"><?= e((string) count($dispensed)) ?></div><div class="ms-stat-label">Dispensed prescriptions</div></div>
+    <div class="ms-card ms-stat"><div class="ms-stat-num" data-testid="pharmacy-pending-total">KES <?= e(number_format($pendingTotal)) ?></div><div class="ms-stat-label">Pending medication total</div></div>
 </section>
 <?php layout_app_footer(); ?>

@@ -17,6 +17,12 @@ layout_app_header('Reception dashboard', $user, 'reception');
     <p class="ms-muted">Search demographics, register arrivals, record payment choice, and send patients to triage.</p>
     <a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/register_patient.php')) ?>">Register new patient</a>
 </section>
+<section class="ms-grid">
+    <div class="ms-card ms-stat">
+        <div class="ms-stat-num" data-testid="reception-triage-count"><?= e((string) count($queue)) ?></div>
+        <div class="ms-stat-label">Waiting for triage</div>
+    </div>
+</section>
 <section class="ms-card">
     <h2 class="ms-h2">Find patient</h2>
     <form method="get" class="ms-actions">

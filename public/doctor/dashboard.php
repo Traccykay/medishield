@@ -31,7 +31,8 @@ layout_app_header('Doctor dashboard', $user, 'dashboard');
     <?php } ?>
 </section>
 <section class="ms-grid">
-    <div class="ms-card ms-stat"><div class="ms-stat-num"><?= e((string) count($pendingLabs)) ?></div><div class="ms-stat-label">Pending lab requests</div></div>
-    <div class="ms-card ms-stat"><div class="ms-stat-num"><?= e((string) count($pendingRx)) ?></div><div class="ms-stat-label">Pending prescriptions</div></div>
+    <div class="ms-card ms-stat"><div class="ms-stat-num" data-testid="doctor-consultations-count"><?= e((string) count($patients)) ?></div><div class="ms-stat-label">Current consultations</div></div>
+    <div class="ms-card ms-stat"><div class="ms-stat-num" data-testid="doctor-pending-labs-count"><?= e((string) count($pendingLabs)) ?></div><div class="ms-stat-label">Pending lab requests</div></div>
+    <div class="ms-card ms-stat"><div class="ms-stat-num" data-testid="doctor-pending-prescriptions-count"><?= e((string) count($pendingRx)) ?></div><div class="ms-stat-label">Pending prescriptions</div></div>
 </section>
 <?php layout_app_footer(); ?>

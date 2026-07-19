@@ -21,9 +21,15 @@ if (!in_array((string) $user['role'], ['admin', 'receptionist'], true)) {
 
 $errors = [];
 $success = null;
+$patientNumberSessionKey = 'patient_registration_number';
+$serverPatientNumber = $_SESSION[$patientNumberSessionKey] ?? null;
+if (!is_string($serverPatientNumber) || $serverPatientNumber === '') {
+    $serverPatientNumber = ms_patient_service()->generatePatientNumber();
+    $_SESSION[$patientNumberSessionKey] = $serverPatientNumber;
+}
 $values = [
     'user_id' => '',
-    'patient_number' => '',
+    'patient_number' => $serverPatientNumber,
     'full_name' => '',
     'date_of_birth' => '',
     'gender' => '',
@@ -34,6 +40,9 @@ $values = [
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     foreach (array_keys($values) as $key) {
+        if ($key === 'patient_number') {
+            continue;
+        }
         $values[$key] = trim((string) ($_POST[$key] ?? ''));
     }
 
@@ -52,8 +61,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $values['user_id'] = '';
         }
 
-        $result = ms_patient_service()->registerPatient($values);
+        $result = ms_patient_service()->registerPatient($values, $serverPatientNumber);
         if ($result['ok']) {
+            unset($_SESSION[$patientNumberSessionKey]);
             $patientId = (int) $result['patient_id'];
             ms_audit_log([
                 'user_id' => (int) $user['user_id'],
@@ -111,8 +121,9 @@ layout_app_header('Register patient', $user, 'patients');
         <?php } ?>
 
         <label class="ms-label" for="patient_number">Patient number</label>
-        <input class="ms-input" type="text" id="patient_number" name="patient_number"
-               value="<?= e($values['patient_number']) ?>" maxlength="50" required>
+        <input class="ms-input" type="text" id="patient_number"
+               value="<?= e($values['patient_number']) ?>" readonly aria-readonly="true">
+        <p class="ms-help">Generated automatically and assigned securely when the patient is registered.</p>
 
         <label class="ms-label" for="full_name">Full name</label>
         <input class="ms-input" type="text" id="full_name" name="full_name"

@@ -3,6 +3,8 @@ const { loginWithOtp } = require('./helpers');
 
 test.describe.configure({ mode: 'serial' });
 
+let workflowPatientId;
+
 test('receptionist can search and start a patient triage visit', async ({ page }) => {
   await loginWithOtp(page, 'ui.receptionist@medishield.test');
   await expect(page.getByRole('heading', { name: 'Reception dashboard' })).toBeVisible();
@@ -10,24 +12,28 @@ test('receptionist can search and start a patient triage visit', async ({ page }
   await expect(page.getByRole('heading', { name: 'Access denied' })).toBeVisible();
   await page.goto('/reception/dashboard.php');
 
-  const patientNumber = `UI-${Date.now()}`;
   await page.getByRole('link', { name: 'Register new patient' }).click();
-  await page.getByLabel('Patient number').fill(patientNumber);
+  const patientNumberInput = page.getByLabel('Patient number');
+  await expect(patientNumberInput).toHaveAttribute('readonly', '');
+  const patientNumber = await patientNumberInput.inputValue();
+  await expect(patientNumber).toMatch(/^MSH-[A-F0-9]{16}$/);
   await page.getByLabel('Full name').fill('UI Flow Patient');
   await page.getByLabel('Date of birth').fill('1990-01-01');
   await page.getByLabel('Gender').selectOption('female');
   await page.getByLabel('Phone').fill('0201234567');
-  await page.getByLabel('Emergency contact').fill('Emergency Contact +254712345678');
+  await page.getByLabel('Emergency contact').fill('Emergency Contact +254711345678');
   await page.getByRole('button', { name: 'Register patient' }).click();
   await expect(page.getByText('Phone must be a valid Kenyan mobile number.')).toBeVisible();
   await page.getByLabel('Phone').fill('0712345678');
   await page.getByRole('button', { name: 'Register patient' }).click();
 
   await expect(page.getByRole('heading', { name: 'Patient arrival' })).toBeVisible();
+  workflowPatientId = new URL(page.url()).searchParams.get('patient_id');
+  expect(workflowPatientId).not.toBeNull();
   await page.getByLabel('Payment method').selectOption('insurance');
   await page.getByLabel('Insurance provider (if applicable)').selectOption('AAR Insurance');
   await page.getByRole('button', { name: 'Add to triage queue' }).click();
-  await expect(page.getByText('Waiting for triage')).toBeVisible();
+  await expect(page.getByText('Waiting for triage').first()).toBeVisible();
 
   await page.getByPlaceholder('Name, patient number, or phone').fill(patientNumber);
   await page.getByRole('button', { name: 'Search' }).click();
@@ -110,11 +116,51 @@ test('clinical roles route lab results and prescriptions through billing', async
   await page.getByRole('link', { name: 'Dispense' }).click();
   await expect(page.locator('p').filter({ hasText: 'Billable amount:' })).toContainText('KES 150');
   await expect(page.locator('p').filter({ hasText: 'Payment method:' })).toContainText('insurance');
+  await page.getByLabel('Remarks').fill('Dispensed after insurance verification');
   await page.getByRole('button', { name: 'Record outcome' }).click();
   await expect(page.getByText('No pending prescriptions.')).toBeVisible();
   await page.goto('/pharmacy/dashboard.php');
   await page.getByRole('link', { name: 'View dispensed history' }).click();
   await expect(page.getByText('Paracetamol 500 mg')).toBeVisible();
+
+  await page.goto('/logout.php');
+  await loginWithOtp(page, 'ui.doctor@medishield.test');
+  await page.goto(`/doctor/history.php?patient_id=${workflowPatientId}`);
+
+  await expect(page.getByRole('heading', { name: 'Vitals' })).toBeVisible();
+  await expect(page.getByText('37.1')).toBeVisible();
+  await expect(page.getByText('Mild cough')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Diagnoses and treatment' })).toBeVisible();
+  await expect(page.getByText('Upper respiratory infection')).toBeVisible();
+  await expect(page.getByText('Rest and fluids')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Completed lab results' })).toBeVisible();
+  await expect(page.getByText('Blood glucose')).toBeVisible();
+  await expect(page.getByText('5.2 mmol/L')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Prescriptions' })).toBeVisible();
+  await expect(page.getByText('Paracetamol 500 mg')).toBeVisible();
+  await expect(page.getByText('One tablet every six hours')).toBeVisible();
+  await expect(page.getByText('Take after meals')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Dispensing history' })).toBeVisible();
+  const dispensingHistory = page.locator('section').filter({
+    has: page.getByRole('heading', { name: 'Dispensing history' })
+  });
+  await expect(dispensingHistory.getByText('dispensed', { exact: true })).toBeVisible();
+  await expect(page.getByText('Dispensed after insurance verification')).toBeVisible();
+});
+
+test('wrong doctor cannot view another doctor’s completed patient history', async ({ page }) => {
+  expect(workflowPatientId).not.toBeNull();
+
+  await loginWithOtp(page, 'ui.other-doctor@medishield.test');
+  await page.goto(`/doctor/history.php?patient_id=${workflowPatientId}`);
+
+  await expect(page.getByRole('heading', { name: 'Access denied' })).toBeVisible();
+  await expect(page.getByText('UI Flow Patient')).not.toBeVisible();
+  await expect(page.getByText('Mild cough')).not.toBeVisible();
+  await expect(page.getByText('Upper respiratory infection')).not.toBeVisible();
+  await expect(page.getByText('5.2 mmol/L')).not.toBeVisible();
+  await expect(page.getByText('Paracetamol 500 mg')).not.toBeVisible();
+  await expect(page.getByText('Dispensed after insurance verification')).not.toBeVisible();
 });
 
 test('password recovery does not reveal whether an account exists', async ({ page }) => {

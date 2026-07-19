@@ -217,6 +217,44 @@ final class ClinicalWorkflowTest extends TestCase
         self::assertCount(1, $this->clinicalRepo->dispensingForPatient($patientId));
     }
 
+    public function testPrescriptionsForPatient_ReturnsPendingAndDispensedHistory(): void
+    {
+        [$patientId, $doctorId] = $this->assignedPatientAndStaff('doctor');
+        $recordId = (int) $this->clinical->addDiagnosis($patientId, $doctorId, 'Diagnosis', null)['record_id'];
+        $pendingId = (int) $this->clinical->issuePrescription(
+            $patientId,
+            $doctorId,
+            $recordId,
+            'Pending drug',
+            'Daily',
+            null
+        )['prescription_id'];
+        $dispensedId = (int) $this->clinical->issuePrescription(
+            $patientId,
+            $doctorId,
+            $recordId,
+            'Dispensed drug',
+            'Twice daily',
+            null
+        )['prescription_id'];
+        $pharmacistId = $this->users->create(
+            'Pam Pharm',
+            'pam@example.com',
+            password_hash('Str0ng!Pass1', PASSWORD_DEFAULT),
+            'pharmacist'
+        );
+        $this->clinical->dispense($dispensedId, $pharmacistId, 'dispensed', null);
+
+        $history = $this->clinicalRepo->prescriptionsForPatient($patientId);
+
+        self::assertCount(2, $history);
+        self::assertSame($dispensedId, (int) $history[0]['prescription_id']);
+        self::assertSame('dispensed', $history[0]['status']);
+        self::assertSame($pendingId, (int) $history[1]['prescription_id']);
+        self::assertSame('pending', $history[1]['status']);
+        self::assertSame([], $this->clinicalRepo->prescriptionsForPatient($patientId + 999));
+    }
+
     /**
      * @return array{0:int,1:int}
      */
