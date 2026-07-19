@@ -42,8 +42,8 @@ Cybersecurity is central to the project: authentication, role-based access contr
 | Database | MySQL 8 / MariaDB |
 | Web Server | Apache via XAMPP |
 | Frontend | HTML5, CSS3, Bootstrap 5 |
-| Testing | PHPUnit |
-| Security Testing | OWASP ZAP |
+| Testing | PHPUnit and Playwright |
+| Security Testing | Playwright hostile-path regression harness; OWASP ZAP is planned |
 
 > Laravel and other PHP frameworks are intentionally not used; security controls are implemented explicitly in plain PHP.
 
@@ -159,38 +159,41 @@ file in Notepad and copy the code into the browser.
 
 ## Running Tests
 
-The project follows a test-driven development approach for core security and authentication behavior.
+MediShield has complementary test suites. A passing feature-path test proves a
+workflow works; a passing bad-path test proves that a hostile request does not
+leak data or change state. Run the suites that cover the area you changed, then
+run the full browser suite for user-facing or security-sensitive work.
+
+First-time PHP setup:
 
 ```powershell
+.\scripts\configure-php-ini.ps1
 composer install
-vendor\bin\phpunit
 ```
 
-If needed, PHPUnit can also be run through PHP directly:
+| Suite | Purpose | Command |
+| --- | --- | --- |
+| PHPUnit unit | Fast checks of security primitives and isolated rules, including crypto, CSRF, RBAC, passwords, audit-chain logic, and mail delivery. | `composer test:unit` |
+| PHPUnit integration | Services and repositories with a fresh in-memory SQLite database: authentication, activation/OTP, session revocation, audit retention, user/patient access, and clinical workflows. | `composer test:integration` |
+| All PHP tests | Runs both PHPUnit suites. It does not need MySQL or change local application data. | `composer test` |
+| Playwright workflow | Exercises the real browser-based hospital workflow using disposable role-specific accounts. | `.\scripts\run-ui-tests.ps1` |
+| Playwright security harness | Exercises hostile browser requests: role/object-reference denial, forged-CSRF no-mutation, stored-XSS encoding, security headers, and generic authentication failures. The standard UI runner executes it with the workflow tests. | `.\scripts\run-ui-tests.ps1` |
+
+The browser runner starts a stopped standard Windows MySQL/MariaDB service or
+default XAMPP MySQL installation when possible, installs pinned Node/Chromium
+dependencies when absent, and recreates **only** `medishield_ui_test`. It never
+changes the normal `medishield_db` database. To run just the security harness
+after its prerequisites are available, use:
 
 ```powershell
-php vendor/bin/phpunit
+npx.cmd playwright test e2e\security-hostile.spec.js
 ```
+
+On failure, inspect `test-results` for the screenshot, video, and trace. See
+[`tests/README.md`](tests/README.md) for PHP-suite details and
+[`e2e/README.md`](e2e/README.md) for browser-test setup and troubleshooting.
 
 ### Browser UI tests and supervisor demonstration
-
-Browser UI tests act like a scripted user: they open the real application,
-sign in with test-only accounts, click through the hospital workflow, and check
-the result at each step. They use a separate `medishield_ui_test` database and
-delete/recreate **only that test database** on every run. Your `medishield_db`
-demo data is not changed.
-
-Before running them, ensure XAMPP MySQL is running. From the repository root,
-run:
-
-```powershell
-.\scripts\run-ui-tests.ps1
-```
-
-The runner installs the exact Node dependencies and Chromium browser it needs
-when absent. A successful run ends with `3 passed`. If it fails, open the
-`test-results` folder to find a screenshot, video, and trace explaining where.
-See [`e2e/README.md`](e2e/README.md) for troubleshooting.
 
 For a live, scripted walkthrough rather than manual login/logout, run:
 
@@ -217,7 +220,7 @@ Deliverable 1 includes:
 - Role-Based Access Control enforced server-side (admin area is admin-only)
 - Forensic audit logging (HMAC hash-chain) wired into every security event
 - Database schema + seed and a reproducible XAMPP setup
-- Unit and integration tests (TDD): run with `php vendor/bin/phpunit`
+- Unit and integration tests (TDD): run with `composer test`
 
 ### Later Deliverables
 

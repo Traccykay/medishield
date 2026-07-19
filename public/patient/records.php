@@ -11,7 +11,7 @@ if ($patientId === null) {
     redirect('/patient/dashboard.php');
 }
 $patient = ms_patient_repo()->findById($patientId);
-$vitals = ms_clinical_repo()->vitalsForPatient($patientId);
+$vitals = ms_clinical_service()->decryptVitals(ms_clinical_repo()->vitalsForPatient($patientId));
 $records = ms_clinical_repo()->recordsForPatient($patientId);
 
 layout_app_header('My records', $user, 'patients');

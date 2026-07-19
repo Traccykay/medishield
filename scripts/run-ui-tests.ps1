@@ -18,6 +18,47 @@ foreach ($command in @('node.exe', 'npm.cmd', 'php.exe', 'mysql.exe')) {
     }
 }
 
+function Test-MediShieldDatabase {
+    & mysql.exe '--host=127.0.0.1' '--user=root' '--execute=SELECT 1;' 2>$null
+    return $LASTEXITCODE -eq 0
+}
+
+function Start-MediShieldDatabase {
+    if (Test-MediShieldDatabase) {
+        return
+    }
+
+    $service = Get-Service -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.Status -ne 'Running' -and (
+                $_.Name -match 'mysql|mariadb' -or
+                $_.DisplayName -match 'mysql|mariadb'
+            )
+        } |
+        Select-Object -First 1
+
+    if ($null -ne $service) {
+        Start-Service -Name $service.Name -ErrorAction Stop
+    }
+    elseif (Test-Path 'C:\xampp\mysql_start.bat') {
+        Start-Process -FilePath $env:ComSpec -ArgumentList '/c', 'C:\xampp\mysql_start.bat' -WindowStyle Hidden
+    }
+    else {
+        throw 'MySQL/MariaDB is not running and the runner could not start it. Start MySQL in XAMPP, then run this command again.'
+    }
+
+    for ($attempt = 0; $attempt -lt 30; $attempt++) {
+        Start-Sleep -Seconds 1
+        if (Test-MediShieldDatabase) {
+            return
+        }
+    }
+
+    throw 'MySQL/MariaDB did not become ready within 30 seconds. Check the XAMPP Control Panel or Windows Services.'
+}
+
+Start-MediShieldDatabase
+
 if (-not (Test-Path (Join-Path $root 'node_modules/@playwright/test'))) {
     & npm.cmd ci
     if ($LASTEXITCODE -ne 0) {

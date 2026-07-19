@@ -7,6 +7,7 @@ namespace MediShield\Tests\Integration;
 use MediShield\Auth\UserRepository;
 use MediShield\Clinical\ClinicalRepository;
 use MediShield\Clinical\ClinicalService;
+use MediShield\Database\VitalEncryptionMigration;
 use MediShield\Patient\PatientRepository;
 use MediShield\Patient\PatientService;
 use MediShield\Security\Crypto;
@@ -38,6 +39,7 @@ final class ClinicalWorkflowTest extends TestCase
     public function testNurseRecordsValidatedVitalsForAssignedPatient(): void
     {
         [$patientId, $nurseId] = $this->assignedPatientAndStaff('nurse');
+        $symptoms = 'Mild cough';
 
         $result = $this->clinical->recordVitals($patientId, $nurseId, [
             'temperature_c' => '37.2',
@@ -45,12 +47,104 @@ final class ClinicalWorkflowTest extends TestCase
             'diastolic_mmhg' => '80',
             'pulse_bpm' => '72',
             'weight_kg' => '66.5',
-            'symptoms' => 'Mild cough',
+            'symptoms' => $symptoms,
         ]);
 
         self::assertTrue($result['ok']);
         self::assertIsInt($result['vitals_id']);
-        self::assertCount(1, $this->clinicalRepo->vitalsForPatient($patientId));
+        $stored = $this->pdo->query(
+            'SELECT temperature_encrypted, systolic_encrypted, diastolic_encrypted,
+                    pulse_encrypted, weight_encrypted, symptoms_encrypted
+               FROM vitals'
+        )->fetch();
+
+        self::assertIsArray($stored);
+        foreach ([
+            'temperature_encrypted' => '37.2',
+            'systolic_encrypted' => '120',
+            'diastolic_encrypted' => '80',
+            'pulse_encrypted' => '72',
+            'weight_encrypted' => '66.5',
+            'symptoms_encrypted' => $symptoms,
+        ] as $field => $plaintext) {
+            self::assertNotSame($plaintext, $stored[$field]);
+        }
+
+        $vitals = $this->clinical->decryptVitals($this->clinicalRepo->vitalsForPatient($patientId));
+        self::assertSame('37.2', $vitals[0]['temperature_c']);
+        self::assertSame('120', $vitals[0]['systolic_mmhg']);
+        self::assertSame('80', $vitals[0]['diastolic_mmhg']);
+        self::assertSame('72', $vitals[0]['pulse_bpm']);
+        self::assertSame('66.5', $vitals[0]['weight_kg']);
+        self::assertSame($symptoms, $vitals[0]['symptoms']);
+    }
+
+    public function testDecryptVitals_WithTamperedCiphertext_ThrowsIntegrityFailure(): void
+    {
+        [$patientId, $nurseId] = $this->assignedPatientAndStaff('nurse');
+        $this->clinical->recordVitals($patientId, $nurseId, [
+            'temperature_c' => '37.2',
+            'systolic_mmhg' => '120',
+            'diastolic_mmhg' => '80',
+            'pulse_bpm' => '72',
+            'weight_kg' => '66.5',
+            'symptoms' => 'Mild cough',
+        ]);
+        $stored = $this->pdo->query('SELECT temperature_encrypted FROM vitals')->fetchColumn();
+        self::assertIsString($stored);
+        $raw = base64_decode($stored, true);
+        self::assertIsString($raw);
+        $raw[strlen($raw) - 1] = $raw[strlen($raw) - 1] ^ "\x01";
+        $tampered = base64_encode($raw);
+        $update = $this->pdo->prepare('UPDATE vitals SET temperature_encrypted = :value');
+        $update->execute([':value' => $tampered]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->clinical->decryptVitals($this->clinicalRepo->vitalsForPatient($patientId));
+    }
+
+    public function testVitalEncryptionMigration_EncryptsLegacyRowsAndCanBeRepeated(): void
+    {
+        $this->pdo->exec('DROP TABLE vitals');
+        $this->pdo->exec(
+            'CREATE TABLE vitals (
+                vitals_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                patient_id INTEGER NOT NULL,
+                nurse_id INTEGER NOT NULL,
+                temperature_c REAL NOT NULL,
+                systolic_mmhg INTEGER NOT NULL,
+                diastolic_mmhg INTEGER NOT NULL,
+                pulse_bpm INTEGER NOT NULL,
+                weight_kg REAL NOT NULL,
+                symptoms TEXT NULL,
+                created_at TEXT NOT NULL,
+                temperature_encrypted TEXT NULL,
+                systolic_encrypted TEXT NULL,
+                diastolic_encrypted TEXT NULL,
+                pulse_encrypted TEXT NULL,
+                weight_encrypted TEXT NULL,
+                symptoms_encrypted TEXT NULL
+            )'
+        );
+        $this->pdo->exec(
+            "INSERT INTO vitals
+                (patient_id, nurse_id, temperature_c, systolic_mmhg, diastolic_mmhg, pulse_bpm, weight_kg, symptoms, created_at)
+             VALUES (1, 2, 38.1, 130, 85, 90, 70.5, 'Fever', '2026-01-01 12:00:00')"
+        );
+        $crypto = new Crypto(str_repeat('a', 32));
+        $migration = new VitalEncryptionMigration($this->pdo, $crypto);
+
+        $migration->migrate();
+        $migration->migrate();
+
+        $columns = $this->pdo->query('PRAGMA table_info(vitals)')->fetchAll();
+        self::assertNotContains('temperature_c', array_column($columns, 'name'));
+        $stored = $this->pdo->query('SELECT temperature_encrypted, symptoms_encrypted FROM vitals')->fetch();
+        self::assertIsArray($stored);
+        self::assertNotSame('38.1', $stored['temperature_encrypted']);
+        self::assertNotSame('Fever', $stored['symptoms_encrypted']);
+        self::assertSame('38.1', $crypto->decrypt($stored['temperature_encrypted']));
+        self::assertSame('Fever', $crypto->decrypt($stored['symptoms_encrypted']));
     }
 
     public function testNurseVitalsRejectsOutOfRangeValues(): void

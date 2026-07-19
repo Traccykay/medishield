@@ -124,6 +124,20 @@ try {
 
     $schemaPath = Join-Path $repoRoot 'sql\schema.sql'
     $seedPath = Join-Path $repoRoot 'sql\seed.sql'
+    $configSamplePath = Join-Path $repoRoot 'config\config.sample.php'
+    $configPath = Join-Path $repoRoot 'config\config.php'
+
+    if (-not (Test-Path -LiteralPath $configPath)) {
+        if (-not (Test-Path -LiteralPath $configSamplePath)) {
+            throw "Config sample not found at '$configSamplePath'. Ensure config\config.sample.php exists before running this script."
+        }
+
+        Copy-Item -LiteralPath $configSamplePath -Destination $configPath
+        Write-Host "Created config file: $configPath"
+    }
+    else {
+        Write-Host "Config file already exists: $configPath"
+    }
 
     Write-Host "Loading schema from $schemaPath"
     Invoke-MySqlScriptFile -MySqlPath $mysql -BaseArguments $baseArgs -DatabaseName $DbName -ScriptPath $schemaPath -Description 'Schema load'
@@ -142,18 +156,14 @@ try {
         }
     }
 
-    $configSamplePath = Join-Path $repoRoot 'config\config.sample.php'
-    $configPath = Join-Path $repoRoot 'config\config.php'
-    if (-not (Test-Path -LiteralPath $configPath)) {
-        if (-not (Test-Path -LiteralPath $configSamplePath)) {
-            throw "Config sample not found at '$configSamplePath'. Ensure config\config.sample.php exists before running this script."
-        }
-
-        Copy-Item -LiteralPath $configSamplePath -Destination $configPath
-        Write-Host "Created config file: $configPath"
+    $vitalsMigrationPath = Join-Path $repoRoot 'scripts\migrate-vitals-encryption.php'
+    if (-not (Test-Path -LiteralPath $vitalsMigrationPath)) {
+        throw "Vitals encryption migration not found at '$vitalsMigrationPath'."
     }
-    else {
-        Write-Host "Config file already exists: $configPath"
+    Write-Host 'Encrypting legacy vitals, if any'
+    & php $vitalsMigrationPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "Vitals encryption migration failed with exit code $LASTEXITCODE."
     }
 
     Write-Host ''

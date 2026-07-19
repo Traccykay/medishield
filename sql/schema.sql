@@ -93,18 +93,18 @@ CREATE TABLE IF NOT EXISTS visits (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
--- vitals : nurse-recorded measurements (typed columns enable validation)
+-- vitals : nurse-recorded measurements (validated before AES-256-GCM encryption)
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS vitals (
     vitals_id       INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
     patient_id      INT UNSIGNED NOT NULL,
     nurse_id        INT UNSIGNED NOT NULL,
-    temperature_c   DECIMAL(4,1) NOT NULL,
-    systolic_mmhg   SMALLINT UNSIGNED NOT NULL,
-    diastolic_mmhg  SMALLINT UNSIGNED NOT NULL,
-    pulse_bpm       SMALLINT UNSIGNED NOT NULL,
-    weight_kg       DECIMAL(5,2) NOT NULL,
-    symptoms        TEXT NULL,
+    temperature_encrypted TEXT NOT NULL,                           -- base64(iv||tag||ciphertext)
+    systolic_encrypted    TEXT NOT NULL,
+    diastolic_encrypted   TEXT NOT NULL,
+    pulse_encrypted       TEXT NOT NULL,
+    weight_encrypted      TEXT NOT NULL,
+    symptoms_encrypted    TEXT NULL,
     created_at      DATETIME NOT NULL,
     CONSTRAINT fk_vitals_patient FOREIGN KEY (patient_id) REFERENCES patients(patient_id),
     CONSTRAINT fk_vitals_nurse   FOREIGN KEY (nurse_id)   REFERENCES users(user_id)

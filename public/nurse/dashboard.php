@@ -7,7 +7,9 @@ require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('nurse');
 $patients = ms_visit_service()->nurseVisits((int) $user['user_id']);
-$recentVitals = ms_clinical_repo()->recentVitalsByNurse((int) $user['user_id']);
+$recentVitals = ms_clinical_service()->decryptVitals(
+    ms_clinical_repo()->recentVitalsByNurse((int) $user['user_id'])
+);
 
 layout_app_header('Nurse dashboard', $user, 'dashboard');
 ?>

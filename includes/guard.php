@@ -33,7 +33,7 @@ if (!function_exists('current_user')) {
      * The currently authenticated user as a small associative array, or null when
      * nobody is logged in. Only non-sensitive identity fields are kept in session.
      *
-     * @return array{user_id:int,role:string,full_name:string,email:string,must_change:bool}|null
+     * @return array{user_id:int,role:string,full_name:string,email:string,must_change:bool,credential_fingerprint:string}|null
      */
     function current_user(): ?array
     {
@@ -65,13 +65,7 @@ if (!function_exists('login_user')) {
         session_regenerate_id(true);
 
         $now = time();
-        $_SESSION['auth'] = [
-            'user_id'     => (int) $user['user_id'],
-            'role'        => (string) $user['role'],
-            'full_name'   => (string) $user['full_name'],
-            'email'       => (string) $user['email'],
-            'must_change' => (bool) ($user['must_change_password'] ?? false),
-        ];
+        $_SESSION['auth'] = ms_session_validator()->createAuthenticatedSession($user);
         $_SESSION['login_at']      = $now;  // for absolute timeout
         $_SESSION['last_activity'] = $now;  // for idle timeout
     }
@@ -151,7 +145,7 @@ if (!function_exists('require_login')) {
      * redirect to the change-password page — unless $allowPasswordChange is true
      * (which the change-password page itself passes, to avoid a redirect loop).
      *
-     * @return array{user_id:int,role:string,full_name:string,email:string,must_change:bool}
+     * @return array{user_id:int,role:string,full_name:string,email:string,must_change:bool,credential_fingerprint:string}
      */
     function require_login(bool $allowPasswordChange = false): array
     {
@@ -165,6 +159,15 @@ if (!function_exists('require_login')) {
         if ($user === null) {        // timeout may have cleared the session
             redirect('/login.php');
         }
+
+        $user = ms_session_validator()->authenticateSession($user);
+        if ($user === null) {
+            // A status or password change in another browser invalidates this
+            // preserved session before any protected page can act on it.
+            logout_user();
+            redirect('/login.php');
+        }
+        $_SESSION['auth'] = $user;
 
         if ($user['must_change'] && !$allowPasswordChange) {
             redirect('/change_password.php');

@@ -9,8 +9,9 @@ use PDO;
 
 /**
  * PDO persistence for vitals, diagnoses, lab queues, prescriptions, and
- * dispensing. The service layer owns validation/encryption; this layer keeps SQL
- * parameterized and portable for MySQL/MariaDB plus SQLite tests.
+ * dispensing. The service layer owns validation/encryption; this layer stores
+ * only the resulting AES-GCM payloads and keeps SQL parameterized and portable
+ * for MySQL/MariaDB plus SQLite tests.
  */
 final class ClinicalRepository
 {
@@ -22,21 +23,21 @@ final class ClinicalRepository
     {
         $stmt = $this->pdo->prepare(
             'INSERT INTO vitals
-                (patient_id, nurse_id, temperature_c, systolic_mmhg, diastolic_mmhg,
-                 pulse_bpm, weight_kg, symptoms, created_at)
+                (patient_id, nurse_id, temperature_encrypted, systolic_encrypted, diastolic_encrypted,
+                 pulse_encrypted, weight_encrypted, symptoms_encrypted, created_at)
              VALUES
-                (:patient_id, :nurse_id, :temperature_c, :systolic_mmhg, :diastolic_mmhg,
-                 :pulse_bpm, :weight_kg, :symptoms, :created_at)'
+                (:patient_id, :nurse_id, :temperature_encrypted, :systolic_encrypted, :diastolic_encrypted,
+                 :pulse_encrypted, :weight_encrypted, :symptoms_encrypted, :created_at)'
         );
         $stmt->execute([
             ':patient_id' => $data['patient_id'],
             ':nurse_id' => $data['nurse_id'],
-            ':temperature_c' => $data['temperature_c'],
-            ':systolic_mmhg' => $data['systolic_mmhg'],
-            ':diastolic_mmhg' => $data['diastolic_mmhg'],
-            ':pulse_bpm' => $data['pulse_bpm'],
-            ':weight_kg' => $data['weight_kg'],
-            ':symptoms' => $data['symptoms'],
+            ':temperature_encrypted' => $data['temperature_encrypted'],
+            ':systolic_encrypted' => $data['systolic_encrypted'],
+            ':diastolic_encrypted' => $data['diastolic_encrypted'],
+            ':pulse_encrypted' => $data['pulse_encrypted'],
+            ':weight_encrypted' => $data['weight_encrypted'],
+            ':symptoms_encrypted' => $data['symptoms_encrypted'],
             ':created_at' => $this->clock->nowString(),
         ]);
         return (int) $this->pdo->lastInsertId();

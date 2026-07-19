@@ -42,12 +42,12 @@ final class ClinicalService
         $id = $this->clinical->createVitals([
             'patient_id' => $patientId,
             'nurse_id' => $nurseId,
-            'temperature_c' => $temperature,
-            'systolic_mmhg' => $systolic,
-            'diastolic_mmhg' => $diastolic,
-            'pulse_bpm' => $pulse,
-            'weight_kg' => $weight,
-            'symptoms' => $symptoms,
+            'temperature_encrypted' => $this->crypto->encrypt((string) $temperature),
+            'systolic_encrypted' => $this->crypto->encrypt((string) $systolic),
+            'diastolic_encrypted' => $this->crypto->encrypt((string) $diastolic),
+            'pulse_encrypted' => $this->crypto->encrypt((string) $pulse),
+            'weight_encrypted' => $this->crypto->encrypt((string) $weight),
+            'symptoms_encrypted' => $symptoms === null ? null : $this->crypto->encrypt($symptoms),
         ]);
 
         return ['ok' => true, 'errors' => [], 'vitals_id' => $id];
@@ -190,6 +190,26 @@ final class ClinicalService
     public function decrypt(?string $stored): ?string
     {
         return $stored === null || $stored === '' ? null : $this->crypto->decrypt($stored);
+    }
+
+    /**
+     * Decrypt vital-sign fields only after the caller has completed its
+     * authorization check. Keeping this conversion here prevents a view from
+     * accidentally rendering the ciphertext or bypassing GCM integrity checks.
+     */
+    public function decryptVitals(array $vitals): array
+    {
+        foreach ($vitals as &$vital) {
+            $vital['temperature_c'] = $this->crypto->decrypt((string) $vital['temperature_encrypted']);
+            $vital['systolic_mmhg'] = $this->crypto->decrypt((string) $vital['systolic_encrypted']);
+            $vital['diastolic_mmhg'] = $this->crypto->decrypt((string) $vital['diastolic_encrypted']);
+            $vital['pulse_bpm'] = $this->crypto->decrypt((string) $vital['pulse_encrypted']);
+            $vital['weight_kg'] = $this->crypto->decrypt((string) $vital['weight_encrypted']);
+            $vital['symptoms'] = $this->decrypt($vital['symptoms_encrypted'] ?? null);
+        }
+        unset($vital);
+
+        return $vitals;
     }
 
     private function validateDoctorRecord(int $patientId, int $doctorId, int $recordId): array

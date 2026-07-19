@@ -116,3 +116,14 @@ test('clinical roles route lab results and prescriptions through billing', async
   await page.getByRole('link', { name: 'View dispensed history' }).click();
   await expect(page.getByText('Paracetamol 500 mg')).toBeVisible();
 });
+
+test('password recovery does not reveal whether an account exists', async ({ page }) => {
+  await page.goto('/login.php');
+  await page.getByRole('link', { name: 'Forgot password?' }).click();
+  await page.getByLabel('Email').fill('ui.receptionist@medishield.test');
+  await page.getByRole('button', { name: 'Send reset link' }).click();
+  await expect(page.getByText('If that email belongs to an active account, a password reset link has been sent.')).toBeVisible();
+  await page.getByLabel('Email').fill('unknown@medishield.test');
+  await page.getByRole('button', { name: 'Send reset link' }).click();
+  await expect(page.getByText('If that email belongs to an active account, a password reset link has been sent.')).toBeVisible();
+});

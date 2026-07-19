@@ -1,9 +1,10 @@
 # Browser UI tests and live demonstration
 
 This folder contains automated browser tests. Think of each test as a scripted
-hospital staff member: it opens MediShield, signs in, fills forms, clicks
-buttons, and verifies the next screen is correct. This catches broken user
-flows before a person discovers them manually.
+hospital staff member or attacker: it opens MediShield, signs in (where
+appropriate), sends a request, and verifies the visible result and protected
+side effect. This catches broken user flows and security regressions at the
+real HTTP/rendering boundary.
 
 Start with the [root README](../README.md) if you have not yet cloned or set up
 MediShield. It explains Git, XAMPP, PHP, Node.js, and the initial database
@@ -11,8 +12,7 @@ setup. The instructions below begin after that one-time setup is complete.
 
 ## Before you run anything
 
-1. Open the **XAMPP Control Panel** and start **MySQL**. It must be green.
-2. Open PowerShell in the repository folder. For example:
+1. Open PowerShell in the repository folder. For example:
 
    ```powershell
    cd $HOME\Documents\medishield
@@ -35,14 +35,16 @@ Run the reusable Windows runner:
 .\scripts\run-ui-tests.ps1
 ```
 
-The runner checks that Node.js, PHP, and MySQL are available. On the first run,
+The runner checks that Node.js, PHP, and MySQL are available. If MySQL/MariaDB
+is stopped, it automatically starts a standard Windows database service or the
+default XAMPP installation and waits up to 30 seconds for it. On the first run,
 it downloads the versions of Playwright and Chromium specified by this project;
 later runs reuse them. It then starts a temporary local web server, recreates
 only the `medishield_ui_test` database, and seeds role-specific test accounts.
 It never changes the normal `medishield_db` database.
 
-Wait for the command to finish. `3 passed` means every scripted workflow
-completed. Any other result means a check failed; see **When a test fails**.
+Wait for the command to finish. Every listed test must pass. Any failure means
+a workflow or security check failed; see **When a test fails**.
 
 ## Run a supervisor demonstration
 
@@ -57,11 +59,45 @@ successful scenario to `test-results/`. Do not interact with the browser while
 the scripted walkthrough is running. The application window closes when the
 walkthrough finishes; play the recorded videos afterward if needed.
 
-## What the tests prove
+## Suites and what they prove
 
-The suite covers OTP sign-in, RBAC denial, Kenyan contact validation, patient
+### Workflow regression (`reception-triage.spec.js`)
+
+This suite covers OTP sign-in, Kenyan contact validation, patient
 registration/search, triage/vitals, doctor assignment, diagnosis, lab routing
-and result return, prescription pricing, and pharmacy dispensing.
+and result return, prescription pricing, pharmacy dispensing, an RBAC denial,
+and account-enumeration-safe password-recovery messaging.
+
+### Security hostile-path harness (`security-hostile.spec.js`)
+
+This is not a penetration test or a replacement for a code review. It is a
+repeatable regression harness for the security properties that are easy to
+break during normal feature work. It deliberately tries unsafe paths and
+asserts the safe result:
+
+| Hostile path | What the test proves |
+| --- | --- |
+| Low-privilege role requests an admin page or another patient's record | The server denies access and does not render protected patient data. |
+| Authenticated form POST has no CSRF token | The request is rejected and no patient is created. |
+| Stored patient value contains HTML markup | The value is rendered as text, not executable DOM. |
+| Login request and invalid credentials | Required security headers are sent, `X-Powered-By` is absent, and errors do not reveal whether an account exists. |
+
+Run every browser test, including the harness, with:
+
+```powershell
+.\scripts\run-ui-tests.ps1
+```
+
+To iterate on only the hostile-path checks after Node, PHP, and MySQL/MariaDB
+are ready, use:
+
+```powershell
+npx.cmd playwright test e2e\security-hostile.spec.js
+```
+
+The complete feature-to-test inventory is in [COVERAGE.md](COVERAGE.md).
+Features marked as not covered are known gaps, not proof of coverage; they must
+receive a Playwright scenario when implemented or changed.
 
 ## When a test fails
 

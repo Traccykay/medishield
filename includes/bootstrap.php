@@ -30,6 +30,7 @@ use MediShield\Auth\AuthService;
 use MediShield\Auth\OtpRepository;
 use MediShield\Auth\OtpService;
 use MediShield\Auth\Rbac;
+use MediShield\Auth\SessionValidator;
 use MediShield\Auth\UserRepository;
 use MediShield\Auth\UserService;
 use MediShield\Clinical\ClinicalRepository;
@@ -197,6 +198,14 @@ if (!function_exists('ms_user_service')) {
     {
         static $svc = null;
         return $svc ??= new UserService(ms_user_repo(), new PasswordPolicy());
+    }
+}
+
+if (!function_exists('ms_session_validator')) {
+    function ms_session_validator(): SessionValidator
+    {
+        static $validator = null;
+        return $validator ??= new SessionValidator(ms_user_repo());
     }
 }
 

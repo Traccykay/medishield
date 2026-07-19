@@ -11,7 +11,7 @@ if ($patientId <= 0 || !ms_patient_service()->canViewPatient($user, $patientId))
     deny_access($user, 'nurse:view_vitals');
 }
 $patient = ms_patient_repo()->findById($patientId);
-$vitals = ms_clinical_repo()->vitalsForPatient($patientId);
+$vitals = ms_clinical_service()->decryptVitals(ms_clinical_repo()->vitalsForPatient($patientId));
 
 layout_app_header('Vitals history', $user, 'patients');
 ?>

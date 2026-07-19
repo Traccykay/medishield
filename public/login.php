@@ -146,6 +146,7 @@ layout_header('Login');
         <input class="ms-input" type="password" id="password" name="password" required>
 
         <button class="ms-btn ms-btn-primary ms-btn-block" type="submit">Sign in</button>
+        <p class="ms-mt"><a href="<?= e(ms_url('/forgot_password.php')) ?>">Forgot password?</a></p>
     </form>
 </section>
 <?php

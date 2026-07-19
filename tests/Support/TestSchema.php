@@ -141,12 +141,12 @@ final class TestSchema
             vitals_id      INTEGER PRIMARY KEY AUTOINCREMENT,
             patient_id     INTEGER NOT NULL,
             nurse_id       INTEGER NOT NULL,
-            temperature_c  REAL    NOT NULL,
-            systolic_mmhg  INTEGER NOT NULL,
-            diastolic_mmhg INTEGER NOT NULL,
-            pulse_bpm      INTEGER NOT NULL,
-            weight_kg      REAL    NOT NULL,
-            symptoms       TEXT    NULL,
+            temperature_encrypted TEXT NOT NULL,
+            systolic_encrypted    TEXT NOT NULL,
+            diastolic_encrypted   TEXT NOT NULL,
+            pulse_encrypted       TEXT NOT NULL,
+            weight_encrypted      TEXT NOT NULL,
+            symptoms_encrypted    TEXT NULL,
             created_at     TEXT    NOT NULL
         );
     SQL;

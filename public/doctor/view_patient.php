@@ -13,7 +13,7 @@ if ($patientId <= 0 || $visit === null || (int) $visit['patient_id'] !== $patien
     deny_access($user, 'doctor:view_patient');
 }
 $patient = ms_patient_repo()->findById($patientId);
-$vitals = ms_clinical_repo()->vitalsForPatient($patientId);
+$vitals = ms_clinical_service()->decryptVitals(ms_clinical_repo()->vitalsForPatient($patientId));
 $records = ms_clinical_repo()->recordsForPatient($patientId);
 $labs = ms_clinical_repo()->labResultsForPatient($patientId);
 
