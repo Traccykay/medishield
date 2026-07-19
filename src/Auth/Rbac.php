@@ -90,6 +90,14 @@ final class Rbac
         // Admin-only management + security surfaces.
         'users'     => [self::ROLE_ADMIN],
         'audit'     => [self::ROLE_ADMIN],
+        // Patient demographics/profile access. Actual record access is checked
+        // against ownership/assignment by PatientService on each page.
+        'patients'  => [
+            self::ROLE_ADMIN,
+            self::ROLE_PATIENT,
+            self::ROLE_NURSE,
+            self::ROLE_DOCTOR,
+        ],
         // Clinical/operational staff (everyone except patients) see reports.
         'reports'   => [
             self::ROLE_ADMIN,
@@ -112,7 +120,7 @@ final class Rbac
      *
      * @var string[]
      */
-    private const NAV_ORDER = ['dashboard', 'users', 'reports', 'payments', 'audit', 'logout'];
+    private const NAV_ORDER = ['dashboard', 'users', 'patients', 'reports', 'payments', 'audit', 'logout'];
 
     /** True if a role may see/use the given sidebar nav key. */
     public static function canAccessNav(string $role, string $navKey): bool

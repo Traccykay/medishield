@@ -258,14 +258,8 @@ if (!function_exists('deny_access')) {
 }
 
 if (!function_exists('landing_path_for')) {
-    /**
-     * Where to send a user after login. In Deliverable 1 only the admin area is
-     * built, so admins go to their dashboard and every other role lands on the
-     * generic placeholder dashboard. Later deliverables will switch this to
-     * Rbac::dashboardPath() as each role's workspace is implemented.
-     */
     function landing_path_for(string $role): string
     {
-        return $role === Rbac::ROLE_ADMIN ? '/admin/dashboard.php' : '/dashboard.php';
+        return Rbac::dashboardPath($role);
     }
 }

@@ -18,6 +18,7 @@ self-registration.
 | `dashboard.php` | Admin home + security monitor: recent audit events, failed-login / anomaly counts, and audit-chain integrity status. **Read-only** over the audit log. | — |
 | `create_user.php` | The "registration" form: create an account and assign one of the six roles. New users start with `must_change_password = 1`. | `USER_CREATED` |
 | `users.php` | List all users; activate/deactivate accounts (POST + CSRF only). An admin cannot deactivate their own account. | `USER_UPDATED` |
+| `assign_patient.php` | Assign/unassign patients to nurses and doctors. These rows define object-level clinical access for later modules. | `ASSIGNMENT_CHANGED` |
 
 ## Why these guards matter
 

@@ -32,10 +32,14 @@ use MediShield\Auth\OtpService;
 use MediShield\Auth\Rbac;
 use MediShield\Auth\UserRepository;
 use MediShield\Auth\UserService;
+use MediShield\Clinical\ClinicalRepository;
+use MediShield\Clinical\ClinicalService;
 use MediShield\Database\Connection;
 use MediShield\Mail\LogMailer;
 use MediShield\Mail\Mailer;
 use MediShield\Mail\SmtpMailer;
+use MediShield\Patient\PatientRepository;
+use MediShield\Patient\PatientService;
 use MediShield\Security\AuditChain;
 use MediShield\Security\Crypto;
 use MediShield\Security\PasswordPolicy;
@@ -261,6 +265,38 @@ if (!function_exists('ms_activation_service')) {
             );
         }
         return $svc;
+    }
+}
+
+if (!function_exists('ms_patient_repo')) {
+    function ms_patient_repo(): PatientRepository
+    {
+        static $repo = null;
+        return $repo ??= new PatientRepository(ms_db(), ms_clock());
+    }
+}
+
+if (!function_exists('ms_patient_service')) {
+    function ms_patient_service(): PatientService
+    {
+        static $svc = null;
+        return $svc ??= new PatientService(ms_patient_repo(), ms_user_repo());
+    }
+}
+
+if (!function_exists('ms_clinical_repo')) {
+    function ms_clinical_repo(): ClinicalRepository
+    {
+        static $repo = null;
+        return $repo ??= new ClinicalRepository(ms_db(), ms_clock());
+    }
+}
+
+if (!function_exists('ms_clinical_service')) {
+    function ms_clinical_service(): ClinicalService
+    {
+        static $svc = null;
+        return $svc ??= new ClinicalService(ms_clinical_repo(), ms_patient_repo(), ms_crypto());
     }
 }
 

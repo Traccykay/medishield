@@ -96,6 +96,7 @@ if (!function_exists('layout_nav_items')) {
         return [
             'dashboard' => ['label' => 'Dashboard',          'path' => $dashboard],
             'users'     => ['label' => 'Users',              'path' => '/admin/users.php'],
+            'patients'  => ['label' => 'Patients',           'path' => '/patients.php'],
             'reports'   => ['label' => 'Reports',            'path' => '/reports.php'],
             'payments'  => ['label' => 'Payments',           'path' => '/payments.php'],
             'audit'     => ['label' => 'Forensic Auditing',  'path' => '/admin/audit.php'],

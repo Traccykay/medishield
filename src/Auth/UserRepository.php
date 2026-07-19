@@ -133,6 +133,43 @@ final class UserRepository
     }
 
     /**
+     * List users whose role is in the provided set. Used by patient assignment and
+     * optional patient-login linkage pages. Role values are whitelisted by the
+     * caller/service layer, but still bound as parameters for consistency.
+     *
+     * @param string[] $roles
+     * @return array<int,array<string,mixed>>
+     */
+    public function listByRoles(array $roles, bool $activeOnly = true): array
+    {
+        if ($roles === []) {
+            return [];
+        }
+
+        $placeholders = [];
+        $params = [];
+        foreach (array_values($roles) as $idx => $role) {
+            $key = ':role' . $idx;
+            $placeholders[] = $key;
+            $params[$key] = $role;
+        }
+
+        $statusSql = $activeOnly ? ' AND status = :status' : '';
+        if ($activeOnly) {
+            $params[':status'] = 'active';
+        }
+
+        $stmt = $this->pdo->prepare(
+            'SELECT user_id, full_name, email, role, status
+               FROM users
+              WHERE role IN (' . implode(',', $placeholders) . ')' . $statusSql . '
+              ORDER BY role, full_name'
+        );
+        $stmt->execute($params);
+        return $stmt->fetchAll();
+    }
+
+    /**
      * Increment the failed-login counter for a user and return the NEW count.
      * Used by the lockout logic in {@see AuthService}.
      */

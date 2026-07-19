@@ -74,6 +74,16 @@ final class RbacTest extends TestCase
         self::assertTrue(Rbac::canAccessNav('admin', 'reports'));
     }
 
+    public function testPatientWorkspaceNavMatchesClinicalAccessRoles(): void
+    {
+        foreach (['admin', 'patient', 'nurse', 'doctor'] as $role) {
+            self::assertTrue(Rbac::canAccessNav($role, 'patients'), "$role should see patients");
+        }
+
+        self::assertFalse(Rbac::canAccessNav('lab', 'patients'));
+        self::assertFalse(Rbac::canAccessNav('pharmacist', 'patients'));
+    }
+
     public function testUnknownNavKeyIsDenied(): void
     {
         self::assertFalse(Rbac::canAccessNav('admin', 'nonexistent-nav'));

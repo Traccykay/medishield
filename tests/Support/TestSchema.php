@@ -91,6 +91,112 @@ final class TestSchema
         );
     SQL;
 
+    /** SQLite-compatible mirror of the production `patients` table. */
+    private const PATIENTS_DDL = <<<SQL
+        CREATE TABLE patients (
+            patient_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id           INTEGER NULL,
+            patient_number    TEXT    NOT NULL UNIQUE,
+            full_name         TEXT    NOT NULL,
+            date_of_birth     TEXT    NOT NULL,
+            gender            TEXT    NOT NULL,
+            phone             TEXT    NULL,
+            address           TEXT    NULL,
+            emergency_contact TEXT    NULL,
+            created_at        TEXT    NOT NULL
+        );
+    SQL;
+
+    /** SQLite-compatible mirror of the production `patient_assignments` table. */
+    private const PATIENT_ASSIGNMENTS_DDL = <<<SQL
+        CREATE TABLE patient_assignments (
+            assignment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            patient_id    INTEGER NOT NULL,
+            staff_user_id INTEGER NOT NULL,
+            assigned_by   INTEGER NOT NULL,
+            active        INTEGER NOT NULL DEFAULT 1,
+            created_at    TEXT    NOT NULL,
+            UNIQUE (patient_id, staff_user_id)
+        );
+    SQL;
+
+    private const VITALS_DDL = <<<SQL
+        CREATE TABLE vitals (
+            vitals_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            patient_id     INTEGER NOT NULL,
+            nurse_id       INTEGER NOT NULL,
+            temperature_c  REAL    NOT NULL,
+            systolic_mmhg  INTEGER NOT NULL,
+            diastolic_mmhg INTEGER NOT NULL,
+            pulse_bpm      INTEGER NOT NULL,
+            weight_kg      REAL    NOT NULL,
+            symptoms       TEXT    NULL,
+            created_at     TEXT    NOT NULL
+        );
+    SQL;
+
+    private const MEDICAL_RECORDS_DDL = <<<SQL
+        CREATE TABLE medical_records (
+            record_id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            patient_id          INTEGER NOT NULL,
+            doctor_id           INTEGER NOT NULL,
+            diagnosis_encrypted TEXT    NOT NULL,
+            treatment_encrypted TEXT    NULL,
+            created_at          TEXT    NOT NULL,
+            updated_at          TEXT    NOT NULL
+        );
+    SQL;
+
+    private const LAB_REQUESTS_DDL = <<<SQL
+        CREATE TABLE lab_requests (
+            lab_request_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            patient_id     INTEGER NOT NULL,
+            record_id      INTEGER NOT NULL,
+            doctor_id      INTEGER NOT NULL,
+            test_name      TEXT    NOT NULL,
+            reason         TEXT    NULL,
+            status         TEXT    NOT NULL DEFAULT 'pending',
+            created_at     TEXT    NOT NULL
+        );
+    SQL;
+
+    private const LAB_RESULTS_DDL = <<<SQL
+        CREATE TABLE lab_results (
+            lab_result_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+            lab_request_id    INTEGER NOT NULL UNIQUE,
+            patient_id        INTEGER NOT NULL,
+            lab_technician_id INTEGER NOT NULL,
+            result_encrypted  TEXT    NOT NULL,
+            created_at        TEXT    NOT NULL
+        );
+    SQL;
+
+    private const PRESCRIPTIONS_DDL = <<<SQL
+        CREATE TABLE prescriptions (
+            prescription_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            patient_id             INTEGER NOT NULL,
+            record_id              INTEGER NOT NULL,
+            doctor_id              INTEGER NOT NULL,
+            medication_encrypted   TEXT    NOT NULL,
+            dosage_encrypted       TEXT    NOT NULL,
+            instructions_encrypted TEXT    NULL,
+            status                 TEXT    NOT NULL DEFAULT 'pending',
+            created_at             TEXT    NOT NULL
+        );
+    SQL;
+
+    private const DISPENSING_RECORDS_DDL = <<<SQL
+        CREATE TABLE dispensing_records (
+            dispensing_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            prescription_id INTEGER NOT NULL,
+            patient_id      INTEGER NOT NULL,
+            pharmacist_id   INTEGER NOT NULL,
+            status          TEXT    NOT NULL DEFAULT 'dispensed',
+            remarks         TEXT    NULL,
+            created_at      TEXT    NOT NULL
+        );
+    SQL;
+
     /** Create a fresh in-memory SQLite PDO with the MediShield schema loaded. */
     public static function pdo(): PDO
     {
@@ -101,6 +207,14 @@ final class TestSchema
         $pdo->exec(self::AUDIT_LOGS_DDL);
         $pdo->exec(self::OTP_CODES_DDL);
         $pdo->exec(self::ACCOUNT_ACTIVATIONS_DDL);
+        $pdo->exec(self::PATIENTS_DDL);
+        $pdo->exec(self::PATIENT_ASSIGNMENTS_DDL);
+        $pdo->exec(self::VITALS_DDL);
+        $pdo->exec(self::MEDICAL_RECORDS_DDL);
+        $pdo->exec(self::LAB_REQUESTS_DDL);
+        $pdo->exec(self::LAB_RESULTS_DDL);
+        $pdo->exec(self::PRESCRIPTIONS_DDL);
+        $pdo->exec(self::DISPENSING_RECORDS_DDL);
         return $pdo;
     }
 }

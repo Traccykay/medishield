@@ -19,8 +19,16 @@ without a web server.
 | `logout.php` | Ends the session; audits LOGOUT. | Authenticated |
 | `change_password.php` | Set a new password (also the forced first-login change). Audits PASSWORD_RESET. | Authenticated |
 | `dashboard.php` | Generic landing page for non-admin roles in Deliverable 1. | Authenticated |
+| `patients.php` | Patient workspace: admin searches all demographics, nurses/doctors see assigned patients, patients are routed to their own profile. | Authenticated + role/object checks |
+| `patient_profile.php` | Patient demographic profile guarded by ownership/assignment/admin checks. Audits PATIENT_VIEW. | Authenticated + object check |
+| `register_patient.php` | Patient registration form for admin, nurse, and doctor. Audits PATIENT_REGISTERED. | Admin, nurse, doctor |
 | `unauthorized.php` | 403 page shown when a role is denied an area. | Authenticated |
 | `admin/` | Administrator user-management + security monitoring. | Admin only |
+| `nurse/` | Nurse dashboard, vitals recording/history, and doctor routing for assigned patients. | Nurse only |
+| `doctor/` | Doctor dashboard, patient review, encrypted diagnosis, lab requests, and prescriptions. | Doctor only |
+| `lab/` | Lab request queue and encrypted result upload. | Lab only |
+| `pharmacy/` | Prescription queue and dispensing/refusal workflow. | Pharmacist only |
+| `patient/` | Patient self-service dashboard, own profile, records, lab results, and prescriptions. | Patient only |
 | `assets/` | Static CSS (and future JS/images). | Public |
 
 ## Conventions enforced on every page

@@ -14,6 +14,8 @@ Autoloading: `composer.json` maps namespace `MediShield\` → `src/` (PSR-4), so
 | `MediShield\Database` | `Database/` | PDO connection factory. |
 | `MediShield\Security` | `Security/` | Password policy, CSRF, AES-256-GCM crypto, audit hash-chain. |
 | `MediShield\Auth` | `Auth/` | RBAC, user repository, authentication + user-management services. |
+| `MediShield\Patient` | `Patient/` | Patient demographics, search, patient-login linkage, nurse/doctor assignments, and object-level patient access checks. |
+| `MediShield\Clinical` | `Clinical/` | Nurse vitals, encrypted doctor records, lab queues/results, prescriptions, and dispensing workflow. |
 
 ## Design rules (see `AGENTS.md`)
 - One class per file; `declare(strict_types=1)` at the top.
