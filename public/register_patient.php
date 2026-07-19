@@ -5,8 +5,8 @@ declare(strict_types=1);
 /**
  * register_patient.php
  * --------------------
- * Patient registration form for admins, nurses, and doctors. Admins may link an
- * existing patient login account; clinical users can register demographics only.
+ * Patient registration form for administrators and receptionists. Receptionists
+ * create demographics only, then select payment and place the arrival in triage.
  */
 
 use MediShield\Security\Csrf;
@@ -15,7 +15,7 @@ require_once __DIR__ . '/../includes/guard.php';
 require_once __DIR__ . '/../includes/layout.php';
 
 $user = require_login();
-if (!in_array((string) $user['role'], ['admin', 'nurse', 'doctor'], true)) {
+if (!in_array((string) $user['role'], ['admin', 'receptionist'], true)) {
     deny_access($user, 'patient:register');
 }
 
@@ -63,7 +63,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'affected_record_id' => (string) $patientId,
                 'status' => 'SUCCESS',
             ]);
-            redirect('/patient_profile.php?patient_id=' . $patientId);
+            $destination = (string) $user['role'] === 'receptionist'
+                ? '/reception/intake.php?patient_id=' . $patientId
+                : '/patient_profile.php?patient_id=' . $patientId;
+            redirect($destination);
         }
 
         ms_audit_log([
@@ -86,7 +89,7 @@ layout_app_header('Register patient', $user, 'patients');
 ?>
 <section class="ms-card ms-card-narrow">
     <h1 class="ms-h1">Register patient</h1>
-    <p class="ms-muted">Create a demographic patient record. Clinical details are added in later role-specific modules.</p>
+    <p class="ms-muted">Create a demographic patient record. Clinical details are not collected at reception.</p>
 
     <?php if ($success !== null) { layout_alert('success', $success); } ?>
     <?php foreach ($errors as $msg) { layout_alert('danger', $msg); } ?>

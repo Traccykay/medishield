@@ -10,9 +10,9 @@ use PHPUnit\Framework\TestCase;
 /** Tests for role validation and area access rules (spec §6, §7). */
 final class RbacTest extends TestCase
 {
-    public function testRecognisesAllSixRoles(): void
+    public function testRecognisesAllSevenRoles(): void
     {
-        foreach (['patient', 'nurse', 'doctor', 'lab', 'pharmacist', 'admin'] as $role) {
+        foreach (['patient', 'receptionist', 'nurse', 'doctor', 'lab', 'pharmacist', 'admin'] as $role) {
             self::assertTrue(Rbac::isValidRole($role), "$role should be valid");
         }
         self::assertFalse(Rbac::isValidRole('superuser'));
@@ -33,6 +33,7 @@ final class RbacTest extends TestCase
         self::assertTrue(Rbac::canAccessArea('doctor', 'doctor'));
         self::assertTrue(Rbac::canAccessArea('lab', 'lab'));
         self::assertTrue(Rbac::canAccessArea('pharmacist', 'pharmacy'));
+        self::assertTrue(Rbac::canAccessArea('receptionist', 'reception'));
         self::assertFalse(Rbac::canAccessArea('lab', 'pharmacy'));
     }
 

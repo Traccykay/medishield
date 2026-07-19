@@ -27,7 +27,7 @@ if ($role === 'patient') {
 $query = trim((string) ($_GET['q'] ?? ''));
 $patients = [];
 
-if ($role === 'admin') {
+if (in_array($role, ['admin', 'receptionist'], true)) {
     $patients = ms_patient_repo()->search($query);
 } elseif (in_array($role, ['nurse', 'doctor'], true)) {
     $patients = ms_patient_repo()->assignedPatientsForStaff((int) $user['user_id']);
@@ -51,7 +51,7 @@ layout_app_header('Patients', $user, 'patients');
             <h1 class="ms-h1">Patients</h1>
             <p class="ms-muted">Search patient demographics and open permitted profiles.</p>
         </div>
-        <?php if (in_array($role, ['admin', 'nurse', 'doctor'], true)) { ?>
+        <?php if (in_array($role, ['admin', 'receptionist'], true)) { ?>
             <a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/register_patient.php')) ?>">Register patient</a>
         <?php } ?>
     </div>
@@ -60,7 +60,7 @@ layout_app_header('Patients', $user, 'patients');
         <?php layout_alert('warning', 'No patient record is linked to your login yet. Please contact an administrator.'); ?>
     <?php } ?>
 
-    <?php if ($role === 'admin') { ?>
+    <?php if (in_array($role, ['admin', 'receptionist'], true)) { ?>
         <form method="get" action="<?= e(ms_url('/patients.php')) ?>" class="ms-actions">
             <input class="ms-input" type="search" name="q" value="<?= e($query) ?>"
                    placeholder="Search by name, patient number, or phone">

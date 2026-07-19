@@ -6,7 +6,7 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('doctor');
-$patients = ms_patient_repo()->assignedPatientsForStaff((int) $user['user_id']);
+$patients = ms_visit_service()->doctorVisits((int) $user['user_id']);
 $pendingLabs = ms_clinical_repo()->labRequests('pending', (int) $user['user_id']);
 $pendingRx = ms_clinical_repo()->prescriptions('pending', (int) $user['user_id']);
 
@@ -14,10 +14,10 @@ layout_app_header('Doctor dashboard', $user, 'dashboard');
 ?>
 <section class="ms-card">
     <h1 class="ms-h1">Doctor dashboard</h1>
-    <p class="ms-muted">Review assigned patients, diagnose, request labs, and prescribe.</p>
+    <p class="ms-muted">Review patients assigned for the current consultation, diagnose, request labs, and prescribe.</p>
 </section>
 <section class="ms-card">
-    <h2 class="ms-h2">Assigned patients</h2>
+    <h2 class="ms-h2">Current consultations</h2>
     <?php if ($patients === []) { ?><p class="ms-muted">No assigned patients yet.</p><?php } else { ?>
         <div class="ms-table-wrap"><table class="ms-table">
             <thead><tr><th>Patient #</th><th>Name</th><th>DOB</th><th>Actions</th></tr></thead>
@@ -25,7 +25,7 @@ layout_app_header('Doctor dashboard', $user, 'dashboard');
                 <td><?= e((string) $patient['patient_number']) ?></td>
                 <td><?= e((string) $patient['full_name']) ?></td>
                 <td><?= e((string) $patient['date_of_birth']) ?></td>
-                <td><a class="ms-btn ms-btn-sm" href="<?= e(ms_url('/doctor/view_patient.php?patient_id=' . (int) $patient['patient_id'])) ?>">Open</a></td>
+                <td><a class="ms-btn ms-btn-sm" href="<?= e(ms_url('/doctor/view_patient.php?patient_id=' . (int) $patient['patient_id'] . '&visit_id=' . (int) $patient['visit_id'])) ?>">Open</a></td>
             </tr><?php } ?></tbody>
         </table></div>
     <?php } ?>

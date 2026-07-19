@@ -120,6 +120,22 @@ final class TestSchema
         );
     SQL;
 
+    private const VISITS_DDL = <<<SQL
+        CREATE TABLE visits (
+            visit_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            patient_id       INTEGER NOT NULL,
+            receptionist_id  INTEGER NOT NULL,
+            nurse_id         INTEGER NULL,
+            doctor_id        INTEGER NULL,
+            active_doctor_id INTEGER NULL UNIQUE,
+            payment_method   TEXT NOT NULL,
+            insurer          TEXT NULL,
+            status           TEXT NOT NULL,
+            created_at       TEXT NOT NULL,
+            updated_at       TEXT NOT NULL
+        );
+    SQL;
+
     private const VITALS_DDL = <<<SQL
         CREATE TABLE vitals (
             vitals_id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -209,6 +225,7 @@ final class TestSchema
         $pdo->exec(self::ACCOUNT_ACTIVATIONS_DDL);
         $pdo->exec(self::PATIENTS_DDL);
         $pdo->exec(self::PATIENT_ASSIGNMENTS_DDL);
+        $pdo->exec(self::VISITS_DDL);
         $pdo->exec(self::VITALS_DDL);
         $pdo->exec(self::MEDICAL_RECORDS_DDL);
         $pdo->exec(self::LAB_REQUESTS_DDL);

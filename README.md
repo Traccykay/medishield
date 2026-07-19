@@ -4,14 +4,21 @@
 
 MediShield is a web-based healthcare records management system for securely managing patient records while demonstrating practical cybersecurity controls. It is intentionally focused: it is not a full hospital management system, but a security-first academic project showing how healthcare data can be protected and audited.
 
-The system supports a simplified clinical workflow across six roles:
+The system supports a simplified clinical workflow across seven roles:
 
 - **Patient** — views only their own profile and clinical records.
+- **Receptionist** — searches/registers demographics, records cash or insurance
+  payment choice, and adds arrivals to the triage queue; cannot access clinical records.
 - **Nurse** — records vitals and observations for assigned patients.
 - **Doctor** — reviews assigned patients, records diagnoses/treatment, requests labs, and issues prescriptions.
 - **Laboratory Technician** — processes lab-request queues and uploads encrypted results.
 - **Pharmacist** — processes prescription queues and records dispensing outcomes.
 - **Administrator** — manages users, assignments, audit logs, anomaly alerts, and security status.
+
+The operational flow is reception → triage nurse → available doctor → lab or
+pharmacy. Nurses record vitals and symptoms, doctors are shown as unavailable
+while in an active consultation, and the demo catalog displays standard lab-test
+and medication prices in Kenyan shillings.
 
 Cybersecurity is central to the project: authentication, role-based access control, object-level authorization, encrypted clinical data, tamper-evident audit logging, anomaly detection, STRIDE threat modelling, and security-testing readiness are core requirements.
 

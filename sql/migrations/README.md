@@ -37,6 +37,7 @@ Get-Content sql\migrations\2026-06-29_add_attempted_identifier.sql -Raw |
 | `2026-06-29_add_attempted_identifier.sql` | Adds `audit_logs.attempted_identifier` (the email typed on a failed login). It is **not** part of the HMAC hash chain so it can be scrubbed after the retention window — see `scripts/purge-audit-pii.php`. |
 | `2026-06-30_add_otp_codes.sql` | Adds the `otp_codes` table for the login second factor (2FA). Stores only a bcrypt hash of each short-lived one-time passcode. |
 | `2026-06-30_add_account_activations.sql` | Adds the `account_activations` table for email activation links. Stores only a SHA-256 hash of each token. |
+| `2026-07-19_add_reception_visit_workflow.sql` | Adds the receptionist role and administrative visit queue used to route arrivals through triage, consultation, lab, and pharmacy. |
 
 ## MySQL 8 note
 

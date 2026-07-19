@@ -27,7 +27,7 @@ MediShield is a plain PHP 8.1 + PDO + MySQL healthcare records system for XAMPP,
 - Use the `MediShield\...` namespace. PSR-4 maps `MediShield\` to `src/`.
 - Keep classes in `src/`, one class per file.
 - Use spec section 25 naming exactly:
-  - Roles: `patient`, `nurse`, `doctor`, `lab`, `pharmacist`, `admin`
+  - Roles: `patient`, `receptionist`, `nurse`, `doctor`, `lab`, `pharmacist`, `admin`
   - User statuses: `active`, `inactive`
   - Request / prescription statuses: `pending`, `completed`, `dispensed`, `refused`
   - Audit statuses: `SUCCESS`, `FAILED`, `BLOCKED`

@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use MediShield\Clinical\ClinicalCatalog;
+
 require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
@@ -21,8 +23,8 @@ layout_app_header('My prescriptions', $user, 'payments');
     <?php foreach (['Pending' => $pending, 'Dispensed' => $dispensed] as $label => $rows) { ?>
         <h2 class="ms-h2"><?= e($label) ?></h2>
         <?php if ($rows === []) { ?><p class="ms-muted">No <?= e(mb_strtolower($label)) ?> prescriptions.</p><?php } else { ?>
-            <div class="ms-table-wrap"><table class="ms-table"><thead><tr><th>Medication</th><th>Dosage</th><th>Instructions</th><th>Doctor</th><th>UTC</th></tr></thead><tbody>
-            <?php foreach ($rows as $rx) { ?><tr><td><?= e(ms_clinical_service()->decrypt((string) $rx['medication_encrypted'])) ?></td><td><?= e(ms_clinical_service()->decrypt((string) $rx['dosage_encrypted'])) ?></td><td><?= e(ms_clinical_service()->decrypt($rx['instructions_encrypted'] ?? null) ?? '') ?></td><td><?= e((string) $rx['doctor_name']) ?></td><td><?= e((string) $rx['created_at']) ?></td></tr><?php } ?>
+            <div class="ms-table-wrap"><table class="ms-table"><thead><tr><th>Medication</th><th>Cost</th><th>Dosage</th><th>Instructions</th><th>Doctor</th><th>UTC</th></tr></thead><tbody>
+            <?php foreach ($rows as $rx) { $medication = ms_clinical_service()->decrypt((string) $rx['medication_encrypted']) ?? ''; ?><tr><td><?= e($medication) ?></td><td>KES <?= e(number_format(ClinicalCatalog::priceForMedication($medication) ?? 0)) ?></td><td><?= e(ms_clinical_service()->decrypt((string) $rx['dosage_encrypted'])) ?></td><td><?= e(ms_clinical_service()->decrypt($rx['instructions_encrypted'] ?? null) ?? '') ?></td><td><?= e((string) $rx['doctor_name']) ?></td><td><?= e((string) $rx['created_at']) ?></td></tr><?php } ?>
             </tbody></table></div>
         <?php } ?>
     <?php } ?>

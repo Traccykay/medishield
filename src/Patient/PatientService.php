@@ -152,7 +152,7 @@ final class PatientService
         $role = (string) $user['role'];
         $userId = (int) $user['user_id'];
 
-        if ($role === Rbac::ROLE_ADMIN) {
+        if (in_array($role, [Rbac::ROLE_ADMIN, Rbac::ROLE_RECEPTIONIST], true)) {
             return true;
         }
 

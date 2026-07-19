@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use MediShield\Security\Csrf;
+use MediShield\Clinical\ClinicalCatalog;
 
 require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
@@ -24,6 +25,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $result = ms_clinical_service()->dispense($rxId, (int) $user['user_id'], $status, $remarks);
         if ($result['ok']) {
+            if ($status === 'dispensed') {
+                ms_visit_service()->completePharmacyVisit((int) $rx['patient_id']);
+            }
             ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'pharmacist', 'action' => 'MEDICATION_DISPENSED', 'module' => 'pharmacy', 'affected_record_id' => (string) $rxId, 'status' => 'SUCCESS']);
             redirect('/pharmacy/prescriptions.php');
         }
@@ -37,6 +41,7 @@ layout_app_header('Dispense medication', $user, 'payments');
     <h1 class="ms-h1">Dispense medication</h1>
     <p class="ms-muted"><?= e((string) $rx['patient_name']) ?> (<?= e((string) $rx['patient_number']) ?>)</p>
     <p><strong>Medication:</strong> <?= e(ms_clinical_service()->decrypt((string) $rx['medication_encrypted'])) ?></p>
+    <p><strong>Billable amount:</strong> KES <?= e(number_format(ClinicalCatalog::priceForMedication(ms_clinical_service()->decrypt((string) $rx['medication_encrypted']) ?? '') ?? 0)) ?></p>
     <p><strong>Dosage:</strong> <?= e(ms_clinical_service()->decrypt((string) $rx['dosage_encrypted'])) ?></p>
     <p><strong>Instructions:</strong> <?= e(ms_clinical_service()->decrypt($rx['instructions_encrypted'] ?? null) ?? '') ?></p>
     <?php foreach ($errors as $msg) { layout_alert('danger', $msg); } ?>

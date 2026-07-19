@@ -44,6 +44,8 @@ use MediShield\Security\AuditChain;
 use MediShield\Security\Crypto;
 use MediShield\Security\PasswordPolicy;
 use MediShield\Support\Clock;
+use MediShield\Visit\VisitRepository;
+use MediShield\Visit\VisitService;
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
@@ -297,6 +299,22 @@ if (!function_exists('ms_clinical_service')) {
     {
         static $svc = null;
         return $svc ??= new ClinicalService(ms_clinical_repo(), ms_patient_repo(), ms_crypto());
+    }
+
+    if (!function_exists('ms_visit_repo')) {
+        function ms_visit_repo(): VisitRepository
+        {
+            static $repo = null;
+            return $repo ??= new VisitRepository(ms_db(), ms_clock());
+        }
+    }
+
+    if (!function_exists('ms_visit_service')) {
+        function ms_visit_service(): VisitService
+        {
+            static $svc = null;
+            return $svc ??= new VisitService(ms_visit_repo(), ms_patient_repo(), ms_user_repo());
+        }
     }
 }
 

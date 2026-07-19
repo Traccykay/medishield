@@ -7,7 +7,9 @@ require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('doctor');
 $patientId = (int) ($_GET['patient_id'] ?? 0);
-if ($patientId <= 0 || !ms_patient_service()->canViewPatient($user, $patientId)) {
+$visitId = (int) ($_GET['visit_id'] ?? 0);
+$visit = $visitId > 0 ? ms_visit_repo()->findById($visitId) : null;
+if ($patientId <= 0 || $visit === null || (int) $visit['patient_id'] !== $patientId || (int) $visit['doctor_id'] !== (int) $user['user_id'] || (string) $visit['status'] !== 'with_doctor') {
     deny_access($user, 'doctor:view_patient');
 }
 $patient = ms_patient_repo()->findById($patientId);
@@ -20,7 +22,7 @@ layout_app_header('Doctor patient view', $user, 'patients');
 <section class="ms-card">
     <div class="ms-card-head">
         <div><h1 class="ms-h1"><?= e((string) $patient['full_name']) ?></h1><p class="ms-muted"><?= e((string) $patient['patient_number']) ?></p></div>
-        <a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/doctor/add_diagnosis.php?patient_id=' . $patientId)) ?>">Add diagnosis</a>
+        <a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/doctor/add_diagnosis.php?patient_id=' . $patientId . '&visit_id=' . $visitId)) ?>">Add diagnosis</a>
     </div>
     <div class="ms-actions">
         <a class="ms-btn" href="<?= e(ms_url('/patient_profile.php?patient_id=' . $patientId)) ?>">Profile</a>
@@ -43,8 +45,8 @@ layout_app_header('Doctor patient view', $user, 'patients');
                 <p class="ms-muted">Created <?= e((string) $record['created_at']) ?></p>
                 <?php if ((int) $record['doctor_id'] === (int) $user['user_id']) { ?>
                     <div class="ms-actions">
-                        <a class="ms-btn ms-btn-sm" href="<?= e(ms_url('/doctor/request_lab.php?patient_id=' . $patientId . '&record_id=' . (int) $record['record_id'])) ?>">Request lab</a>
-                        <a class="ms-btn ms-btn-sm" href="<?= e(ms_url('/doctor/issue_prescription.php?patient_id=' . $patientId . '&record_id=' . (int) $record['record_id'])) ?>">Issue prescription</a>
+                        <a class="ms-btn ms-btn-sm" href="<?= e(ms_url('/doctor/request_lab.php?patient_id=' . $patientId . '&record_id=' . (int) $record['record_id'] . '&visit_id=' . $visitId)) ?>">Request lab</a>
+                        <a class="ms-btn ms-btn-sm" href="<?= e(ms_url('/doctor/issue_prescription.php?patient_id=' . $patientId . '&record_id=' . (int) $record['record_id'] . '&visit_id=' . $visitId)) ?>">Issue prescription</a>
                     </div>
                 <?php } ?>
             </div>

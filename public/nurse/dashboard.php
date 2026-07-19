@@ -6,18 +6,19 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('nurse');
-$patients = ms_patient_repo()->assignedPatientsForStaff((int) $user['user_id']);
+$patients = ms_visit_service()->nurseVisits((int) $user['user_id']);
 $recentVitals = ms_clinical_repo()->recentVitalsByNurse((int) $user['user_id']);
 
 layout_app_header('Nurse dashboard', $user, 'dashboard');
 ?>
 <section class="ms-card">
     <h1 class="ms-h1">Nurse dashboard</h1>
-    <p class="ms-muted">Record vitals for assigned patients and route them to a doctor.</p>
+    <p class="ms-muted">Record vitals and symptoms for triaged patients, then route them to an available doctor.</p>
+    <a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/nurse/triage.php')) ?>">Open triage queue</a>
 </section>
 
 <section class="ms-card">
-    <h2 class="ms-h2">Assigned patients</h2>
+    <h2 class="ms-h2">Patients in triage</h2>
     <?php if ($patients === []) { ?>
         <p class="ms-muted">No assigned patients yet.</p>
     <?php } else { ?>
@@ -31,9 +32,8 @@ layout_app_header('Nurse dashboard', $user, 'dashboard');
                         <td><?= e((string) $patient['full_name']) ?></td>
                         <td><?= e((string) $patient['date_of_birth']) ?></td>
                         <td>
-                            <a class="ms-btn ms-btn-sm" href="<?= e(ms_url('/nurse/add_vitals.php?patient_id=' . (int) $patient['patient_id'])) ?>">Vitals</a>
-                            <a class="ms-btn ms-btn-sm" href="<?= e(ms_url('/nurse/assign_doctor.php?patient_id=' . (int) $patient['patient_id'])) ?>">Assign doctor</a>
-                            <a class="ms-btn ms-btn-sm" href="<?= e(ms_url('/patient_profile.php?patient_id=' . (int) $patient['patient_id'])) ?>">Profile</a>
+                            <a class="ms-btn ms-btn-sm" href="<?= e(ms_url('/nurse/add_vitals.php?patient_id=' . (int) $patient['patient_id'] . '&visit_id=' . (int) $patient['visit_id'])) ?>">Vitals</a>
+                            <a class="ms-btn ms-btn-sm" href="<?= e(ms_url('/nurse/assign_doctor.php?patient_id=' . (int) $patient['patient_id'] . '&visit_id=' . (int) $patient['visit_id'])) ?>">Assign doctor</a>
                         </td>
                     </tr>
                 <?php } ?>

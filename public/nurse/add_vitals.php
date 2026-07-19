@@ -9,7 +9,10 @@ require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('nurse');
 $patientId = (int) ($_GET['patient_id'] ?? $_POST['patient_id'] ?? 0);
-if ($patientId <= 0 || !ms_patient_service()->canViewPatient($user, $patientId)) {
+$visitId = (int) ($_GET['visit_id'] ?? $_POST['visit_id'] ?? 0);
+$visit = $visitId > 0 ? ms_visit_repo()->findById($visitId) : null;
+if ($patientId <= 0 || !ms_patient_service()->canViewPatient($user, $patientId)
+    || ($visitId > 0 && ($visit === null || (int) $visit['patient_id'] !== $patientId || (int) $visit['nurse_id'] !== (int) $user['user_id'] || (string) $visit['status'] !== 'with_nurse'))) {
     deny_access($user, 'nurse:add_vitals');
 }
 $patient = ms_patient_repo()->findById($patientId);
@@ -42,6 +45,7 @@ layout_app_header('Record vitals', $user, 'patients');
     <form method="post" action="<?= e(ms_url('/nurse/add_vitals.php')) ?>">
         <input type="hidden" name="<?= e(Csrf::FIELD) ?>" value="<?= e($token) ?>">
         <input type="hidden" name="patient_id" value="<?= e((string) $patientId) ?>">
+        <input type="hidden" name="visit_id" value="<?= e((string) $visitId) ?>">
         <?php foreach ([
             'temperature_c' => 'Temperature C',
             'systolic_mmhg' => 'Systolic mmHg',

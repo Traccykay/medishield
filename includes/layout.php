@@ -95,6 +95,7 @@ if (!function_exists('layout_nav_items')) {
 
         return [
             'dashboard' => ['label' => 'Dashboard',          'path' => $dashboard],
+            'reception'=> ['label' => 'Reception',           'path' => '/reception/dashboard.php'],
             'users'     => ['label' => 'Users',              'path' => '/admin/users.php'],
             'patients'  => ['label' => 'Patients',           'path' => '/patients.php'],
             'reports'   => ['label' => 'Reports',            'path' => '/reports.php'],

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use MediShield\Security\Csrf;
+use MediShield\Clinical\ClinicalCatalog;
 
 require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
@@ -10,7 +11,9 @@ require_once __DIR__ . '/../../includes/layout.php';
 $user = require_area('doctor');
 $patientId = (int) ($_GET['patient_id'] ?? $_POST['patient_id'] ?? 0);
 $recordId = (int) ($_GET['record_id'] ?? $_POST['record_id'] ?? 0);
-if ($patientId <= 0 || !ms_patient_service()->canViewPatient($user, $patientId)) {
+$visitId = (int) ($_GET['visit_id'] ?? $_POST['visit_id'] ?? 0);
+$visit = $visitId > 0 ? ms_visit_repo()->findById($visitId) : null;
+if ($patientId <= 0 || $visit === null || (int) $visit['patient_id'] !== $patientId || (int) $visit['doctor_id'] !== (int) $user['user_id'] || (string) $visit['status'] !== 'with_doctor') {
     deny_access($user, 'doctor:issue_prescription');
 }
 $errors = [];
@@ -24,8 +27,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $result = ms_clinical_service()->issuePrescription($patientId, (int) $user['user_id'], $recordId, $medication, $dosage, $instructions);
         if ($result['ok']) {
+            ms_visit_service()->routeFromDoctor($visitId, (int) $user['user_id'], 'pharmacy');
             ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'doctor', 'action' => 'PRESCRIPTION_ISSUED', 'module' => 'doctor', 'affected_record_id' => (string) $result['prescription_id'], 'status' => 'SUCCESS']);
-            redirect('/doctor/view_patient.php?patient_id=' . $patientId);
+            redirect('/doctor/dashboard.php');
         }
         $errors = $result['errors'];
     }
@@ -40,8 +44,12 @@ layout_app_header('Issue prescription', $user, 'patients');
         <input type="hidden" name="<?= e(Csrf::FIELD) ?>" value="<?= e($token) ?>">
         <input type="hidden" name="patient_id" value="<?= e((string) $patientId) ?>">
         <input type="hidden" name="record_id" value="<?= e((string) $recordId) ?>">
-        <label class="ms-label" for="medication">Medication</label>
-        <textarea class="ms-input" id="medication" name="medication" rows="3" required><?= e($medication) ?></textarea>
+        <input type="hidden" name="visit_id" value="<?= e((string) $visitId) ?>">
+        <label class="ms-label" for="medication">Medication and cost</label>
+        <select class="ms-input" id="medication" name="medication" required>
+            <option value="">Select medication</option>
+            <?php foreach (ClinicalCatalog::MEDICATIONS as $name => $cost) { ?><option value="<?= e($name) ?>" <?= $medication === $name ? 'selected' : '' ?>><?= e($name) ?> — KES <?= e(number_format($cost)) ?></option><?php } ?>
+        </select>
         <label class="ms-label" for="dosage">Dosage</label>
         <textarea class="ms-input" id="dosage" name="dosage" rows="3" required><?= e($dosage) ?></textarea>
         <label class="ms-label" for="instructions">Instructions</label>

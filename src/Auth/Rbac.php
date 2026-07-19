@@ -9,7 +9,7 @@ namespace MediShield\Auth;
  * ----
  * Role-Based Access Control helpers (spec §6, §7, §15).
  *
- * MediShield has exactly six roles and each user has exactly one of them. This
+ * MediShield has seven roles and each user has exactly one of them. This
  * class answers two questions the application asks on every request:
  *   1. Is this a valid role string?
  *   2. May a user with role X enter area Y (e.g. the "admin" area)?
@@ -22,6 +22,7 @@ namespace MediShield\Auth;
 final class Rbac
 {
     public const ROLE_PATIENT    = 'patient';
+    public const ROLE_RECEPTIONIST = 'receptionist';
     public const ROLE_NURSE      = 'nurse';
     public const ROLE_DOCTOR     = 'doctor';
     public const ROLE_LAB        = 'lab';
@@ -31,6 +32,7 @@ final class Rbac
     /** The complete, ordered list of valid roles. */
     public const ROLES = [
         self::ROLE_PATIENT,
+        self::ROLE_RECEPTIONIST,
         self::ROLE_NURSE,
         self::ROLE_DOCTOR,
         self::ROLE_LAB,
@@ -45,6 +47,7 @@ final class Rbac
      */
     private const AREA_ROLES = [
         'admin'    => [self::ROLE_ADMIN],
+        'reception' => [self::ROLE_RECEPTIONIST],
         'patient'  => [self::ROLE_PATIENT],
         'nurse'    => [self::ROLE_NURSE],
         'doctor'   => [self::ROLE_DOCTOR],
@@ -90,10 +93,12 @@ final class Rbac
         // Admin-only management + security surfaces.
         'users'     => [self::ROLE_ADMIN],
         'audit'     => [self::ROLE_ADMIN],
+        'reception' => [self::ROLE_RECEPTIONIST],
         // Patient demographics/profile access. Actual record access is checked
         // against ownership/assignment by PatientService on each page.
         'patients'  => [
             self::ROLE_ADMIN,
+            self::ROLE_RECEPTIONIST,
             self::ROLE_PATIENT,
             self::ROLE_NURSE,
             self::ROLE_DOCTOR,
@@ -120,7 +125,7 @@ final class Rbac
      *
      * @var string[]
      */
-    private const NAV_ORDER = ['dashboard', 'users', 'patients', 'reports', 'payments', 'audit', 'logout'];
+    private const NAV_ORDER = ['dashboard', 'reception', 'users', 'patients', 'reports', 'payments', 'audit', 'logout'];
 
     /** True if a role may see/use the given sidebar nav key. */
     public static function canAccessNav(string $role, string $navKey): bool
@@ -148,6 +153,7 @@ final class Rbac
     {
         return match ($role) {
             self::ROLE_ADMIN      => '/admin/dashboard.php',
+            self::ROLE_RECEPTIONIST => '/reception/dashboard.php',
             self::ROLE_PATIENT    => '/patient/dashboard.php',
             self::ROLE_NURSE      => '/nurse/dashboard.php',
             self::ROLE_DOCTOR     => '/doctor/dashboard.php',

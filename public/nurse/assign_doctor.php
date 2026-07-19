@@ -9,7 +9,9 @@ require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('nurse');
 $patientId = (int) ($_GET['patient_id'] ?? $_POST['patient_id'] ?? 0);
-if ($patientId <= 0 || !ms_patient_service()->canViewPatient($user, $patientId)) {
+$visitId = (int) ($_GET['visit_id'] ?? $_POST['visit_id'] ?? 0);
+$visit = $visitId > 0 ? ms_visit_repo()->findById($visitId) : null;
+if ($patientId <= 0 || $visit === null || (int) $visit['patient_id'] !== $patientId || (int) $visit['nurse_id'] !== (int) $user['user_id'] || (string) $visit['status'] !== 'with_nurse') {
     deny_access($user, 'nurse:assign_doctor');
 }
 $patient = ms_patient_repo()->findById($patientId);
@@ -20,16 +22,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
         $errors[] = 'Your session has expired. Please try again.';
     } else {
-        $result = ms_patient_service()->assignPatient($patientId, $doctorId, (int) $user['user_id']);
+        $result = ms_visit_service()->assignDoctor($visitId, (int) $user['user_id'], $doctorId);
         if ($result['ok']) {
             ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'nurse', 'action' => 'ASSIGNMENT_CHANGED', 'module' => 'nurse', 'affected_record_id' => (string) $patientId, 'status' => 'SUCCESS']);
-            $success = 'Patient assigned to doctor.';
+            redirect('/nurse/dashboard.php');
         } else {
             $errors = $result['errors'];
         }
     }
 }
-$doctors = ms_user_repo()->listByRoles(['doctor']);
+$doctors = ms_visit_service()->availableDoctors();
 $assignments = ms_patient_repo()->assignmentsForPatient($patientId);
 $token = Csrf::token($_SESSION);
 layout_app_header('Assign doctor', $user, 'patients');
@@ -42,6 +44,7 @@ layout_app_header('Assign doctor', $user, 'patients');
     <form method="post" action="<?= e(ms_url('/nurse/assign_doctor.php')) ?>">
         <input type="hidden" name="<?= e(Csrf::FIELD) ?>" value="<?= e($token) ?>">
         <input type="hidden" name="patient_id" value="<?= e((string) $patientId) ?>">
+        <input type="hidden" name="visit_id" value="<?= e((string) $visitId) ?>">
         <label class="ms-label" for="doctor_id">Doctor</label>
         <select class="ms-input" id="doctor_id" name="doctor_id" required>
             <option value="">Select doctor</option>
@@ -51,7 +54,6 @@ layout_app_header('Assign doctor', $user, 'patients');
         </select>
         <button class="ms-btn ms-btn-primary ms-btn-block" type="submit">Assign doctor</button>
     </form>
-    <h2 class="ms-h2 ms-mt">Current assignments</h2>
-    <ul class="ms-list"><?php foreach ($assignments as $assignment) { ?><li><?= e((string) $assignment['full_name']) ?> - <?= e((string) $assignment['role']) ?></li><?php } ?></ul>
+    <p class="ms-help">Doctors with an active consultation are excluded from this list.</p>
 </section>
 <?php layout_app_footer(); ?>

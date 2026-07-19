@@ -30,8 +30,13 @@ body {
     margin: 0;
     font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     color: var(--ms-ink);
-    background: var(--ms-bg);
-    line-height: 1.5;
+    background:
+        linear-gradient(rgba(244, 246, 248, 0.90), rgba(244, 246, 248, 0.90)),
+        radial-gradient(circle at 10% 10%, #b8dcea 0 1px, transparent 2px),
+        radial-gradient(circle at 90% 85%, #cbe8d7 0 1px, transparent 2px);
+    background-size: auto, 34px 34px, 42px 42px;
+    line-height: 1.6;
+    font-size: 17px;
 }
 
 /* ---- Top navigation ---- */
@@ -97,10 +102,10 @@ body {
 }
 
 /* ---- Typography ---- */
-.ms-h1 { font-size: 1.5rem; margin: 0 0 0.5rem; }
-.ms-h2 { font-size: 1.2rem; margin: 0 0 0.75rem; }
+.ms-h1 { font-size: 1.7rem; margin: 0 0 0.5rem; }
+.ms-h2 { font-size: 1.35rem; margin: 0 0 0.75rem; }
 .ms-muted { color: var(--ms-muted); }
-.ms-help { color: var(--ms-muted); font-size: 0.85rem; margin: 0.25rem 0 0.75rem; }
+.ms-help { color: var(--ms-muted); font-size: 0.95rem; margin: 0.25rem 0 0.75rem; }
 .ms-mt { margin-top: 1rem; }
 
 /* ---- Forms ---- */
@@ -115,7 +120,7 @@ body {
     padding: 0.55rem 0.7rem;
     border: 1px solid var(--ms-border);
     border-radius: var(--ms-radius);
-    font-size: 1rem;
+    font-size: 1.05rem;
     background: #fff;
 }
 .ms-input:focus {
@@ -131,7 +136,7 @@ body {
     border-radius: var(--ms-radius);
     background: #eef2f5;
     color: var(--ms-ink);
-    font-size: 0.95rem;
+    font-size: 1rem;
     text-decoration: none;
     cursor: pointer;
 }
@@ -142,7 +147,7 @@ body {
     color: var(--ms-primary-ink);
 }
 .ms-btn-primary:hover { background: #095978; }
-.ms-btn-sm { padding: 0.3rem 0.6rem; font-size: 0.85rem; }
+.ms-btn-sm { padding: 0.3rem 0.6rem; font-size: 0.95rem; }
 .ms-btn-block { width: 100%; margin-top: 1rem; }
 
 /* ---- Alerts ---- */
@@ -151,7 +156,7 @@ body {
     border-radius: var(--ms-radius);
     margin: 0.5rem 0 1rem;
     border: 1px solid transparent;
-    font-size: 0.95rem;
+    font-size: 1rem;
 }
 .ms-alert-success { background: #e6f4ec; border-color: #b6dcc4; color: var(--ms-ok); }
 .ms-alert-danger  { background: #fbe9e8; border-color: #f0c2bf; color: var(--ms-bad); }
@@ -172,7 +177,7 @@ body {
 }
 .ms-stat { text-align: center; }
 .ms-stat-num { font-size: 1.8rem; font-weight: 700; }
-.ms-stat-label { color: var(--ms-muted); font-size: 0.85rem; }
+.ms-stat-label { color: var(--ms-muted); font-size: 0.95rem; }
 .ms-stat-ok   .ms-stat-num { color: var(--ms-ok); }
 .ms-stat-bad  .ms-stat-num { color: var(--ms-bad); }
 .ms-stat-warn .ms-stat-num { color: var(--ms-warn); }
@@ -182,7 +187,7 @@ body {
 .ms-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.9rem;
+    font-size: 0.98rem;
 }
 .ms-table th, .ms-table td {
     padding: 0.5rem 0.6rem;
@@ -256,7 +261,7 @@ body {
     color: var(--ms-ink);
     text-decoration: none;
     font-weight: 600;
-    font-size: 0.95rem;
+    font-size: 1rem;
 }
 .ms-sidebar-link:hover { background: #eef2f5; }
 .ms-sidebar-link.active {
