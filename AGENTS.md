@@ -36,6 +36,35 @@ MediShield is a plain PHP 8.1 + PDO + MySQL healthcare records system for XAMPP,
 - Pages live in `public/`; reusable business/security logic lives in `src/` classes so it is unit-testable. Pages should be thin glue.
 - SQL files live in `sql/`. Helper scripts live in `scripts/`.
 
+### Database schema changes (MANDATORY)
+
+Any application change that adds or changes a table, column, index, foreign key,
+`ENUM` value, constraint, seed value, or database-backed status/role vocabulary is
+incomplete unless the same change includes **both**:
+
+1. An update to `sql/schema.sql`, which is the authoritative schema for fresh
+   installations.
+2. A new or updated idempotent script in `sql/migrations/`, which upgrades an
+   existing database without requiring users to drop data or rebuild the database.
+
+Agents must not rely on `CREATE TABLE IF NOT EXISTS` to upgrade existing tables;
+it leaves an old table definition unchanged. Migration filenames must follow
+`YYYY-MM-DD_short_description.sql`, and `sql/migrations/README.md` must list and
+describe every migration.
+
+When application code introduces a new database vocabulary value (for example a
+role such as `receptionist`), update every relevant representation in the same
+change: PHP constants/validation, `sql/schema.sql`, the incremental migration,
+`tests/Support/TestSchema.php`, seeds/fixtures where applicable, and documentation.
+Run the migration against an existing database and verify the resulting definition
+with `SHOW CREATE TABLE` or an equivalent metadata query. Also verify a clean setup
+through `scripts/setup-db.ps1`; it must apply all migrations automatically.
+
+Never silently repair ambiguous production data in a migration. If existing rows
+need a data migration, make the mapping explicit and deterministic, document it,
+and test it. A schema-affecting feature must not be handed off with instructions
+for users to edit phpMyAdmin manually.
+
 ## 5. Environment setup & reproducibility (READ BEFORE RUNNING ANYTHING)
 
 The environment is reproduced entirely by the scripts in `scripts/` — never hand-edit
@@ -43,7 +72,7 @@ The environment is reproduced entirely by the scripts in `scripts/` — never ha
 
 1. `scripts\install-dependencies.ps1` (Administrator) — installs XAMPP 8.1 + Composer, then calls `configure-php-ini.ps1`, then `composer install`.
 2. `scripts\configure-php-ini.ps1` — **the single source of truth for PHP runtime config.** Idempotent; resolves the real PHP binary (follows Scoop shims via `PHP_BINARY`), creates `php.ini` from `php.ini-production` if missing, fixes `extension_dir`, enables every required extension, sets `date.timezone=UTC` / `memory_limit=256M`, and verifies with `php -m`.
-3. `scripts\setup-db.ps1` — creates `medishield_db`, loads `sql\schema.sql` + `sql\seed.sql`, generates `config\config.php` from the sample.
+3. `scripts\setup-db.ps1` — creates `medishield_db`, loads `sql\schema.sql` + `sql\seed.sql`, applies every idempotent script in `sql\migrations\`, and generates `config\config.php` from the sample.
 
 **Required PHP extensions** (canonical list lives in `$RequiredExtensions` inside `configure-php-ini.ps1`): `openssl`, `mbstring`, `pdo_mysql`, `mysqli`, `pdo_sqlite`, `sqlite3`, `fileinfo`, `zip`.
 
@@ -83,6 +112,11 @@ The environment is reproduced entirely by the scripts in `scripts/` — never ha
 
 - All tests must pass before commit (current baseline: 46 passing).
 - DB-dependent code must accept an injected `PDO` so it can be tested against SQLite. Use portable SQL so the same class runs on MySQL (prod) and SQLite (tests); gate MySQL-only syntax (e.g. `FOR UPDATE`) on the driver name.
+- For every schema-affecting change, test both upgrade paths: apply the migration
+  to a database created from the previous schema, and run `scripts/setup-db.ps1`
+  for the fresh/current-schema path. Confirm that both produce the same relevant
+  table definition and that the application operation which required the change
+  succeeds without SQL warnings.
 
 ## 8. Git / commit conventions
 
@@ -106,5 +140,11 @@ The environment is reproduced entirely by the scripts in `scripts/` — never ha
 - State-changing forms have CSRF protection.
 - Audit logging is wired for sensitive actions and uses the HMAC hash chain.
 - User-facing errors are generic; details are logged to `logs/app_errors.log`.
+- Every schema-affecting change updates `sql/schema.sql`,
+  `tests/Support/TestSchema.php`, and an idempotent `sql/migrations/*.sql` upgrade;
+  the migration is documented in `sql/migrations/README.md` and verified against
+  an existing database.
+- `scripts/setup-db.ps1` successfully applies the full schema, seed, and migration
+  sequence without manual phpMyAdmin steps.
 - Any new directory has a `README.md`; any new PHP extension is added to `$RequiredExtensions` in `scripts/configure-php-ini.ps1`.
 - `README.md` and this file are updated if conventions or workflows change.
