@@ -19,6 +19,9 @@ Run them from the repository root in this order:
 |--------|------|--------------|
 | `purge-audit-pii.php` | cron / Task Scheduler (e.g. daily) | Scrubs PII (`attempted_identifier`, the email typed on a failed login) from `audit_logs` rows older than `audit.pii_retention_days`. Never deletes rows and never touches the hash chain, so `verifyChain()` stays ok. Needs a DB account with `UPDATE` on `audit_logs`. See `src/Audit/README.md`. |
 
+| `setup-ui-test-db.ps1` | before Playwright UI tests | Rebuilds the disposable `medishield_ui_test` database. Playwright calls this automatically and never modifies development data. |
+| `run-ui-tests.ps1` | before submitting UI-affecting changes | Checks required runtimes, installs pinned Playwright dependencies/Chromium when absent, then runs the full isolated browser workflow suite. Pass `-Demo` for a visible, slowed, recorded supervisor walkthrough. |
+
 ```powershell
 # Use the retention window from config (audit.pii_retention_days, default 90):
 php scripts\purge-audit-pii.php

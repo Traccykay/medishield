@@ -1,35 +1,45 @@
-# `tests/` — Automated Test Suite (TDD)
+# `tests/` — PHP automated tests
 
-MediShield is built test-first. Every behaviour in `src/` has a corresponding
-test here, and the suite must be green before any commit.
+If you are new to PHP, you do not need to understand the test code to run it.
+These checks exercise the application's rules directly, such as login
+protection, encryption, patient validation, and workflow state changes. Run
+them after changing PHP code, or before sharing a change with someone else.
+
+For cloning and first-time installation, start with the [root README](../README.md).
 
 ## Layout
 
 | Folder | Contents |
 |--------|----------|
-| `Unit/` | Pure-logic tests with no I/O — crypto, password policy, CSRF, RBAC, audit hash chain. Fast and deterministic. |
-| `Integration/` | Tests that exercise classes against a real (in-memory SQLite) database via an injected `PDO` — repositories and services. |
-| `Support/` | Shared test helpers (e.g. `TestSchema.php`, which builds the SQLite schema the integration tests run against). |
+| `Unit/` | Pure-logic tests with no I/O — crypto, password policy, CSRF, RBAC, and the audit hash chain. |
+| `Integration/` | Tests that exercise classes against a real in-memory SQLite database through an injected `PDO`. |
+| `Support/` | Shared test helpers, including `TestSchema.php`, which creates the temporary test database. |
 
 ## Running the suite
 
-```powershell
-# One-time / after pulling new extension requirements:
-scripts\configure-php-ini.ps1
+1. Open PowerShell in the repository folder.
+2. Ensure PHP requirements and Composer libraries are installed:
 
-composer install
-vendor\bin\phpunit
-```
+   ```powershell
+   .\scripts\configure-php-ini.ps1
+   composer install
+   ```
 
-Suites are defined in `../phpunit.xml` (`Unit` and `Integration`). Current
-baseline: **46 tests passing**.
+3. Run the checks:
 
-## Conventions
+   ```powershell
+   .\vendor\bin\phpunit
+   ```
 
-- **Write a failing test first, then implement** (red → green → refactor).
-- DB-dependent classes accept an injected `PDO`, so the same production code runs
-  against MySQL/MariaDB in prod and in-memory SQLite in tests. Use portable SQL;
-  gate MySQL-only syntax (e.g. `FOR UPDATE`) on the PDO driver name.
-- Use a fixed `Clock` for time-dependent logic (lockout windows, timestamps) so
-  tests are deterministic.
-- Namespaces map PSR-4 `MediShield\Tests\` → `tests/`.
+A successful run ends with `OK`. These tests use a temporary in-memory
+database, so they do not require MySQL and do not alter your local application
+data.
+
+Suites are defined in `../phpunit.xml` (`Unit` and `Integration`).
+
+## Conventions for contributors
+
+- Write a failing test before changing behavior, then make it pass.
+- Database-dependent classes accept an injected `PDO`, so production code works
+  with MySQL/MariaDB while these tests use SQLite.
+- Use a fixed `Clock` for time-dependent logic so tests remain repeatable.

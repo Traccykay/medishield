@@ -69,6 +69,15 @@ if (!function_exists('ms_config')) {
         $sample = __DIR__ . '/../config/config.sample.php';
         $config = require (is_file($real) ? $real : $sample);
 
+        $testDatabase = getenv('MEDISHIELD_DB_NAME');
+        if (is_string($testDatabase) && $testDatabase !== '') {
+            $config['db']['name'] = $testDatabase;
+        }
+        $testMailDir = getenv('MEDISHIELD_MAIL_DUMP_DIR');
+        if (is_string($testMailDir) && $testMailDir !== '') {
+            $config['mail']['dump_dir'] = $testMailDir;
+        }
+
         return $config;
     }
 }

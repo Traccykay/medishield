@@ -60,121 +60,102 @@ medishield/
   tests/ (Unit/, Integration/)
 ```
 
-## Prerequisites
+## First-time setup on Windows
 
-- Windows with **XAMPP 8.1** installed or installable
-- **PHP 8.1** with `pdo_mysql`, `openssl`, and `mbstring`
-- **Composer**
-- **Git for Windows**
-- MySQL 8 or MariaDB through XAMPP
+These instructions assume no PHP experience. You only need a Windows computer,
+internet access, and permission to install development tools. Do not edit PHP
+files or database files to get started.
 
-## Setup & Installation
+### What you will install
 
-1. **Clone the repository**
+| Tool | Why it is needed | How it is installed |
+| --- | --- | --- |
+| Git | Downloads future updates from GitHub | Install [Git for Windows](https://git-scm.com/download/win) before step 1. |
+| XAMPP, PHP, Composer | Runs the application and its PHP tests | The project installer adds them for you. |
+| MySQL/MariaDB | Stores the local demo data | Included with XAMPP. |
+| Node.js LTS | Runs the browser UI tests and demonstration | Install the current LTS release from [nodejs.org](https://nodejs.org/). |
 
-   ```powershell
-   git clone <repository-url> medishield
-   cd medishield
-   ```
+### 1. Download the project
 
-2. **Install dependencies**
+Open **PowerShell** and choose a folder where you keep projects, for example
+your Documents folder. Then copy and run:
 
-   This script installs or verifies XAMPP, Composer, and PHP dependencies. It
-   also calls `configure-php-ini.ps1` to enable every required PHP extension and
-   apply the baseline INI settings, so the environment is identical on every
-   machine.
+```powershell
+cd $HOME\Documents
+git clone https://github.com/Traccykay/medishield.git
+cd medishield
+```
 
-   ```powershell
-   .\scripts\install-dependencies.ps1
-   ```
+If `git` is not recognized, install Git for Windows from the link above, close
+PowerShell, open it again, and repeat the commands. If you cannot install Git,
+download the repository ZIP from GitHub, extract it, and open PowerShell in the
+extracted `medishield` folder instead.
 
-   > If PHP is already installed (or you are not running as Administrator), you can
-   > configure `php.ini` on its own:
-   >
-   > ```powershell
-   > .\scripts\configure-php-ini.ps1            # php.exe on PATH
-   > .\scripts\configure-php-ini.ps1 -PhpExe C:\xampp\php\php.exe
-   > ```
-   >
-   > See `scripts/README.md` for the canonical extension list. When you add a new
-   > PHP dependency, update `$RequiredExtensions` in `configure-php-ini.ps1`.
+### 2. Install the application requirements
 
-3. **Create and seed the database**
+Open **PowerShell as Administrator**: search for PowerShell in the Start menu,
+right-click it, then select **Run as administrator**. Change to the cloned
+folder and run:
 
-   This creates `medishield_db` and loads `sql\schema.sql` and `sql\seed.sql`.
+```powershell
+cd $HOME\Documents\medishield
+.\scripts\install-dependencies.ps1
+```
+
+This may take several minutes. It installs missing XAMPP, PHP, Composer, and
+other PHP requirements, then downloads the PHP libraries. A successful run
+returns you to the prompt without an error.
+
+Install Node.js LTS separately if it is not already installed, then open a new
+PowerShell window and check it:
+
+```powershell
+node --version
+npm --version
+```
+
+Each command should print a version number.
+
+### 3. Start the database and create local data
+
+1. Open the **XAMPP Control Panel** from the Start menu.
+2. Select **Start** next to **MySQL**. Its status should turn green.
+3. In a normal PowerShell window at the repository folder, run:
 
    ```powershell
    .\scripts\setup-db.ps1
    ```
 
-4. **Configure the application**
+This creates a local database named `medishield_db`, adds example administrator
+data, applies upgrades, and creates your private `config\config.php` file. The
+configuration file is intentionally not uploaded to GitHub.
 
-   Copy the sample config to the local config file and adjust database credentials and security keys as needed. The setup script may perform this copy automatically.
+### 4. Start the application
 
-   ```powershell
-   Copy-Item .\config\config.sample.php .\config\config.php
-   ```
+In the same PowerShell window, run:
 
-   Ensure `config.php` contains strong local values for encryption and audit HMAC keys.
+```powershell
+php -S 127.0.0.1:8000 -t public
+```
 
-5. **Serve through XAMPP**
+Leave that window open; it is the local web server. Open
+<http://127.0.0.1:8000/> in a browser. To stop the server later, return to that
+window and press `Ctrl+C`.
 
-   The application is served from the **`public/`** folder (the web root). Two
-   supported options:
-
-   **Option A — copy the project into `htdocs` (simplest):**
-
-   Copy the **entire `medishield` folder** into XAMPP's `htdocs`, so the path is:
-
-   ```text
-   C:\xampp\htdocs\medishield\        <- the whole repo (config, src, public, ...)
-   C:\xampp\htdocs\medishield\public\ <- the only folder the browser reaches
-   ```
-
-   Start **Apache** and **MySQL** from the XAMPP Control Panel, then browse to:
-
-   ```text
-   http://localhost/medishield/public/
-   ```
-
-   The app auto-detects this sub-folder, so CSS, links, and redirects all work
-   from `/medishield/public/...` without any edits.
-
-   **Option B — virtual host with DocumentRoot = `public/` (cleaner URLs):**
-
-   Point an Apache virtual host's `DocumentRoot` (and `<Directory>`) at the
-   project's `public\` folder, then browse to `http://localhost/`. Keep `config/`,
-   `src/`, `includes/`, `sql/`, and `vendor/` **outside** the web root — only
-   `public/` should be reachable over HTTP.
-
-   > Do **not** open `http://localhost/medishield/` (without `/public/`): the web
-   > root is `public/`, so the entry point is `.../public/index.php`. Opening the
-   > repo root will show a directory listing or 404, not the app.
-
-   **Option C — quick run without XAMPP (PHP built-in server):**
-
-   ```powershell
-   php -S 127.0.0.1:8000 -t public
-   # then open http://127.0.0.1:8000/
-   ```
-
-## Default Superadmin Credentials
-
-Use these credentials for the first login:
+### 5. Sign in for the first time
 
 | Field | Value |
 | --- | --- |
 | Email | `medishield.superadmin@gmail.com` |
 | Password | `ChangeMe!2026` |
 
-The default password must be changed on first login. The superadmin account is used to register all other users and assign roles.
+The first sign-in requires a password change and an OTP. During local
+development the OTP is written to the newest file in `logs\mail\`; open that
+file in Notepad and copy the code into the browser.
 
-> **Two-factor login & account activation:** after the email + password step, login
-> requires a one-time code (OTP), and admin-created users activate their account via
-> an emailed link where they set their own password. In development no real email is
-> sent — each message (OTP code / activation link) is written to `logs/mail/`. See
-> [`docs/DESIGN_DATAFLOW.md`](docs/DESIGN_DATAFLOW.md) for the full data flow, the
-> files changed, how to test each feature, and the design tradeoffs.
+> For a development demo, the generated `config\config.php` uses local sample
+> keys. Never use those keys, the example administrator password, or the local
+> email-file delivery mechanism for real patient data.
 
 ## Running Tests
 
@@ -190,6 +171,36 @@ If needed, PHPUnit can also be run through PHP directly:
 ```powershell
 php vendor/bin/phpunit
 ```
+
+### Browser UI tests and supervisor demonstration
+
+Browser UI tests act like a scripted user: they open the real application,
+sign in with test-only accounts, click through the hospital workflow, and check
+the result at each step. They use a separate `medishield_ui_test` database and
+delete/recreate **only that test database** on every run. Your `medishield_db`
+demo data is not changed.
+
+Before running them, ensure XAMPP MySQL is running. From the repository root,
+run:
+
+```powershell
+.\scripts\run-ui-tests.ps1
+```
+
+The runner installs the exact Node dependencies and Chromium browser it needs
+when absent. A successful run ends with `3 passed`. If it fails, open the
+`test-results` folder to find a screenshot, video, and trace explaining where.
+See [`e2e/README.md`](e2e/README.md) for troubleshooting.
+
+For a live, scripted walkthrough rather than manual login/logout, run:
+
+```powershell
+.\scripts\run-ui-tests.ps1 -Demo
+```
+
+This opens Chromium, slows each test action, and records successful scenarios.
+Do not click in the browser while it is running. It is the recommended
+supervisor walkthrough because it repeats the same checked workflow every time.
 
 ## Deliverable Status
 

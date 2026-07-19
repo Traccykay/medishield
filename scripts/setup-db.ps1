@@ -27,13 +27,18 @@ function Get-XamppMysqlPath {
         'C:\tools\mysql\bin\mysql.exe'
     )
 
+    $mysqlCommand = Get-Command mysql.exe -ErrorAction SilentlyContinue
+    if ($null -ne $mysqlCommand -and (Test-Path -LiteralPath $mysqlCommand.Source)) {
+        return $mysqlCommand.Source
+    }
+
     foreach ($candidate in $candidates) {
         if (Test-Path -LiteralPath $candidate) {
             return $candidate
         }
     }
 
-    throw "mysql.exe was not found. Checked: $($candidates -join ', '). Install XAMPP 8.1 first."
+    throw "mysql.exe was not found. Checked: $($candidates -join ', ') and PATH. Install XAMPP 8.1 or MariaDB via Scoop first."
 }
 
 function Get-MySqlBaseArgs {
@@ -154,7 +159,7 @@ try {
     Write-Host ''
     Write-Host 'Database setup completed successfully.' -ForegroundColor Green
     Write-Host 'Superadmin login:'
-    Write-Host '  Email:    superadmin@medishield.local'
+    Write-Host '  Email:    medishield.superadmin@gmail.com'
     Write-Host '  Password: ChangeMe!2026'
 }
 catch {
