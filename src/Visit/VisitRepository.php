@@ -67,18 +67,20 @@ final class VisitRepository
     {
         $stmt = $this->pdo->prepare(
             'UPDATE visits
-                SET status = :status,
+                SET status = :new_status,
                     nurse_id = COALESCE(:nurse_id, nurse_id),
-                    doctor_id = COALESCE(:doctor_id, doctor_id),
-                    active_doctor_id = CASE WHEN :status = :busy_status THEN COALESCE(:doctor_id, doctor_id) ELSE NULL END,
+                    doctor_id = COALESCE(:new_doctor_id, doctor_id),
+                    active_doctor_id = CASE WHEN :active_status = :busy_status THEN COALESCE(:active_doctor_id, doctor_id) ELSE NULL END,
                     updated_at = :updated_at
               WHERE visit_id = :visit_id'
         );
         $stmt->execute([
-            ':status' => $status,
+            ':new_status' => $status,
+            ':active_status' => $status,
             ':busy_status' => 'with_doctor',
             ':nurse_id' => $nurseId,
-            ':doctor_id' => $doctorId,
+            ':new_doctor_id' => $doctorId,
+            ':active_doctor_id' => $doctorId,
             ':updated_at' => $this->clock->nowString(),
             ':visit_id' => $visitId,
         ]);
@@ -89,12 +91,13 @@ final class VisitRepository
     {
         $stmt = $this->pdo->prepare(
             'UPDATE visits
-                SET status = :status, doctor_id = :doctor_id, active_doctor_id = :doctor_id, updated_at = :updated_at
+                SET status = :status, doctor_id = :assigned_doctor_id, active_doctor_id = :active_doctor_id, updated_at = :updated_at
               WHERE visit_id = :visit_id AND nurse_id = :nurse_id AND status = :waiting_status'
         );
         $stmt->execute([
             ':status' => 'with_doctor',
-            ':doctor_id' => $doctorId,
+            ':assigned_doctor_id' => $doctorId,
+            ':active_doctor_id' => $doctorId,
             ':updated_at' => $this->clock->nowString(),
             ':visit_id' => $visitId,
             ':nurse_id' => $nurseId,

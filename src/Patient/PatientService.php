@@ -65,8 +65,12 @@ final class PatientService
             $errors[] = 'Gender must be male, female, or other.';
         }
 
-        if ($phone !== null && mb_strlen($phone) > 30) {
-            $errors[] = 'Phone must be 30 characters or fewer.';
+        if ($phone !== null && !$this->isKenyanMobileNumber($phone)) {
+            $errors[] = 'Phone must be a valid Kenyan mobile number.';
+        }
+
+        if ($emergency !== null && !$this->containsKenyanMobileNumber($emergency)) {
+            $errors[] = 'Emergency contact must contain a valid Kenyan mobile number.';
         }
 
         if ($userIdRaw !== '') {
@@ -225,5 +229,20 @@ final class PatientService
     {
         $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value, new \DateTimeZone('UTC'));
         return $date instanceof \DateTimeImmutable && $date->format('Y-m-d') === $value;
+    }
+
+    /**
+     * Kenyan mobile numbers use 07/01 locally or 254/+254 internationally,
+     * followed by eight subscriber digits.
+     */
+    private function isKenyanMobileNumber(string $value): bool
+    {
+        return preg_match('/^(?:\+254|254|0)[71]\d{8}$/', $value) === 1;
+    }
+
+    /** Emergency contact permits a descriptive name but requires a Kenyan number. */
+    private function containsKenyanMobileNumber(string $value): bool
+    {
+        return preg_match('/(?:^|[\s:,-])(?:\+254|254|0)[71]\d{8}(?:$|[\s,.-])/', $value) === 1;
     }
 }

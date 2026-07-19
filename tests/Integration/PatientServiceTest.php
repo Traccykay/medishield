@@ -70,6 +70,38 @@ final class PatientServiceTest extends TestCase
         self::assertContains('Gender must be male, female, or other.', $result['errors']);
     }
 
+    public function testRegistersKenyanMobileNumbersInLocalAndInternationalFormats(): void
+    {
+        foreach (['0712345678', '254712345678', '+254712345678'] as $index => $phone) {
+            $result = $this->service->registerPatient([
+                'patient_number' => 'MSH-PHONE-' . $index,
+                'full_name' => 'Phone Patient ' . $index,
+                'date_of_birth' => '1990-01-01',
+                'gender' => 'female',
+                'phone' => $phone,
+                'emergency_contact' => '+254733123456',
+            ]);
+
+            self::assertTrue($result['ok'], implode(', ', $result['errors']));
+        }
+    }
+
+    public function testRejectsMalformedOrNonKenyanPhoneNumbers(): void
+    {
+        $result = $this->service->registerPatient([
+            'patient_number' => 'MSH-PHONE-BAD',
+            'full_name' => 'Invalid Phone Patient',
+            'date_of_birth' => '1990-01-01',
+            'gender' => 'female',
+            'phone' => '12345',
+            'emergency_contact' => '+15551234567',
+        ]);
+
+        self::assertFalse($result['ok']);
+        self::assertContains('Phone must be a valid Kenyan mobile number.', $result['errors']);
+        self::assertContains('Emergency contact must contain a valid Kenyan mobile number.', $result['errors']);
+    }
+
     public function testRejectsDuplicatePatientNumber(): void
     {
         $this->registerFixturePatient('MSH-0002', 'First Patient');

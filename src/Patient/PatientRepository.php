@@ -107,13 +107,16 @@ final class PatientRepository
 
         $stmt = $this->pdo->prepare(
             'SELECT * FROM patients
-              WHERE patient_number LIKE :term
-                 OR full_name LIKE :term
-                 OR phone LIKE :term
+              WHERE patient_number LIKE :number_term
+                OR full_name LIKE :name_term
+                OR phone LIKE :phone_term
               ORDER BY patient_id DESC
               LIMIT :limit'
         );
-        $stmt->bindValue(':term', '%' . $term . '%');
+        $pattern = '%' . $term . '%';
+        $stmt->bindValue(':number_term', $pattern);
+        $stmt->bindValue(':name_term', $pattern);
+        $stmt->bindValue(':phone_term', $pattern);
         $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
         return $stmt->fetchAll();

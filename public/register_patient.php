@@ -131,8 +131,9 @@ layout_app_header('Register patient', $user, 'patients');
         </select>
 
         <label class="ms-label" for="phone">Phone</label>
-        <input class="ms-input" type="text" id="phone" name="phone"
-               value="<?= e($values['phone']) ?>" maxlength="30">
+        <input class="ms-input" type="tel" id="phone" name="phone"
+               value="<?= e($values['phone']) ?>" maxlength="13" pattern="(?:\+254|254|0)[71][0-9]{8}" placeholder="0712345678 or +254712345678">
+        <p class="ms-help">Use a Kenyan mobile number: 07/01, 254, or +254 format.</p>
 
         <label class="ms-label" for="address">Address</label>
         <textarea class="ms-input" id="address" name="address" rows="3" maxlength="255"><?= e($values['address']) ?></textarea>
@@ -140,6 +141,7 @@ layout_app_header('Register patient', $user, 'patients');
         <label class="ms-label" for="emergency_contact">Emergency contact</label>
         <input class="ms-input" type="text" id="emergency_contact" name="emergency_contact"
                value="<?= e($values['emergency_contact']) ?>" maxlength="150">
+        <p class="ms-help">Enter a contact name and valid Kenyan mobile number, for example: Jane Doe +254712345678.</p>
 
         <button class="ms-btn ms-btn-primary ms-btn-block" type="submit">Register patient</button>
     </form>
