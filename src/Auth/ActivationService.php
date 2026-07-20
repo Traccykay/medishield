@@ -111,7 +111,13 @@ final class ActivationService
             return ['ok' => false, 'errors' => $errors, 'user_id' => $userId];
         }
 
-        $this->users->activate($userId, password_hash($password, PASSWORD_DEFAULT));
+        $passwordHash = password_hash($password, PASSWORD_DEFAULT);
+        $updated = (string) $user['status'] === 'active'
+            ? $this->users->resetActiveAccountPassword($userId, $passwordHash)
+            : $this->users->activatePendingAccount($userId, $passwordHash);
+        if (!$updated) {
+            return ['ok' => false, 'errors' => ['This activation link is invalid or has already been used.'], 'user_id' => null];
+        }
         $this->activations->markUsed((int) $row['activation_id']);
 
         return ['ok' => true, 'errors' => [], 'user_id' => $userId];

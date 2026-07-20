@@ -89,7 +89,7 @@ final class SessionValidatorTest extends TestCase
             false
         );
         $preservedSession = $this->sessions->createAuthenticatedSession((array) $this->users->findById($userId));
-        $this->users->activate($userId, password_hash('Reset!Pass456', PASSWORD_DEFAULT));
+        $this->users->updatePassword($userId, password_hash('Reset!Pass456', PASSWORD_DEFAULT));
 
         self::assertNull(
             $this->sessions->authenticateSession($preservedSession),

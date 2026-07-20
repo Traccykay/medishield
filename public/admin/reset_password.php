@@ -13,7 +13,7 @@ if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null) || $userId <= 0) {
 }
 
 $target = ms_user_repo()->findById($userId);
-if ($target === null) {
+if ($target === null || (string) $target['status'] !== 'active') {
     redirect('/admin/users.php');
 }
 

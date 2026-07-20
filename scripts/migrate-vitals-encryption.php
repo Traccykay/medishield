@@ -10,6 +10,12 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 $configPath = __DIR__ . '/../config/config.php';
 $config = require (is_file($configPath) ? $configPath : __DIR__ . '/../config/config.sample.php');
+$setupUser = getenv('MEDISHIELD_SETUP_DB_USER');
+$setupPass = getenv('MEDISHIELD_SETUP_DB_PASS');
+if (is_string($setupUser) && $setupUser !== '') {
+    $config['db']['user'] = $setupUser;
+    $config['db']['pass'] = is_string($setupPass) ? $setupPass : '';
+}
 
 (new VitalEncryptionMigration(
     Connection::fromConfig($config),

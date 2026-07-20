@@ -3,7 +3,7 @@
 Creates and seeds the MediShield MySQL database.
 
 .DESCRIPTION
-Run this after XAMPP is installed and MySQL is running from the XAMPP Control Panel. The script creates the database, loads sql\schema.sql and sql\seed.sql, and creates config\config.php from config\config.sample.php when needed.
+Run this after XAMPP is installed and MySQL is running from the XAMPP Control Panel. The script creates the database, loads sql\schema.sql and sql\seed.sql, creates a least-privilege web account, and generates config\config.php with unique cryptographic keys when needed.
 
 .USAGE
 powershell -ExecutionPolicy Bypass -File scripts\setup-db.ps1
@@ -107,6 +107,35 @@ function Invoke-MySqlScriptFile {
     }
 }
 
+function New-SetupSecret {
+    $bytes = New-Object byte[] 32
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $rng.GetBytes($bytes)
+    } finally {
+        $rng.Dispose()
+    }
+    return ([BitConverter]::ToString($bytes).Replace('-', '')).ToLowerInvariant()
+}
+
+function Write-ApplicationConfig {
+    param(
+        [Parameter(Mandatory = $true)][string]$SamplePath,
+        [Parameter(Mandatory = $true)][string]$DestinationPath,
+        [Parameter(Mandatory = $true)][string]$DatabaseName,
+        [Parameter(Mandatory = $true)][string]$DatabasePassword,
+        [Parameter(Mandatory = $true)][string]$EncryptionKey,
+        [Parameter(Mandatory = $true)][string]$AuditKey
+    )
+
+    $config = Get-Content -LiteralPath $SamplePath -Raw
+    $config = $config.Replace("'name'    => 'medishield_db'", "'name'    => '$DatabaseName'")
+    $config = $config.Replace('__DB_PASSWORD__', $DatabasePassword)
+    $config = $config.Replace('__ENCRYPTION_KEY__', $EncryptionKey)
+    $config = $config.Replace('__AUDIT_HMAC_KEY__', $AuditKey)
+    Set-Content -LiteralPath $DestinationPath -Value $config -NoNewline
+}
+
 try {
     Write-Host 'MediShield database setup starting...' -ForegroundColor Cyan
 
@@ -127,16 +156,39 @@ try {
     $configSamplePath = Join-Path $repoRoot 'config\config.sample.php'
     $configPath = Join-Path $repoRoot 'config\config.php'
 
-    if (-not (Test-Path -LiteralPath $configPath)) {
-        if (-not (Test-Path -LiteralPath $configSamplePath)) {
-            throw "Config sample not found at '$configSamplePath'. Ensure config\config.sample.php exists before running this script."
-        }
-
-        Copy-Item -LiteralPath $configSamplePath -Destination $configPath
-        Write-Host "Created config file: $configPath"
+    if (-not (Test-Path -LiteralPath $configSamplePath)) {
+        throw "Config sample not found at '$configSamplePath'. Ensure config\config.sample.php exists before running this script."
     }
-    else {
-        Write-Host "Config file already exists: $configPath"
+
+    $provisionApplicationUser = $false
+    if (-not (Test-Path -LiteralPath $configPath)) {
+        $appPassword = New-SetupSecret
+        $encryptionKey = New-SetupSecret
+        $auditKey = New-SetupSecret
+        Write-ApplicationConfig -SamplePath $configSamplePath -DestinationPath $configPath -DatabaseName $DbName -DatabasePassword $appPassword -EncryptionKey $encryptionKey -AuditKey $auditKey
+        Write-Host "Created generated application configuration: $configPath"
+        $provisionApplicationUser = $true
+    } else {
+        $existingConfig = Get-Content -LiteralPath $configPath -Raw
+        if ($existingConfig -match "'user'\s*=>\s*'root'") {
+            $appPassword = New-SetupSecret
+            Copy-Item -LiteralPath $configPath -Destination "$configPath.pre-hardening.bak"
+            $existingConfig = $existingConfig -replace "'user'\s*=>\s*'root'", "'user'    => 'medishield_app'"
+            $existingConfig = $existingConfig -replace "'pass'\s*=>\s*''", "'pass'    => '$appPassword'"
+            Set-Content -LiteralPath $configPath -Value $existingConfig -NoNewline
+            Write-Host "Migrated legacy root database credentials; backup saved beside config.php"
+            $provisionApplicationUser = $true
+        } else {
+            Write-Host "Config file already exists: $configPath (preserving existing secrets)"
+        }
+    }
+
+    if ($provisionApplicationUser) {
+        $appUserSql = "CREATE USER IF NOT EXISTS 'medishield_app'@'127.0.0.1' IDENTIFIED BY '$appPassword'; ALTER USER 'medishield_app'@'127.0.0.1' IDENTIFIED BY '$appPassword'; GRANT SELECT, INSERT, UPDATE, DELETE ON ``$DbName``.* TO 'medishield_app'@'127.0.0.1'; FLUSH PRIVILEGES;"
+        Invoke-MySqlCommand -MySqlPath $mysql -Arguments ($baseArgs + @("--execute=$appUserSql")) -Description 'Application database account provisioning'
+    } else {
+        $appGrantSql = "GRANT SELECT, INSERT, UPDATE, DELETE ON ``$DbName``.* TO 'medishield_app'@'127.0.0.1'; FLUSH PRIVILEGES;"
+        Invoke-MySqlCommand -MySqlPath $mysql -Arguments ($baseArgs + @("--execute=$appGrantSql")) -Description 'Application database account privilege update'
     }
 
     Write-Host "Loading schema from $schemaPath"
@@ -161,7 +213,11 @@ try {
         throw "Vitals encryption migration not found at '$vitalsMigrationPath'."
     }
     Write-Host 'Encrypting legacy vitals, if any'
+    $env:MEDISHIELD_SETUP_DB_USER = $DbUser
+    $env:MEDISHIELD_SETUP_DB_PASS = $DbPass
     & php $vitalsMigrationPath
+    Remove-Item Env:MEDISHIELD_SETUP_DB_USER -ErrorAction SilentlyContinue
+    Remove-Item Env:MEDISHIELD_SETUP_DB_PASS -ErrorAction SilentlyContinue
     if ($LASTEXITCODE -ne 0) {
         throw "Vitals encryption migration failed with exit code $LASTEXITCODE."
     }

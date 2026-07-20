@@ -145,6 +145,25 @@ final class ActivationServiceTest extends TestCase
         self::assertTrue($this->activation->validate($second)['ok']);
     }
 
+    public function testDeactivation_InvalidatesOutstandingActivationLinkAndPreservesInactiveStatus(): void
+    {
+        $userId = $this->makePending('deactivated@example.com');
+        $token = $this->activation->issueFor($userId);
+
+        $this->users->setStatus($userId, 'inactive');
+
+        self::assertFalse(
+            $this->activation->validate($token)['ok'],
+            'An administrator deactivation must revoke an unused activation link.'
+        );
+        self::assertFalse(
+            $this->users->activatePendingAccount($userId, password_hash('Str0ng!Pass1', PASSWORD_DEFAULT)),
+            'A token already read by a concurrent request must not reactivate a deactivated pending account.'
+        );
+        self::assertFalse($this->activation->activate($token, 'Str0ng!Pass1', 'Str0ng!Pass1')['ok']);
+        self::assertSame('inactive', $this->users->findById($userId)['status']);
+    }
+
     public function testUnknownTokenIsInvalid(): void
     {
         self::assertSame('invalid', $this->activation->validate('deadbeef')['reason']);

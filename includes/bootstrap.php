@@ -9,8 +9,7 @@ declare(strict_types=1);
  * application together so individual pages stay thin and consistent:
  *
  *   1. Loads the Composer autoloader (PSR-4 "MediShield\\" => src/).
- *   2. Loads configuration (config/config.php, falling back to the committed
- *      config.sample.php so the app still boots before setup-db.ps1 has run).
+ *   2. Loads the generated configuration (config/config.php).
  *   3. Forces UTC and installs an error handler that logs to logs/app_errors.log
  *      instead of leaking stack traces to the browser.
  *   4. Hardens and starts the PHP session (HttpOnly, SameSite=Strict, Secure on
@@ -56,8 +55,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 if (!function_exists('ms_config')) {
     /**
-     * Return the application configuration array (loaded once).
-     * Prefers config/config.php; falls back to the committed sample template.
+     * Return the generated application configuration array (loaded once).
      */
     function ms_config(): array
     {
@@ -67,8 +65,10 @@ if (!function_exists('ms_config')) {
         }
 
         $real   = __DIR__ . '/../config/config.php';
-        $sample = __DIR__ . '/../config/config.sample.php';
-        $config = require (is_file($real) ? $real : $sample);
+        if (!is_file($real)) {
+            throw new \RuntimeException('Application configuration is missing. Run scripts\setup-db.ps1 before starting MediShield.');
+        }
+        $config = require $real;
 
         $testDatabase = getenv('MEDISHIELD_DB_NAME');
         if (is_string($testDatabase) && $testDatabase !== '') {
@@ -122,6 +122,10 @@ date_default_timezone_set('UTC');
 
     $cfg   = ms_config();
     $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+    if (($cfg['environment'] ?? 'development') === 'production' && !$https) {
+        http_response_code(403);
+        exit('HTTPS is required.');
+    }
 
     session_set_cookie_params([
         'lifetime' => 0,

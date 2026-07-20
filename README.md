@@ -127,7 +127,8 @@ Each command should print a version number.
    ```
 
 This creates a local database named `medishield_db`, adds example administrator
-data, applies upgrades, and creates your private `config\config.php` file. The
+data, applies upgrades, provisions a non-root web database account, and creates
+your private `config\config.php` file with unique encryption and audit keys. The
 configuration file is intentionally not uploaded to GitHub.
 
 ### 4. Start the application
@@ -153,9 +154,9 @@ The first sign-in requires a password change and an OTP. During local
 development the OTP is written to the newest file in `logs\mail\`; open that
 file in Notepad and copy the code into the browser.
 
-> For a development demo, the generated `config\config.php` uses local sample
-> keys. Never use those keys, the example administrator password, or the local
-> email-file delivery mechanism for real patient data.
+> The installer generates unique local keys. For a real deployment, set
+> `environment` to `production`, use HTTPS, store keys in a managed secret
+> service, replace the example administrator password, and configure SMTP.
 
 ## Running Tests
 

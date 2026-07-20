@@ -1,4 +1,6 @@
 const { test, expect } = require('@playwright/test');
+const fs = require('node:fs');
+const path = require('node:path');
 const { loginWithOtp } = require('./helpers');
 
 test.describe.configure({ mode: 'serial' });
@@ -139,4 +141,32 @@ test('sends security headers and gives generic invalid-login errors', async ({ p
     await expect(page.getByText('Invalid email or password.')).toBeVisible();
     await expect(page.getByText(/account .* does not exist/i)).toHaveCount(0);
   }
+});
+
+test('revokes an outstanding reset link when an administrator deactivates the account', async ({ page }) => {
+  const mailDir = path.join(__dirname, '..', 'test-results', 'mail');
+  const messagesBefore = fs.readdirSync(mailDir).length;
+
+  await page.goto('/forgot_password.php');
+  await page.getByLabel('Email').fill('ui.doctor@medishield.test');
+  await page.getByRole('button', { name: 'Send reset link' }).click();
+  await expect(page.getByText('If that email belongs to an active account, a password reset link has been sent.')).toBeVisible();
+
+  const resetMessage = fs.readdirSync(mailDir)
+    .map((file) => ({ file, mtime: fs.statSync(path.join(mailDir, file)).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime)
+    .slice(0, fs.readdirSync(mailDir).length - messagesBefore)[0];
+  const resetToken = fs.readFileSync(path.join(mailDir, resetMessage.file), 'utf8')
+    .match(/activate\.php\?token=([a-f0-9]+)/i)[1];
+
+  await loginWithOtp(page, 'ui.admin@medishield.test');
+  await page.goto('/admin/users.php');
+  const doctorRow = page.getByRole('row').filter({ hasText: 'ui.doctor@medishield.test' });
+  await doctorRow.getByRole('button', { name: 'Deactivate' }).click();
+  await expect(doctorRow.getByText('inactive')).toBeVisible();
+
+  await page.goto('/logout.php');
+  await page.goto(`/activate.php?token=${resetToken}`);
+  await expect(page.getByText('This activation link is invalid or has already been used.')).toBeVisible();
+  await expect(page.getByLabel('New password')).toHaveCount(0);
 });

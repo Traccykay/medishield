@@ -16,6 +16,6 @@ skill.
 | Change password | Not covered | Forced, voluntary, invalid-current-password, and mismatch paths |
 | Administrator reset password | Not covered | Reset email, token consumption, and login with the replacement password |
 | Forgot password | Recovery request and account-enumeration protection covered | Consume reset link and verify replacement-password login |
-| Administrator user management | Not covered | Create, activate/deactivate, self-protection, and assignment paths |
+| Administrator user management | Deactivation revokes an outstanding reset link | Create, activate/deactivate, self-protection, and assignment paths |
 | Patient self-service | Not covered | Profile, records, labs, prescriptions, and cross-patient denial |
 | Reports and payments | Not covered | Verify each non-placeholder user-visible behavior |

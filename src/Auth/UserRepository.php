@@ -106,19 +106,41 @@ final class UserRepository
      * step of the account-activation-link flow — the only place a pending account
      * gains a usable password. The caller hashes the password with password_hash().
      */
-    public function activate(int $userId, string $passwordHash): void
+    public function activatePendingAccount(int $userId, string $passwordHash): bool
     {
-        $this->pdo->prepare(
+        $stmt = $this->pdo->prepare(
             'UPDATE users
                 SET password_hash = :hash, status = :status,
                     must_change_password = 0, updated_at = :now
-              WHERE user_id = :id'
-        )->execute([
+              WHERE user_id = :id AND status = :inactive_status
+                AND password_hash = :pending_password AND must_change_password = 0'
+        );
+        $stmt->execute([
             ':hash'   => $passwordHash,
             ':status' => 'active',
             ':now'    => $this->clock->nowString(),
             ':id'     => $userId,
+            ':inactive_status' => 'inactive',
+            ':pending_password' => UserService::PENDING_PASSWORD_SENTINEL,
         ]);
+        return $stmt->rowCount() === 1;
+    }
+
+    /** Reset credentials only while the account remains active. */
+    public function resetActiveAccountPassword(int $userId, string $passwordHash): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE users
+               SET password_hash = :hash, must_change_password = 0, updated_at = :now
+              WHERE user_id = :id AND status = :active_status'
+        );
+        $stmt->execute([
+            ':hash' => $passwordHash,
+            ':now' => $this->clock->nowString(),
+            ':id' => $userId,
+            ':active_status' => 'active',
+        ]);
+        return $stmt->rowCount() === 1;
     }
 
     /** All users (for the admin user-list page), newest first. */
@@ -211,6 +233,38 @@ final class UserRepository
 
     /** Change account status: 'active' or 'inactive' (spec §25). */
     public function setStatus(int $userId, string $status): void
+    {
+        if ($status === 'inactive') {
+            $this->pdo->beginTransaction();
+            try {
+                $this->pdo->prepare(
+                    'UPDATE account_activations SET used_at = :now
+                       WHERE user_id = :user_id AND used_at IS NULL'
+                )->execute([
+                    ':now' => $this->clock->nowString(),
+                    ':user_id' => $userId,
+                ]);
+                $this->pdo->prepare(
+                    'UPDATE users
+                        SET status = :status, must_change_password = 1, updated_at = :now
+                      WHERE user_id = :id'
+                )->execute([
+                    ':status' => $status,
+                    ':now' => $this->clock->nowString(),
+                    ':id' => $userId,
+                ]);
+                $this->pdo->commit();
+                return;
+            } catch (\Throwable $e) {
+                $this->pdo->rollBack();
+                throw $e;
+            }
+        }
+
+        $this->updateStatus($userId, $status);
+    }
+
+    private function updateStatus(int $userId, string $status): void
     {
         $this->pdo->prepare(
             'UPDATE users SET status = :status, updated_at = :now WHERE user_id = :id'
