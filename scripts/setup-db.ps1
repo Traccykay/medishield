@@ -124,6 +124,7 @@ function Write-ApplicationConfig {
         [Parameter(Mandatory = $true)][string]$DestinationPath,
         [Parameter(Mandatory = $true)][string]$DatabaseName,
         [Parameter(Mandatory = $true)][string]$DatabasePassword,
+        [Parameter(Mandatory = $true)][string]$AuditMaintenanceDatabasePassword,
         [Parameter(Mandatory = $true)][string]$EncryptionKey,
         [Parameter(Mandatory = $true)][string]$AuditKey
     )
@@ -131,6 +132,7 @@ function Write-ApplicationConfig {
     $config = Get-Content -LiteralPath $SamplePath -Raw
     $config = $config.Replace("'name'    => 'medishield_db'", "'name'    => '$DatabaseName'")
     $config = $config.Replace('__DB_PASSWORD__', $DatabasePassword)
+    $config = $config.Replace('__AUDIT_MAINTENANCE_DB_PASSWORD__', $AuditMaintenanceDatabasePassword)
     $config = $config.Replace('__ENCRYPTION_KEY__', $EncryptionKey)
     $config = $config.Replace('__AUDIT_HMAC_KEY__', $AuditKey)
     Set-Content -LiteralPath $DestinationPath -Value $config -NoNewline
@@ -161,13 +163,16 @@ try {
     }
 
     $provisionApplicationUser = $false
+    $provisionAuditMaintenanceUser = $false
     if (-not (Test-Path -LiteralPath $configPath)) {
         $appPassword = New-SetupSecret
+        $auditMaintenancePassword = New-SetupSecret
         $encryptionKey = New-SetupSecret
         $auditKey = New-SetupSecret
-        Write-ApplicationConfig -SamplePath $configSamplePath -DestinationPath $configPath -DatabaseName $DbName -DatabasePassword $appPassword -EncryptionKey $encryptionKey -AuditKey $auditKey
+        Write-ApplicationConfig -SamplePath $configSamplePath -DestinationPath $configPath -DatabaseName $DbName -DatabasePassword $appPassword -AuditMaintenanceDatabasePassword $auditMaintenancePassword -EncryptionKey $encryptionKey -AuditKey $auditKey
         Write-Host "Created generated application configuration: $configPath"
         $provisionApplicationUser = $true
+        $provisionAuditMaintenanceUser = $true
     } else {
         $existingConfig = Get-Content -LiteralPath $configPath -Raw
         if ($existingConfig -match "'user'\s*=>\s*'root'") {
@@ -181,14 +186,41 @@ try {
         } else {
             Write-Host "Config file already exists: $configPath (preserving existing secrets)"
         }
+
+        if ($existingConfig -notmatch "'audit_maintenance_db'\s*=>") {
+            $auditMaintenancePassword = New-SetupSecret
+            $maintenanceConfig = @"
+    // Dedicated scheduled-maintenance identity. It can read audit rows and null
+    // only attempted_identifier; it cannot edit chained fields or delete rows.
+    'audit_maintenance_db' => [
+        'host'    => '127.0.0.1',
+        'port'    => 3306,
+        'name'    => '$DbName',
+        'user'    => 'medishield_audit_maintenance',
+        'pass'    => '$auditMaintenancePassword',
+        'charset' => 'utf8mb4',
+    ],
+
+"@
+            $configMarker = '    // --- Cryptographic keys'
+            if (-not $existingConfig.Contains($configMarker)) {
+                throw "Cannot add audit-maintenance credentials to '$configPath': expected configuration marker was not found."
+            }
+            $existingConfig = $existingConfig.Replace($configMarker, "$maintenanceConfig$configMarker")
+            Set-Content -LiteralPath $configPath -Value $existingConfig -NoNewline
+            Write-Host 'Added dedicated audit-maintenance credentials to existing configuration'
+            $provisionAuditMaintenanceUser = $true
+        }
     }
 
     if ($provisionApplicationUser) {
-        $appUserSql = "CREATE USER IF NOT EXISTS 'medishield_app'@'127.0.0.1' IDENTIFIED BY '$appPassword'; ALTER USER 'medishield_app'@'127.0.0.1' IDENTIFIED BY '$appPassword'; GRANT SELECT, INSERT, UPDATE, DELETE ON ``$DbName``.* TO 'medishield_app'@'127.0.0.1'; FLUSH PRIVILEGES;"
+        $appUserSql = "CREATE USER IF NOT EXISTS 'medishield_app'@'127.0.0.1' IDENTIFIED BY '$appPassword'; ALTER USER 'medishield_app'@'127.0.0.1' IDENTIFIED BY '$appPassword';"
         Invoke-MySqlCommand -MySqlPath $mysql -Arguments ($baseArgs + @("--execute=$appUserSql")) -Description 'Application database account provisioning'
-    } else {
-        $appGrantSql = "GRANT SELECT, INSERT, UPDATE, DELETE ON ``$DbName``.* TO 'medishield_app'@'127.0.0.1'; FLUSH PRIVILEGES;"
-        Invoke-MySqlCommand -MySqlPath $mysql -Arguments ($baseArgs + @("--execute=$appGrantSql")) -Description 'Application database account privilege update'
+    }
+
+    if ($provisionAuditMaintenanceUser) {
+        $auditMaintenanceSql = "CREATE USER IF NOT EXISTS 'medishield_audit_maintenance'@'127.0.0.1' IDENTIFIED BY '$auditMaintenancePassword'; ALTER USER 'medishield_audit_maintenance'@'127.0.0.1' IDENTIFIED BY '$auditMaintenancePassword';"
+        Invoke-MySqlCommand -MySqlPath $mysql -Arguments ($baseArgs + @("--execute=$auditMaintenanceSql")) -Description 'Audit maintenance account provisioning'
     }
 
     Write-Host "Loading schema from $schemaPath"
@@ -206,6 +238,36 @@ try {
             Write-Host "Applying migration $($migration.Name)"
             Invoke-MySqlScriptFile -MySqlPath $mysql -BaseArguments $baseArgs -DatabaseName $DbName -ScriptPath $migration.FullName -Description "Migration $($migration.Name)"
         }
+    }
+
+    # Remove legacy broad grants first. The web account can write operational
+    # tables, but audit_logs remains physically append-only to request code.
+    $appAccountSql = "'medishield_app'@'127.0.0.1'"
+    $resetAppPrivilegesSql = "REVOKE ALL PRIVILEGES, GRANT OPTION FROM $appAccountSql; GRANT SELECT, INSERT ON ``$DbName``.* TO $appAccountSql;"
+    Invoke-MySqlCommand -MySqlPath $mysql -Arguments ($baseArgs + @("--execute=$resetAppPrivilegesSql")) -Description 'Application privilege reset'
+
+    $tableQuery = "SELECT table_name FROM information_schema.tables WHERE table_schema = '$DbName' AND table_type = 'BASE TABLE' AND table_name <> 'audit_logs' ORDER BY table_name;"
+    $applicationTables = & $mysql @baseArgs '--batch' '--skip-column-names' "--execute=$tableQuery"
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Could not enumerate application tables for least-privilege grants.'
+    }
+    foreach ($tableName in $applicationTables) {
+        $tableGrantSql = "GRANT UPDATE, DELETE ON ``$DbName``.``$tableName`` TO $appAccountSql;"
+        Invoke-MySqlCommand -MySqlPath $mysql -Arguments ($baseArgs + @("--execute=$tableGrantSql")) -Description "Application DML grant for $tableName"
+    }
+
+    $maintenanceAccountSql = "'medishield_audit_maintenance'@'127.0.0.1'"
+    $maintenanceGrantSql = "REVOKE ALL PRIVILEGES, GRANT OPTION FROM $maintenanceAccountSql; GRANT SELECT, UPDATE (attempted_identifier) ON ``$DbName``.audit_logs TO $maintenanceAccountSql; FLUSH PRIVILEGES;"
+    Invoke-MySqlCommand -MySqlPath $mysql -Arguments ($baseArgs + @("--execute=$maintenanceGrantSql")) -Description 'Audit maintenance privilege grant'
+
+    # INFORMATION_SCHEMA stores GRANTEE as the literal text "'user'@'host'".
+    $appGranteeLiteral = "'''medishield_app''@''127.0.0.1'''"
+    $unsafeGrantQuery = "SELECT COUNT(*) FROM information_schema.schema_privileges WHERE grantee = $appGranteeLiteral AND table_schema = '$DbName' AND privilege_type IN ('UPDATE', 'DELETE');"
+    $unsafeGrant = (& $mysql @baseArgs '--batch' '--skip-column-names' "--execute=$unsafeGrantQuery").Trim()
+    $unsafeAuditTableGrantQuery = "SELECT COUNT(*) FROM information_schema.table_privileges WHERE grantee = $appGranteeLiteral AND table_schema = '$DbName' AND table_name = 'audit_logs' AND privilege_type IN ('UPDATE', 'DELETE');"
+    $unsafeAuditTableGrant = (& $mysql @baseArgs '--batch' '--skip-column-names' "--execute=$unsafeAuditTableGrantQuery").Trim()
+    if ($LASTEXITCODE -ne 0 -or $unsafeGrant -ne '0' -or $unsafeAuditTableGrant -ne '0') {
+        throw 'Least-privilege verification failed: the web account can still update or delete audit rows.'
     }
 
     $vitalsMigrationPath = Join-Path $repoRoot 'scripts\migrate-vitals-encryption.php'

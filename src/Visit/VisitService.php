@@ -111,21 +111,31 @@ final class VisitService
         return ['ok' => true, 'errors' => []];
     }
 
-    public function completePharmacyVisit(int $patientId): void
+    /**
+     * Complete only the encounter whose final prescription was dispensed. A
+     * multi-medication consultation stays in the pharmacy queue until every
+     * linked prescription leaves the pending queue.
+     */
+    public function completePharmacyVisit(int $visitId, bool $hasPendingPrescriptions): void
     {
-        $visit = $this->visits->openVisitForPatient($patientId);
-        if ($visit !== null && (string) $visit['status'] === 'pharmacy') {
-            $this->visits->updateState((int) $visit['visit_id'], 'completed');
+        $visit = $this->visits->findById($visitId);
+        if ($visit !== null && (string) $visit['status'] === 'pharmacy' && !$hasPendingPrescriptions) {
+            $this->visits->updateState($visitId, 'completed');
         }
     }
 
-    /** Return a completed lab visit to its assigned doctor for result review. */
-    public function returnFromLab(int $patientId): void
+    /**
+     * Retain the lab state while another test is pending. Once complete, route
+     * selected medication orders to pharmacy; otherwise return the patient to
+     * their doctor to review all results.
+     */
+    public function returnFromLab(int $visitId, bool $hasPendingLabRequests, bool $hasPendingPrescriptions): void
     {
-        $visit = $this->visits->openVisitForPatient($patientId);
-        if ($visit !== null && (string) $visit['status'] === 'lab' && $visit['doctor_id'] !== null) {
-            $this->visits->updateState((int) $visit['visit_id'], 'with_doctor');
+        $visit = $this->visits->findById($visitId);
+        if ($visit === null || (string) $visit['status'] !== 'lab' || $visit['doctor_id'] === null || $hasPendingLabRequests) {
+            return;
         }
+        $this->visits->updateState($visitId, $hasPendingPrescriptions ? 'pharmacy' : 'with_doctor');
     }
 
     /** @return array<int,array<string,mixed>> */

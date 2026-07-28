@@ -5,7 +5,7 @@ the engine XAMPP bundles).
 
 | File | Purpose |
 |------|---------|
-| `schema.sql` | Creates all tables for the full system (spec §10): `users`, `patients`, `patient_assignments`, `vitals`, `medical_records`, `lab_requests`, `lab_results`, `prescriptions`, `dispensing_records`, `audit_logs`. Uses `CREATE TABLE IF NOT EXISTS`, so it is safe to re-run. |
+| `schema.sql` | Creates all tables for the full system (spec §10), including visit-linked `billing_bills` and immutable `billing_charges` price snapshots. Uses `CREATE TABLE IF NOT EXISTS`, so it is safe to re-run. |
 | `seed.sql` | Inserts the bootstrap **superadmin** account (`INSERT IGNORE`, safe to re-run). |
 | `migrations/` | Idempotent incremental changes (`ALTER TABLE ...`) that bring an **existing** database up to date — because `CREATE TABLE IF NOT EXISTS` leaves an already-created table untouched. `setup-db.ps1` applies these after `schema.sql`. See `migrations/README.md`. |
 

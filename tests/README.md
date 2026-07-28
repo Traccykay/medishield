@@ -13,7 +13,7 @@ For cloning and first-time installation, start with the [root README](../README.
 
 | Folder | Contents |
 |--------|----------|
-| `Unit/` | Isolated security and validation tests — crypto, password policy, CSRF, RBAC, audit-chain logic, and local mail delivery. |
+| `Unit/` | Isolated security and validation tests — crypto, password policy, CSRF, RBAC, audit-chain logic, local mail delivery, and trusted-proxy HTTPS decisions. |
 | `Integration/` | Tests that exercise classes against a real in-memory SQLite database through an injected `PDO`. |
 | `Support/` | Shared test helpers, including `TestSchema.php`, which creates the temporary test database. |
 
@@ -24,9 +24,9 @@ angles:
   rules, CSRF verification, RBAC decisions, audit hashes, and local mail
   delivery.
 - **Integration** checks stateful services and SQL with a clean SQLite
-  database: account activation and OTP, login lockout, session revocation,
-  audit logging and retention, user/patient authorization, visits, and
-  clinical workflow data.
+  database: account activation and OTP, login lockout, IP-scoped request
+  throttling, session revocation, audit logging and retention, user/patient
+  authorization, visits, and clinical workflow data.
 
 Browser suites live in [`../e2e/`](../e2e/) and are deliberately separate
 because they need PHP, MySQL/MariaDB, and Chromium:
@@ -36,7 +36,11 @@ because they need PHP, MySQL/MariaDB, and Chromium:
 - **Security hostile-path harness** sends attacker-style requests and validates
   the safe outcome: authorization denial without patient disclosure,
   CSRF rejection without a write, hostile markup rendered as text, required
-  response headers, and generic login failures that do not enumerate accounts.
+  response headers, generic login failures that do not enumerate accounts, and
+  password-reset throttling with no follow-on email.
+- **OWASP ZAP passive baseline** independently spiders the disposable UI site
+  and reports passive HTTP findings. It needs Docker Desktop; see
+  [`../SECURITY_TESTING.md`](../SECURITY_TESTING.md).
 
 ## Running the suite
 
@@ -77,6 +81,12 @@ available:
 
 ```powershell
 npx.cmd playwright test e2e\security-hostile.spec.js
+```
+
+To run OWASP ZAP after Docker Desktop is running:
+
+```powershell
+npm run test:zap
 ```
 
 ## Conventions for contributors

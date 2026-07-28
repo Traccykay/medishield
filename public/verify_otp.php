@@ -55,6 +55,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'anomaly_flag' => 'SUSPICIOUS',
         ]);
         $error = 'Your session has expired. Please try again.';
+    } elseif (!ms_request_throttle()->allow(
+        'otp_verify',
+        ms_client_ip(),
+        (int) (ms_config()['request_throttling']['otp_max_attempts'] ?? 60),
+        (int) (ms_config()['request_throttling']['window_seconds'] ?? 900)
+    )) {
+        ms_audit_log([
+            'user_id' => $userId,
+            'user_role' => $role,
+            'action' => 'OTP_FAILED',
+            'module' => 'auth',
+            'status' => 'BLOCKED',
+            'anomaly_flag' => 'HIGH_RISK',
+        ]);
+        $error = 'Too many verification attempts. Please try again later.';
     } else {
         $status = ms_otp_service()->verify($userId, $code);
 

@@ -46,7 +46,10 @@ It lives in a separate class (not on `AuditLogger`) on purpose:
   `scripts/purge-audit-pii.php` (cron / Task Scheduler), never by a web request.
 - It needs a DB account with `UPDATE` on `audit_logs`; the application's own DB
   user is granted only `SELECT`+`INSERT`, so the scrub cannot be triggered from
-  the request path even if the app were compromised.
+  the request path even if the app were compromised. `setup-db.ps1` provisions
+  the separate `medishield_audit_maintenance` identity with column-level
+  `UPDATE (attempted_identifier)` only; it cannot edit chained fields or delete
+  audit rows.
 
 The retention window is `audit.pii_retention_days` in `config/config.php`
 (default 90).

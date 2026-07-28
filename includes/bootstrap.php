@@ -23,6 +23,8 @@ declare(strict_types=1);
  */
 
 use MediShield\Audit\AuditLogger;
+use MediShield\Billing\BillingRepository;
+use MediShield\Billing\BillingService;
 use MediShield\Auth\ActivationRepository;
 use MediShield\Auth\ActivationService;
 use MediShield\Auth\AuthService;
@@ -43,6 +45,8 @@ use MediShield\Patient\PatientService;
 use MediShield\Security\AuditChain;
 use MediShield\Security\Crypto;
 use MediShield\Security\PasswordPolicy;
+use MediShield\Security\RequestThrottle;
+use MediShield\Security\TransportSecurity;
 use MediShield\Support\Clock;
 use MediShield\Visit\VisitRepository;
 use MediShield\Visit\VisitService;
@@ -121,7 +125,10 @@ date_default_timezone_set('UTC');
     }
 
     $cfg   = ms_config();
-    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+    $https = TransportSecurity::isHttps(
+        $_SERVER,
+        (array) ($cfg['transport']['trusted_proxy_ips'] ?? [])
+    );
     if (($cfg['environment'] ?? 'development') === 'production' && !$https) {
         http_response_code(403);
         exit('HTTPS is required.');
@@ -141,7 +148,10 @@ date_default_timezone_set('UTC');
 })();
 
 require_once __DIR__ . '/headers.php';
-ms_send_security_headers();
+ms_send_security_headers(TransportSecurity::isHttps(
+    $_SERVER,
+    (array) (ms_config()['transport']['trusted_proxy_ips'] ?? [])
+));
 
 /* ---------------------------------------------------------------------------
  * 4. Lazy service container
@@ -221,7 +231,30 @@ if (!function_exists('ms_audit')) {
             $chain  = AuditChain::fromHexKey(ms_config()['audit_hmac_key_hex']);
             $logger = new AuditLogger(ms_db(), $chain, ms_clock());
         }
+
         return $logger;
+    }
+}
+
+if (!function_exists('ms_request_throttle')) {
+    function ms_request_throttle(): RequestThrottle
+    {
+        static $throttle = null;
+        return $throttle ??= new RequestThrottle(
+            ms_db(),
+            ms_clock(),
+            (string) ms_config()['audit_hmac_key_hex']
+        );
+    }
+}
+
+if (!function_exists('ms_is_https_request')) {
+    function ms_is_https_request(): bool
+    {
+        return TransportSecurity::isHttps(
+            $_SERVER,
+            (array) (ms_config()['transport']['trusted_proxy_ips'] ?? [])
+        );
     }
 }
 
@@ -320,26 +353,41 @@ if (!function_exists('ms_clinical_service')) {
     function ms_clinical_service(): ClinicalService
     {
         static $svc = null;
-        return $svc ??= new ClinicalService(ms_clinical_repo(), ms_patient_repo(), ms_crypto());
-    }
-
-    if (!function_exists('ms_visit_repo')) {
-        function ms_visit_repo(): VisitRepository
-        {
-            static $repo = null;
-            return $repo ??= new VisitRepository(ms_db(), ms_clock());
-        }
-    }
-
-    if (!function_exists('ms_visit_service')) {
-        function ms_visit_service(): VisitService
-        {
-            static $svc = null;
-            return $svc ??= new VisitService(ms_visit_repo(), ms_patient_repo(), ms_user_repo());
-        }
+        return $svc ??= new ClinicalService(ms_clinical_repo(), ms_patient_repo(), ms_crypto(), ms_visit_repo());
     }
 }
 
+if (!function_exists('ms_visit_repo')) {
+    function ms_visit_repo(): VisitRepository
+    {
+        static $repo = null;
+        return $repo ??= new VisitRepository(ms_db(), ms_clock());
+    }
+}
+
+if (!function_exists('ms_visit_service')) {
+    function ms_visit_service(): VisitService
+    {
+        static $svc = null;
+        return $svc ??= new VisitService(ms_visit_repo(), ms_patient_repo(), ms_user_repo());
+    }
+}
+
+if (!function_exists('ms_billing_repo')) {
+    function ms_billing_repo(): BillingRepository
+    {
+        static $repo = null;
+        return $repo ??= new BillingRepository(ms_db(), ms_clock());
+    }
+}
+
+if (!function_exists('ms_billing_service')) {
+    function ms_billing_service(): BillingService
+    {
+        static $svc = null;
+        return $svc ??= new BillingService(ms_billing_repo(), ms_visit_repo(), ms_patient_repo());
+    }
+}
 /* ---------------------------------------------------------------------------
  * 5. View / request helpers
  * ------------------------------------------------------------------------- */

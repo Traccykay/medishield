@@ -36,9 +36,9 @@ Run the reusable Windows runner:
 ```
 
 The runner checks that Node.js, PHP, and MySQL are available. If MySQL/MariaDB
-is stopped, it automatically starts a standard Windows database service or the
-default XAMPP installation and waits up to 30 seconds for it. On the first run,
-it downloads the versions of Playwright and Chromium specified by this project;
+is stopped, its shared `scripts\ensure-mysql.ps1` bootstrap tries a Windows
+service, default XAMPP, then Scoop MariaDB and waits for a real SQL connection.
+On the first run, it downloads the versions of Playwright and Chromium specified by this project;
 later runs reuse them. It then starts a temporary local web server, recreates
 only the `medishield_ui_test` database, and seeds role-specific test accounts.
 It never changes the normal `medishield_db` database.
@@ -65,8 +65,9 @@ walkthrough finishes; play the recorded videos afterward if needed.
 
 This suite covers OTP sign-in, Kenyan contact validation, patient
 registration/search, triage/vitals, doctor assignment, diagnosis, lab routing
-and result return, prescription pricing, pharmacy dispensing, an RBAC denial,
-and account-enumeration-safe password-recovery messaging.
+and result return, prescription pricing, pharmacy dispensing/refusal with
+doctor review, an RBAC denial, and account-enumeration-safe password-recovery
+messaging.
 
 ### Security hostile-path harness (`security-hostile.spec.js`)
 
@@ -81,6 +82,7 @@ asserts the safe result:
 | Authenticated form POST has no CSRF token | The request is rejected and no patient is created. |
 | Stored patient value contains HTML markup | The value is rendered as text, not executable DOM. |
 | Login request and invalid credentials | Required security headers are sent, `X-Powered-By` is absent, and errors do not reveal whether an account exists. |
+| Repeated password-reset submissions from one address | The server throttles the request storm and does not send more reset mail after blocking it. |
 
 Run every browser test, including the harness, with:
 
@@ -98,6 +100,9 @@ npx.cmd playwright test e2e\security-hostile.spec.js
 The complete feature-to-test inventory is in [COVERAGE.md](COVERAGE.md).
 Features marked as not covered are known gaps, not proof of coverage; they must
 receive a Playwright scenario when implemented or changed.
+
+For the complementary OWASP ZAP passive baseline, reports, and safe active-scan
+limits, read [`../SECURITY_TESTING.md`](../SECURITY_TESTING.md).
 
 ## When a test fails
 

@@ -78,6 +78,18 @@ final class TestSchema
     SQL;
 
     /**
+     * SQLite-compatible mirror of the IP-scoped request throttle table. The scope
+     * is an HMAC, so the database does not retain the raw network address.
+     */
+    private const REQUEST_THROTTLES_DDL = <<<SQL
+        CREATE TABLE request_throttles (
+            scope_hash        TEXT PRIMARY KEY,
+            attempt_count     INTEGER NOT NULL,
+            window_started_at TEXT    NOT NULL
+        );
+    SQL;
+
+    /**
      * SQLite-compatible mirror of the production `account_activations` table.
      */
     private const ACCOUNT_ACTIVATIONS_DDL = <<<SQL
@@ -136,6 +148,37 @@ final class TestSchema
         );
     SQL;
 
+    /** SQLite-compatible mirrors of the immutable visit billing tables. */
+    private const BILLING_BILLS_DDL = <<<SQL
+        CREATE TABLE billing_bills (
+            bill_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            visit_id INTEGER NOT NULL UNIQUE,
+            patient_id INTEGER NOT NULL,
+            payment_method TEXT NOT NULL,
+            insurer TEXT NULL,
+            payment_status TEXT NOT NULL DEFAULT 'unpaid',
+            payment_reference TEXT NULL,
+            receipt_number TEXT NULL,
+            recorded_by INTEGER NULL,
+            paid_at TEXT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+    SQL;
+
+    private const BILLING_CHARGES_DDL = <<<SQL
+        CREATE TABLE billing_charges (
+            charge_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            bill_id INTEGER NOT NULL,
+            charge_type TEXT NOT NULL,
+            description_snapshot TEXT NOT NULL,
+            unit_price_snapshot INTEGER NOT NULL,
+            quantity INTEGER NOT NULL,
+            line_total INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+        );
+    SQL;
+
     private const VITALS_DDL = <<<SQL
         CREATE TABLE vitals (
             vitals_id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -154,6 +197,7 @@ final class TestSchema
     private const MEDICAL_RECORDS_DDL = <<<SQL
         CREATE TABLE medical_records (
             record_id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            visit_id            INTEGER NOT NULL,
             patient_id          INTEGER NOT NULL,
             doctor_id           INTEGER NOT NULL,
             diagnosis_encrypted TEXT    NOT NULL,
@@ -166,11 +210,13 @@ final class TestSchema
     private const LAB_REQUESTS_DDL = <<<SQL
         CREATE TABLE lab_requests (
             lab_request_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            visit_id       INTEGER NOT NULL,
             patient_id     INTEGER NOT NULL,
             record_id      INTEGER NOT NULL,
             doctor_id      INTEGER NOT NULL,
             test_name      TEXT    NOT NULL,
             reason         TEXT    NULL,
+            catalog_price_kes INTEGER NOT NULL,
             status         TEXT    NOT NULL DEFAULT 'pending',
             created_at     TEXT    NOT NULL
         );
@@ -190,13 +236,15 @@ final class TestSchema
     private const PRESCRIPTIONS_DDL = <<<SQL
         CREATE TABLE prescriptions (
             prescription_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            visit_id               INTEGER NOT NULL,
             patient_id             INTEGER NOT NULL,
             record_id              INTEGER NOT NULL,
             doctor_id              INTEGER NOT NULL,
             medication_encrypted   TEXT    NOT NULL,
             dosage_encrypted       TEXT    NOT NULL,
             instructions_encrypted TEXT    NULL,
-            status                 TEXT    NOT NULL DEFAULT 'pending',
+            catalog_price_kes      INTEGER NOT NULL,
+            status                 TEXT    NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'dispensed', 'refused')),
             created_at             TEXT    NOT NULL
         );
     SQL;
@@ -222,10 +270,13 @@ final class TestSchema
         $pdo->exec(self::USERS_DDL);
         $pdo->exec(self::AUDIT_LOGS_DDL);
         $pdo->exec(self::OTP_CODES_DDL);
+        $pdo->exec(self::REQUEST_THROTTLES_DDL);
         $pdo->exec(self::ACCOUNT_ACTIVATIONS_DDL);
         $pdo->exec(self::PATIENTS_DDL);
         $pdo->exec(self::PATIENT_ASSIGNMENTS_DDL);
         $pdo->exec(self::VISITS_DDL);
+        $pdo->exec(self::BILLING_BILLS_DDL);
+        $pdo->exec(self::BILLING_CHARGES_DDL);
         $pdo->exec(self::VITALS_DDL);
         $pdo->exec(self::MEDICAL_RECORDS_DDL);
         $pdo->exec(self::LAB_REQUESTS_DDL);

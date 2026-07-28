@@ -83,4 +83,43 @@ final class VisitWorkflowTest extends TestCase
         self::assertFalse($result['ok']);
         self::assertContains('Payment method must be cash or insurance.', $result['errors']);
     }
+
+    public function testOrderCompletion_KeepsEncounterInValidStatesUntilAllLinkedOrdersAreDone(): void
+    {
+        $pdo = TestSchema::pdo();
+        $clock = new Clock(static fn () => new \DateTimeImmutable('2026-01-01 12:00:00', new \DateTimeZone('UTC')));
+        $users = new UserRepository($pdo, $clock);
+        $patients = new PatientRepository($pdo, $clock);
+        $patientService = new PatientService($patients, $users);
+        $visits = new VisitRepository($pdo, $clock);
+        $service = new VisitService($visits, $patients, $users);
+        $receptionistId = $users->create('Reception', 'encounter-reception@example.com', 'hash', 'receptionist');
+        $nurseId = $users->create('Nurse', 'encounter-nurse@example.com', 'hash', 'nurse');
+        $doctorId = $users->create('Doctor', 'encounter-doctor@example.com', 'hash', 'doctor');
+        $patientId = (int) $patientService->registerPatient([
+            'patient_number' => 'MSH-ORDER-STATE',
+            'full_name' => 'Order State Patient',
+            'date_of_birth' => '1990-01-01',
+            'gender' => 'female',
+        ])['patient_id'];
+        $visit = $service->createVisit($patientId, $receptionistId, 'cash', null);
+        $visitId = (int) $visit['visit_id'];
+        $service->moveToNurse($visitId, $nurseId);
+        $service->assignDoctor($visitId, $nurseId, $doctorId);
+        $service->routeFromDoctor($visitId, $doctorId, 'lab');
+        self::assertSame([$doctorId], array_column($service->availableDoctors(), 'user_id'));
+
+        $service->returnFromLab($visitId, true, true);
+        self::assertSame('lab', $visits->findById($visitId)['status']);
+
+        $service->returnFromLab($visitId, false, true);
+        self::assertSame('pharmacy', $visits->findById($visitId)['status']);
+        self::assertSame([$doctorId], array_column($service->availableDoctors(), 'user_id'));
+
+        $service->completePharmacyVisit($visitId, true);
+        self::assertSame('pharmacy', $visits->findById($visitId)['status']);
+
+        $service->completePharmacyVisit($visitId, false);
+        self::assertSame('completed', $visits->findById($visitId)['status']);
+    }
 }

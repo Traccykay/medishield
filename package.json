@@ -4,6 +4,7 @@
   "description": "MediShield is a web-based healthcare records management system for securely managing patient records while demonstrating practical cybersecurity controls. It is intentionally focused: it is not a full hospital management system, but a security-first academic project showing how healthcare data can be protected and audited.",
   "scripts": {
     "test:ui": "playwright test",
+    "test:zap": "powershell -ExecutionPolicy Bypass -File scripts\\run-zap-baseline.ps1",
     "show:ui-report": "playwright show-report",
     "show:ui-trace": "playwright show-trace test-results/*/trace.zip"
   },

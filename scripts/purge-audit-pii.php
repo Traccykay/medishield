@@ -65,6 +65,13 @@ printf(
 );
 
 try {
+    $maintenanceConfig = $config['audit_maintenance_db'] ?? null;
+    if (!is_array($maintenanceConfig)) {
+        throw new RuntimeException(
+            'Audit-maintenance credentials are missing. Run scripts\\setup-db.ps1 to provision the isolated maintenance account.'
+        );
+    }
+    $config['db'] = $maintenanceConfig;
     $pdo = Connection::fromConfig($config);
 
     if ($dryRun) {

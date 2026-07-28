@@ -14,6 +14,7 @@ declare(strict_types=1);
  *   - Referrer-Policy                       : limit referrer leakage.
  *   - Content-Security-Policy               : restrict resource origins.
  *   - Permissions-Policy                    : disable unneeded device APIs.
+ *   - Cross-Origin-* policies               : isolate same-origin responses.
  *   - Strict-Transport-Security             : only when served over HTTPS.
  *
  * Session cookie hardening (HttpOnly, SameSite, Secure) is configured separately
@@ -21,7 +22,7 @@ declare(strict_types=1);
  */
 
 if (!function_exists('ms_send_security_headers')) {
-    function ms_send_security_headers(): void
+    function ms_send_security_headers(bool $isHttps = false): void
     {
         // Avoid "headers already sent" noise if output started (e.g. in tests).
         if (headers_sent()) {
@@ -31,13 +32,15 @@ if (!function_exists('ms_send_security_headers')) {
         header('X-Frame-Options: DENY');
         header('X-Content-Type-Options: nosniff');
         header('Referrer-Policy: no-referrer-when-downgrade');
-        header("Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'");
+        header("Content-Security-Policy: default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'");
         header('Permissions-Policy: geolocation=(), camera=(), microphone=()');
+        header('Cross-Origin-Embedder-Policy: require-corp');
+        header('Cross-Origin-Opener-Policy: same-origin');
+        header('Cross-Origin-Resource-Policy: same-origin');
         header_remove('X-Powered-By');
 
         // Only advertise HSTS when actually on HTTPS (localhost demo runs on HTTP).
-        $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
-        if ($https) {
+        if ($isHttps) {
             header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
         }
     }

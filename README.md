@@ -18,7 +18,11 @@ The system supports a simplified clinical workflow across seven roles:
 The operational flow is reception → triage nurse → available doctor → lab or
 pharmacy. Nurses record vitals and symptoms, doctors are shown as unavailable
 while in an active consultation, and the demo catalog displays standard lab-test
-and medication prices in Kenyan shillings.
+and medication prices in Kenyan shillings. A doctor can submit multiple
+catalog lab tests and prescriptions in one encounter; each order is linked to
+that visit and records the server-resolved catalog price. A pharmacy refusal is
+a terminal, reasoned outcome: the order cannot re-enter the queue and the
+encounter returns to the assigned doctor for review.
 
 Cybersecurity is central to the project: authentication, role-based access control, object-level authorization, encrypted clinical data, tamper-evident audit logging, anomaly detection, STRIDE threat modelling, and security-testing readiness are core requirements.
 
@@ -32,6 +36,9 @@ Cybersecurity is central to the project: authentication, role-based access contr
 - **Anomaly detection:** suspicious and high-risk activity is flagged, including repeated failed logins, unauthorized access, IDOR attempts, CSRF failures, and integrity failures.
 - **CSRF protection:** state-changing forms use CSRF tokens.
 - **Secure sessions:** session ID regeneration, hardened cookies, idle timeout, and absolute timeout.
+- **Request throttling:** HMAC-scoped fixed-window budgets limit login, OTP, and password-reset storms without storing raw IP addresses.
+- **Auditable least privilege:** the web database identity cannot update or delete audit rows; a separate maintenance identity can clear only retention-approved audit PII.
+- **Production transport boundary:** production rejects plaintext HTTP and trusts `X-Forwarded-Proto` only from explicitly configured TLS proxies.
 - **STRIDE threat modelling:** used to identify and reduce spoofing, tampering, repudiation, information disclosure, denial-of-service, and elevation-of-privilege risks.
 
 ## Tech Stack
@@ -43,7 +50,7 @@ Cybersecurity is central to the project: authentication, role-based access contr
 | Web Server | Apache via XAMPP |
 | Frontend | HTML5, CSS3, Bootstrap 5 |
 | Testing | PHPUnit and Playwright |
-| Security Testing | Playwright hostile-path regression harness; OWASP ZAP is planned |
+| Security Testing | PHPUnit security tests, Playwright hostile-path regression harness, and OWASP ZAP passive baseline scan |
 
 > Laravel and other PHP frameworks are intentionally not used; security controls are implemented explicitly in plain PHP.
 
@@ -136,7 +143,7 @@ configuration file is intentionally not uploaded to GitHub.
 In the same PowerShell window, run:
 
 ```powershell
-php -S 127.0.0.1:8000 -t public
+php -S 127.0.0.1:8000 -t public public/router.php
 ```
 
 Leave that window open; it is the local web server. Open
@@ -155,8 +162,11 @@ development the OTP is written to the newest file in `logs\mail\`; open that
 file in Notepad and copy the code into the browser.
 
 > The installer generates unique local keys. For a real deployment, set
-> `environment` to `production`, use HTTPS, store keys in a managed secret
-> service, replace the example administrator password, and configure SMTP.
+> `environment` to `production`, use HTTPS with a valid certificate, store keys
+> in a managed secret service, replace the example administrator password, and
+> configure SMTP. If TLS terminates at a reverse proxy, configure only that
+> proxy's immediate IP in `transport.trusted_proxy_ips` and ensure it overwrites
+> (rather than forwards) `X-Forwarded-Proto`; never trust public client IPs.
 
 ## Running Tests
 
@@ -179,11 +189,12 @@ composer install
 | All PHP tests | Runs both PHPUnit suites. It does not need MySQL or change local application data. | `composer test` |
 | Playwright workflow | Exercises the real browser-based hospital workflow using disposable role-specific accounts. | `.\scripts\run-ui-tests.ps1` |
 | Playwright security harness | Exercises hostile browser requests: role/object-reference denial, forged-CSRF no-mutation, stored-XSS encoding, security headers, and generic authentication failures. The standard UI runner executes it with the workflow tests. | `.\scripts\run-ui-tests.ps1` |
+| OWASP ZAP passive baseline | Scans the disposable local application for passive OWASP-style HTTP findings and writes HTML, JSON, and XML reports. Requires Docker Desktop. | `.\scripts\run-zap-baseline.ps1` |
 
-The browser runner starts a stopped standard Windows MySQL/MariaDB service or
-default XAMPP MySQL installation when possible, installs pinned Node/Chromium
-dependencies when absent, and recreates **only** `medishield_ui_test`. It never
-changes the normal `medishield_db` database. To run just the security harness
+The browser and ZAP runners both call `scripts\ensure-mysql.ps1`: it checks a
+live SQL connection first, then supports Windows services, default XAMPP, and
+Scoop MariaDB before recreating **only** `medishield_ui_test`. They never
+change the normal `medishield_db` database. To run just the security harness
 after its prerequisites are available, use:
 
 ```powershell
@@ -193,6 +204,23 @@ npx.cmd playwright test e2e\security-hostile.spec.js
 On failure, inspect `test-results` for the screenshot, video, and trace. See
 [`tests/README.md`](tests/README.md) for PHP-suite details and
 [`e2e/README.md`](e2e/README.md) for browser-test setup and troubleshooting.
+See [`SECURITY_TESTING.md`](SECURITY_TESTING.md) for all runner prerequisites,
+ZAP reports, and the safe active-scan boundary.
+
+### OWASP ZAP context
+
+The ZAP runner is a repeatable **passive** scan, not an authorization to attack
+the application. It rebuilds only `medishield_ui_test`, starts a local PHP
+server, and scans it from a disposable Docker container. It installs or starts
+Docker Desktop when needed, tries the ZAP stable GHCR image with bounded
+retries, then falls back to the official Docker Hub stable image if GHCR is
+unavailable.
+
+The command fails on ZAP `WARN` or `FAIL` alerts and writes reviewable evidence
+to `test-results\zap\zap-baseline.html`, `.json`, and `.xml`. Treat a warning as
+a finding to investigate and regression-test, not as a result to suppress merely
+to make the command green. Active scans can submit state-changing payloads and
+must be separately authorized against an explicitly disposable environment.
 
 ### Browser UI tests and supervisor demonstration
 
@@ -233,7 +261,8 @@ Planned later work includes:
 - Pharmacy dispensing module
 - Audit-log viewer and integrity verification UI
 - Security monitoring dashboard and anomaly views
-- OWASP ZAP scan, triage, and remediation
+- OWASP ZAP active scan, only with explicit authorization against a disposable
+  environment
 
 ## Contributing
 

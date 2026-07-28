@@ -11,10 +11,10 @@ require_once __DIR__ . '/../../includes/layout.php';
 $user = require_area('pharmacy');
 $rxId = (int) ($_GET['prescription_id'] ?? $_POST['prescription_id'] ?? 0);
 $rx = $rxId > 0 ? ms_clinical_repo()->findPrescription($rxId) : null;
-if ($rx === null || (string) $rx['status'] !== 'pending') {
+$visit = $rx === null || !isset($rx['visit_id']) ? null : ms_visit_repo()->findById((int) $rx['visit_id']);
+if ($rx === null || (string) $rx['status'] !== 'pending' || $visit === null || (string) $visit['status'] !== 'pharmacy') {
     redirect('/pharmacy/prescriptions.php');
 }
-$visit = $rx === null ? null : ms_visit_repo()->openVisitForPatient((int) $rx['patient_id']);
 $errors = [];
 $remarks = '';
 $status = 'dispensed';
@@ -26,9 +26,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $result = ms_clinical_service()->dispense($rxId, (int) $user['user_id'], $status, $remarks);
         if ($result['ok']) {
-            if ($status === 'dispensed') {
-                ms_visit_service()->completePharmacyVisit((int) $rx['patient_id']);
-            }
             ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'pharmacist', 'action' => 'MEDICATION_DISPENSED', 'module' => 'pharmacy', 'affected_record_id' => (string) $rxId, 'status' => 'SUCCESS']);
             redirect('/pharmacy/prescriptions.php');
         }

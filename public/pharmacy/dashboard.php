@@ -8,7 +8,7 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('pharmacy');
-$pending = ms_clinical_repo()->prescriptions('pending');
+$pending = ms_clinical_repo()->pharmacyPrescriptions();
 $dispensed = ms_clinical_repo()->prescriptions('dispensed');
 $pendingTotal = array_sum(array_map(
     static fn (array $rx): int => ClinicalCatalog::priceForMedication(ms_clinical_service()->decrypt((string) $rx['medication_encrypted']) ?? '') ?? 0,

@@ -72,16 +72,17 @@ final class ClinicalRepository
         return $stmt->fetchAll();
     }
 
-    public function createMedicalRecord(int $patientId, int $doctorId, string $diagnosis, ?string $treatment): int
+    public function createMedicalRecord(int $visitId, int $patientId, int $doctorId, string $diagnosis, ?string $treatment): int
     {
         $now = $this->clock->nowString();
         $stmt = $this->pdo->prepare(
             'INSERT INTO medical_records
-                (patient_id, doctor_id, diagnosis_encrypted, treatment_encrypted, created_at, updated_at)
+                (visit_id, patient_id, doctor_id, diagnosis_encrypted, treatment_encrypted, created_at, updated_at)
              VALUES
-                (:patient_id, :doctor_id, :diagnosis, :treatment, :created_at, :updated_at)'
+                (:visit_id, :patient_id, :doctor_id, :diagnosis, :treatment, :created_at, :updated_at)'
         );
         $stmt->execute([
+            ':visit_id' => $visitId,
             ':patient_id' => $patientId,
             ':doctor_id' => $doctorId,
             ':diagnosis' => $diagnosis,
@@ -113,20 +114,30 @@ final class ClinicalRepository
         return $row === false ? null : $row;
     }
 
-    public function createLabRequest(int $patientId, int $recordId, int $doctorId, string $testName, ?string $reason): int
+    public function createLabRequest(
+        int $visitId,
+        int $patientId,
+        int $recordId,
+        int $doctorId,
+        string $testName,
+        ?string $reason,
+        int $catalogPriceKes
+    ): int
     {
         $stmt = $this->pdo->prepare(
             'INSERT INTO lab_requests
-                (patient_id, record_id, doctor_id, test_name, reason, status, created_at)
+                (visit_id, patient_id, record_id, doctor_id, test_name, reason, catalog_price_kes, status, created_at)
              VALUES
-                (:patient_id, :record_id, :doctor_id, :test_name, :reason, :status, :created_at)'
+                (:visit_id, :patient_id, :record_id, :doctor_id, :test_name, :reason, :catalog_price_kes, :status, :created_at)'
         );
         $stmt->execute([
+            ':visit_id' => $visitId,
             ':patient_id' => $patientId,
             ':record_id' => $recordId,
             ':doctor_id' => $doctorId,
             ':test_name' => $testName,
             ':reason' => $reason,
+            ':catalog_price_kes' => $catalogPriceKes,
             ':status' => 'pending',
             ':created_at' => $this->clock->nowString(),
         ]);
@@ -169,6 +180,15 @@ final class ClinicalRepository
         $stmt->execute([':id' => $labRequestId]);
         $row = $stmt->fetch();
         return $row === false ? null : $row;
+    }
+
+    public function hasPendingLabRequestsForVisit(int $visitId): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM lab_requests WHERE visit_id = :visit_id AND status = :status LIMIT 1'
+        );
+        $stmt->execute([':visit_id' => $visitId, ':status' => 'pending']);
+        return $stmt->fetchColumn() !== false;
     }
 
     public function createLabResult(int $labRequestId, int $patientId, int $labTechId, string $encryptedResult): int
@@ -216,27 +236,98 @@ final class ClinicalRepository
         return $stmt->fetchAll();
     }
 
-    public function createPrescription(int $patientId, int $recordId, int $doctorId, string $medication, string $dosage, ?string $instructions): int
+    public function createPrescription(
+        int $visitId,
+        int $patientId,
+        int $recordId,
+        int $doctorId,
+        string $medication,
+        string $dosage,
+        ?string $instructions,
+        int $catalogPriceKes
+    ): int
     {
         $stmt = $this->pdo->prepare(
             'INSERT INTO prescriptions
-                (patient_id, record_id, doctor_id, medication_encrypted, dosage_encrypted,
-                 instructions_encrypted, status, created_at)
+                (visit_id, patient_id, record_id, doctor_id, medication_encrypted, dosage_encrypted,
+                 instructions_encrypted, catalog_price_kes, status, created_at)
              VALUES
-                (:patient_id, :record_id, :doctor_id, :medication, :dosage,
-                 :instructions, :status, :created_at)'
+                (:visit_id, :patient_id, :record_id, :doctor_id, :medication, :dosage,
+                 :instructions, :catalog_price_kes, :status, :created_at)'
         );
         $stmt->execute([
+            ':visit_id' => $visitId,
             ':patient_id' => $patientId,
             ':record_id' => $recordId,
             ':doctor_id' => $doctorId,
             ':medication' => $medication,
             ':dosage' => $dosage,
             ':instructions' => $instructions,
+            ':catalog_price_kes' => $catalogPriceKes,
             ':status' => 'pending',
             ':created_at' => $this->clock->nowString(),
         ]);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * Persist one consultation as an all-or-nothing unit: a clinical record and
+     * each selected lab or medication order cannot be split by a failed write.
+     *
+     * @param array<int,array{test_name:string,reason:?string,catalog_price_kes:int}> $labs
+     * @param array<int,array{medication:string,dosage:string,instructions:?string,catalog_price_kes:int}> $prescriptions
+     * @return array{record_id:int,lab_request_ids:int[],prescription_ids:int[]}
+     */
+    public function createConsultation(
+        int $visitId,
+        int $patientId,
+        int $doctorId,
+        string $diagnosis,
+        ?string $treatment,
+        array $labs,
+        array $prescriptions
+    ): array {
+        $this->pdo->beginTransaction();
+        try {
+            $recordId = $this->createMedicalRecord($visitId, $patientId, $doctorId, $diagnosis, $treatment);
+            $labRequestIds = [];
+            foreach ($labs as $lab) {
+                $labRequestIds[] = $this->createLabRequest(
+                    $visitId,
+                    $patientId,
+                    $recordId,
+                    $doctorId,
+                    $lab['test_name'],
+                    $lab['reason'],
+                    $lab['catalog_price_kes']
+                );
+            }
+            $prescriptionIds = [];
+            foreach ($prescriptions as $prescription) {
+                $prescriptionIds[] = $this->createPrescription(
+                    $visitId,
+                    $patientId,
+                    $recordId,
+                    $doctorId,
+                    $prescription['medication'],
+                    $prescription['dosage'],
+                    $prescription['instructions'],
+                    $prescription['catalog_price_kes']
+                );
+            }
+            $this->pdo->commit();
+
+            return [
+                'record_id' => $recordId,
+                'lab_request_ids' => $labRequestIds,
+                'prescription_ids' => $prescriptionIds,
+            ];
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
+        }
     }
 
     public function prescriptions(string $status = 'pending', ?int $doctorId = null, ?int $patientId = null): array
@@ -297,10 +388,94 @@ final class ClinicalRepository
         return $row === false ? null : $row;
     }
 
-    public function dispensePrescription(int $prescriptionId, int $patientId, int $pharmacistId, string $status, ?string $remarks): int
+    /**
+     * Return only prescriptions whose linked encounter is actively assigned to
+     * pharmacy. A refused item returns its entire encounter to the doctor, so
+     * sibling pending items must not remain actionable in the pharmacy queue.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public function pharmacyPrescriptions(): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT rx.*, p.patient_number, p.full_name AS patient_name, p.date_of_birth, p.gender,
+                    u.full_name AS doctor_name
+               FROM prescriptions rx
+               JOIN visits v ON v.visit_id = rx.visit_id
+               JOIN patients p ON p.patient_id = rx.patient_id
+               JOIN users u ON u.user_id = rx.doctor_id
+              WHERE rx.status = :prescription_status AND v.status = :visit_status
+              ORDER BY rx.created_at DESC, rx.prescription_id DESC'
+        );
+        $stmt->execute([':prescription_status' => 'pending', ':visit_status' => 'pharmacy']);
+        return $stmt->fetchAll();
+    }
+
+    public function hasPendingPrescriptionsForVisit(int $visitId): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM prescriptions WHERE visit_id = :visit_id AND status = :status LIMIT 1'
+        );
+        $stmt->execute([':visit_id' => $visitId, ':status' => 'pending']);
+        return $stmt->fetchColumn() !== false;
+    }
+
+    public function isActivePharmacist(int $userId): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM users WHERE user_id = :user_id AND role = :role AND status = :status LIMIT 1'
+        );
+        $stmt->execute([':user_id' => $userId, ':role' => 'pharmacist', ':status' => 'active']);
+        return $stmt->fetchColumn() !== false;
+    }
+
+    /**
+     * Atomically resolve one pending pharmacy order. The encounter-state change
+     * is in the same transaction as the dispensing record, so a refusal can
+     * never be committed while leaving its patient in the pharmacy queue.
+     */
+    public function recordPharmacyOutcome(int $prescriptionId, int $pharmacistId, string $status, ?string $remarks): ?int
     {
         $this->pdo->beginTransaction();
         try {
+            $lock = $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
+            $prescriptionStmt = $this->pdo->prepare(
+                'SELECT prescription_id, visit_id, patient_id, status
+                   FROM prescriptions
+                  WHERE prescription_id = :id' . $lock
+            );
+            $prescriptionStmt->execute([':id' => $prescriptionId]);
+            $prescription = $prescriptionStmt->fetch();
+            if ($prescription === false || (string) $prescription['status'] !== 'pending' || (int) $prescription['visit_id'] <= 0) {
+                $this->pdo->rollBack();
+                return null;
+            }
+
+            $visitStmt = $this->pdo->prepare(
+                'SELECT visit_id, doctor_id, status FROM visits WHERE visit_id = :id' . $lock
+            );
+            $visitStmt->execute([':id' => (int) $prescription['visit_id']]);
+            $visit = $visitStmt->fetch();
+            if ($visit === false || (string) $visit['status'] !== 'pharmacy' || $visit['doctor_id'] === null) {
+                $this->pdo->rollBack();
+                return null;
+            }
+
+            $updatePrescription = $this->pdo->prepare(
+                'UPDATE prescriptions
+                    SET status = :status
+                  WHERE prescription_id = :id AND status = :pending_status'
+            );
+            $updatePrescription->execute([
+                ':status' => $status,
+                ':id' => $prescriptionId,
+                ':pending_status' => 'pending',
+            ]);
+            if ($updatePrescription->rowCount() !== 1) {
+                $this->pdo->rollBack();
+                return null;
+            }
+
             $stmt = $this->pdo->prepare(
                 'INSERT INTO dispensing_records
                     (prescription_id, patient_id, pharmacist_id, status, remarks, created_at)
@@ -309,20 +484,55 @@ final class ClinicalRepository
             );
             $stmt->execute([
                 ':prescription_id' => $prescriptionId,
-                ':patient_id' => $patientId,
+                ':patient_id' => (int) $prescription['patient_id'],
                 ':pharmacist_id' => $pharmacistId,
                 ':status' => $status,
                 ':remarks' => $remarks,
                 ':created_at' => $this->clock->nowString(),
             ]);
             $dispensingId = (int) $this->pdo->lastInsertId();
-            $newRxStatus = $status === 'dispensed' ? 'dispensed' : 'pending';
-            $update = $this->pdo->prepare('UPDATE prescriptions SET status = :status WHERE prescription_id = :id');
-            $update->execute([':status' => $newRxStatus, ':id' => $prescriptionId]);
+
+            if ($status === 'refused') {
+                $visitUpdate = $this->pdo->prepare(
+                    'UPDATE visits
+                        SET status = :status, active_doctor_id = doctor_id, updated_at = :updated_at
+                      WHERE visit_id = :visit_id AND status = :pharmacy_status AND doctor_id = :doctor_id'
+                );
+                $visitUpdate->execute([
+                    ':status' => 'with_doctor',
+                    ':updated_at' => $this->clock->nowString(),
+                    ':visit_id' => (int) $visit['visit_id'],
+                    ':pharmacy_status' => 'pharmacy',
+                    ':doctor_id' => (int) $visit['doctor_id'],
+                ]);
+                if ($visitUpdate->rowCount() !== 1) {
+                    $this->pdo->rollBack();
+                    return null;
+                }
+            } elseif (!$this->hasPendingPrescriptionsForVisit((int) $visit['visit_id'])) {
+                $visitUpdate = $this->pdo->prepare(
+                    'UPDATE visits
+                        SET status = :status, active_doctor_id = NULL, updated_at = :updated_at
+                      WHERE visit_id = :visit_id AND status = :pharmacy_status'
+                );
+                $visitUpdate->execute([
+                    ':status' => 'completed',
+                    ':updated_at' => $this->clock->nowString(),
+                    ':visit_id' => (int) $visit['visit_id'],
+                    ':pharmacy_status' => 'pharmacy',
+                ]);
+                if ($visitUpdate->rowCount() !== 1) {
+                    $this->pdo->rollBack();
+                    return null;
+                }
+            }
+
             $this->pdo->commit();
             return $dispensingId;
         } catch (\Throwable $e) {
-            $this->pdo->rollBack();
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
             throw $e;
         }
     }
@@ -337,6 +547,26 @@ final class ClinicalRepository
               ORDER BY dr.created_at DESC, dr.dispensing_id DESC'
         );
         $stmt->execute([':patient_id' => $patientId]);
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Return pharmacy outcomes for a single encounter. The caller must first
+     * enforce that the current doctor owns the linked visit before decrypting
+     * or rendering these clinical details.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public function pharmacyOutcomesForVisit(int $visitId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT dr.*, rx.medication_encrypted, rx.dosage_encrypted, rx.instructions_encrypted
+               FROM dispensing_records dr
+               JOIN prescriptions rx ON rx.prescription_id = dr.prescription_id
+              WHERE rx.visit_id = :visit_id
+              ORDER BY dr.created_at DESC, dr.dispensing_id DESC'
+        );
+        $stmt->execute([':visit_id' => $visitId]);
         return $stmt->fetchAll();
     }
 }

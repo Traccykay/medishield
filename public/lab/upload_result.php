@@ -22,7 +22,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $result = ms_clinical_service()->uploadLabResult($requestId, (int) $user['user_id'], $resultText);
         if ($result['ok']) {
-            ms_visit_service()->returnFromLab((int) $request['patient_id']);
+            $visitId = (int) ($request['visit_id'] ?? 0);
+            ms_visit_service()->returnFromLab(
+                $visitId,
+                ms_clinical_repo()->hasPendingLabRequestsForVisit($visitId),
+                ms_clinical_repo()->hasPendingPrescriptionsForVisit($visitId)
+            );
             ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'lab', 'action' => 'LAB_RESULT_UPLOADED', 'module' => 'lab', 'affected_record_id' => (string) $requestId, 'status' => 'SUCCESS']);
             redirect('/lab/requests.php');
         }

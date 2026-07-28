@@ -16,6 +16,7 @@ $patient = ms_patient_repo()->findById($patientId);
 $vitals = ms_clinical_service()->decryptVitals(ms_clinical_repo()->vitalsForPatient($patientId));
 $records = ms_clinical_repo()->recordsForPatient($patientId);
 $labs = ms_clinical_repo()->labResultsForPatient($patientId);
+$pharmacyOutcomes = ms_clinical_repo()->pharmacyOutcomesForVisit($visitId);
 
 layout_app_header('Doctor patient view', $user, 'patients');
 ?>
@@ -58,6 +59,19 @@ layout_app_header('Doctor patient view', $user, 'patients');
     <?php if ($labs === []) { ?><p class="ms-muted">No completed lab results.</p><?php } else { ?>
         <div class="ms-table-wrap"><table class="ms-table"><thead><tr><th>Test</th><th>Result</th><th>UTC</th></tr></thead><tbody>
         <?php foreach ($labs as $lab) { ?><tr><td><?= e((string) $lab['test_name']) ?></td><td><?= e(ms_clinical_service()->decrypt((string) $lab['result_encrypted'])) ?></td><td><?= e((string) $lab['created_at']) ?></td></tr><?php } ?>
+        </tbody></table></div>
+    <?php } ?>
+</section>
+<section class="ms-card">
+    <h2 class="ms-h2">Pharmacy review</h2>
+    <?php if ($pharmacyOutcomes === []) { ?><p class="ms-muted">No pharmacy outcomes recorded for this consultation.</p><?php } else { ?>
+        <div class="ms-table-wrap"><table class="ms-table"><thead><tr><th>Medication</th><th>Outcome</th><th>Pharmacist remarks</th><th>UTC</th></tr></thead><tbody>
+        <?php foreach ($pharmacyOutcomes as $outcome) { ?><tr>
+            <td><?= e(ms_clinical_service()->decrypt((string) $outcome['medication_encrypted']) ?? '') ?></td>
+            <td><?= e(ucfirst((string) $outcome['status'])) ?></td>
+            <td><?= e((string) ($outcome['remarks'] ?? '')) ?></td>
+            <td><?= e((string) $outcome['created_at']) ?></td>
+        </tr><?php } ?>
         </tbody></table></div>
     <?php } ?>
 </section>

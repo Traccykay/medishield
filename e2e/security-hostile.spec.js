@@ -130,8 +130,17 @@ test('sends security headers and gives generic invalid-login errors', async ({ p
   expect(response.headers()['x-content-type-options']).toBe('nosniff');
   expect(response.headers()['referrer-policy']).toBe('no-referrer-when-downgrade');
   expect(response.headers()['content-security-policy']).toContain("default-src 'self'");
+  expect(response.headers()['content-security-policy']).toContain("base-uri 'self'");
+  expect(response.headers()['content-security-policy']).not.toContain("'unsafe-inline'");
   expect(response.headers()['permissions-policy']).toContain('geolocation=()');
+  expect(response.headers()['cross-origin-embedder-policy']).toBe('require-corp');
+  expect(response.headers()['cross-origin-opener-policy']).toBe('same-origin');
+  expect(response.headers()['cross-origin-resource-policy']).toBe('same-origin');
   expect(response.headers()['x-powered-by']).toBeUndefined();
+
+  const stylesheet = await page.request.get('/assets/css/style.css');
+  expect(stylesheet.headers()['x-content-type-options']).toBe('nosniff');
+  expect(stylesheet.headers()['cross-origin-resource-policy']).toBe('same-origin');
 
   for (const email of ['ui.receptionist@medishield.test', 'unknown@medishield.test']) {
     await page.goto('/login.php');
@@ -169,4 +178,32 @@ test('revokes an outstanding reset link when an administrator deactivates the ac
   await page.goto(`/activate.php?token=${resetToken}`);
   await expect(page.getByText('This activation link is invalid or has already been used.')).toBeVisible();
   await expect(page.getByLabel('New password')).toHaveCount(0);
+});
+
+test('throttles a password-reset storm without sending more email after the block', async ({ page }) => {
+  const mailDir = path.join(__dirname, '..', 'test-results', 'mail');
+  let blocked = false;
+
+  // The browser must obtain a fresh CSRF token for every real form submission.
+  // Stop as soon as the server-side, IP-scoped limit is reached so the scenario
+  // remains valid whether an earlier test used the same disposable address.
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    await page.goto('/forgot_password.php');
+    await page.getByLabel('Email').fill(`throttle-${attempt}@medishield.test`);
+    await page.getByRole('button', { name: 'Send reset link' }).click();
+    if (await page.getByText('Too many password-reset requests. Please try again later.').isVisible()) {
+      blocked = true;
+      break;
+    }
+  }
+
+  expect(blocked).toBe(true);
+  const mailCountAtBlock = fs.readdirSync(mailDir).length;
+
+  await page.goto('/forgot_password.php');
+  await page.getByLabel('Email').fill('ui.doctor@medishield.test');
+  await page.getByRole('button', { name: 'Send reset link' }).click();
+
+  await expect(page.getByText('Too many password-reset requests. Please try again later.')).toBeVisible();
+  expect(fs.readdirSync(mailDir).length).toBe(mailCountAtBlock);
 });

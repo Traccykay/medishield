@@ -19,6 +19,10 @@ function resetUiDatabase() {
 
 test.describe.configure({ mode: 'serial' });
 
+test.beforeEach(() => {
+  resetUiDatabase();
+});
+
 test.afterAll(() => {
   resetUiDatabase();
 });

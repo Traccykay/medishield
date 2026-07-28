@@ -12,13 +12,30 @@ $email = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = trim((string) ($_POST['email'] ?? ''));
     if (Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
-        $user = ms_user_repo()->findByEmail($email);
-        if ($user !== null && (string) $user['status'] === 'active') {
-            $token = ms_activation_service()->issueFor((int) $user['user_id']);
-            $link = rtrim((string) ms_config()['mail']['app_base_url'], '/') . '/activate.php?token=' . urlencode($token);
-            ms_mailer()->send((string) $user['email'], (string) $user['full_name'], 'Reset your MediShield password', "Open this link to set a new password:\n\n" . $link);
+        if (!ms_request_throttle()->allow(
+            'password_reset',
+            ms_client_ip(),
+            (int) (ms_config()['request_throttling']['password_reset_max_attempts'] ?? 10),
+            (int) (ms_config()['request_throttling']['window_seconds'] ?? 900)
+        )) {
+            ms_audit_log([
+                'user_role' => 'guest',
+                'action' => 'PASSWORD_RESET',
+                'module' => 'auth',
+                'status' => 'BLOCKED',
+                'anomaly_flag' => 'HIGH_RISK',
+                'attempted_identifier' => $email !== '' ? $email : null,
+            ]);
+            $message = 'Too many password-reset requests. Please try again later.';
+        } else {
+            $user = ms_user_repo()->findByEmail($email);
+            if ($user !== null && (string) $user['status'] === 'active') {
+                $token = ms_activation_service()->issueFor((int) $user['user_id']);
+                $link = rtrim((string) ms_config()['mail']['app_base_url'], '/') . '/activate.php?token=' . urlencode($token);
+                ms_mailer()->send((string) $user['email'], (string) $user['full_name'], 'Reset your MediShield password', "Open this link to set a new password:\n\n" . $link);
+            }
+            $message = 'If that email belongs to an active account, a password reset link has been sent.';
         }
-        $message = 'If that email belongs to an active account, a password reset link has been sent.';
     }
 }
 $token = Csrf::token($_SESSION);

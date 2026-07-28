@@ -70,14 +70,17 @@ final class VisitRepository
                 SET status = :new_status,
                     nurse_id = COALESCE(:nurse_id, nurse_id),
                     doctor_id = COALESCE(:new_doctor_id, doctor_id),
-                    active_doctor_id = CASE WHEN :active_status = :busy_status THEN COALESCE(:active_doctor_id, doctor_id) ELSE NULL END,
+                    active_doctor_id = CASE
+                        WHEN :active_status = :with_doctor_status THEN COALESCE(:active_doctor_id, doctor_id)
+                        ELSE NULL
+                    END,
                     updated_at = :updated_at
               WHERE visit_id = :visit_id'
         );
         $stmt->execute([
             ':new_status' => $status,
             ':active_status' => $status,
-            ':busy_status' => 'with_doctor',
+            ':with_doctor_status' => 'with_doctor',
             ':nurse_id' => $nurseId,
             ':new_doctor_id' => $doctorId,
             ':active_doctor_id' => $doctorId,
@@ -133,12 +136,11 @@ final class VisitRepository
         $stmt = $this->pdo->prepare(
             'SELECT u.user_id, u.full_name, u.email
                FROM users u
-               LEFT JOIN visits v ON v.doctor_id = u.user_id AND v.status = :busy_status
+               LEFT JOIN visits v ON v.active_doctor_id = u.user_id
               WHERE u.role = :role AND u.status = :active_status AND v.visit_id IS NULL
               ORDER BY u.full_name'
         );
         $stmt->execute([
-            ':busy_status' => 'with_doctor',
             ':role' => 'doctor',
             ':active_status' => 'active',
         ]);

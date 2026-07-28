@@ -56,6 +56,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'attempted_identifier' => $email !== '' ? $email : null,
         ]);
         $error = 'Your session has expired. Please try again.';
+    } elseif (!ms_request_throttle()->allow(
+        'login',
+        ms_client_ip(),
+        (int) (ms_config()['request_throttling']['login_max_attempts'] ?? 100),
+        (int) (ms_config()['request_throttling']['window_seconds'] ?? 900)
+    )) {
+        ms_audit_log([
+            'user_role' => 'guest',
+            'action' => 'LOGIN_FAILED',
+            'module' => 'auth',
+            'status' => 'BLOCKED',
+            'anomaly_flag' => 'HIGH_RISK',
+            'attempted_identifier' => $email !== '' ? $email : null,
+        ]);
+        $error = 'Too many sign-in attempts. Please try again later.';
     } else {
         $result = ms_auth()->attemptLogin($email, $password);
 

@@ -93,6 +93,43 @@ CREATE TABLE IF NOT EXISTS visits (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
+-- billing_bills / billing_charges : immutable visit-linked price snapshots.
+-- Charges use integer Kenyan shillings; a bill's total is the sum of line_total.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS billing_bills (
+    bill_id           INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+    visit_id          INT UNSIGNED NOT NULL UNIQUE,
+    patient_id        INT UNSIGNED NOT NULL,
+    payment_method    ENUM('cash','insurance') NOT NULL,
+    insurer           VARCHAR(100) NULL,
+    payment_status    ENUM('unpaid','pending_insurance','paid') NOT NULL DEFAULT 'unpaid',
+    payment_reference VARCHAR(100) NULL,
+    receipt_number    VARCHAR(100) NULL,
+    recorded_by       INT UNSIGNED NULL,
+    paid_at           DATETIME NULL,
+    created_at        DATETIME NOT NULL,
+    updated_at        DATETIME NOT NULL,
+    CONSTRAINT fk_bill_visit     FOREIGN KEY (visit_id) REFERENCES visits(visit_id),
+    CONSTRAINT fk_bill_patient   FOREIGN KEY (patient_id) REFERENCES patients(patient_id),
+    CONSTRAINT fk_bill_recorder  FOREIGN KEY (recorded_by) REFERENCES users(user_id),
+    INDEX idx_bill_patient (patient_id),
+    INDEX idx_bill_status (payment_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS billing_charges (
+    charge_id           INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+    bill_id             INT UNSIGNED NOT NULL,
+    charge_type         ENUM('service','medication') NOT NULL,
+    description_snapshot VARCHAR(150) NOT NULL,
+    unit_price_snapshot INT UNSIGNED NOT NULL,
+    quantity            INT UNSIGNED NOT NULL,
+    line_total          INT UNSIGNED NOT NULL,
+    created_at          DATETIME NOT NULL,
+    CONSTRAINT fk_charge_bill FOREIGN KEY (bill_id) REFERENCES billing_bills(bill_id),
+    INDEX idx_charge_bill (bill_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
 -- vitals : nurse-recorded measurements (validated before AES-256-GCM encryption)
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS vitals (
@@ -115,12 +152,14 @@ CREATE TABLE IF NOT EXISTS vitals (
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS medical_records (
     record_id            INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+    visit_id             INT UNSIGNED NOT NULL,
     patient_id           INT UNSIGNED NOT NULL,
     doctor_id            INT UNSIGNED NOT NULL,
     diagnosis_encrypted  TEXT NOT NULL,                         -- base64(iv||tag||ciphertext)
     treatment_encrypted  TEXT NULL,
     created_at           DATETIME NOT NULL,
     updated_at           DATETIME NOT NULL,
+    CONSTRAINT fk_mr_visit   FOREIGN KEY (visit_id)   REFERENCES visits(visit_id),
     CONSTRAINT fk_mr_patient FOREIGN KEY (patient_id) REFERENCES patients(patient_id),
     CONSTRAINT fk_mr_doctor  FOREIGN KEY (doctor_id)  REFERENCES users(user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -130,13 +169,16 @@ CREATE TABLE IF NOT EXISTS medical_records (
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS lab_requests (
     lab_request_id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+    visit_id       INT UNSIGNED NOT NULL,
     patient_id     INT UNSIGNED NOT NULL,
     record_id      INT UNSIGNED NOT NULL,
     doctor_id      INT UNSIGNED NOT NULL,
     test_name      VARCHAR(150) NOT NULL,
     reason         TEXT NULL,
+    catalog_price_kes INT UNSIGNED NOT NULL,
     status         ENUM('pending','completed') NOT NULL DEFAULT 'pending',
     created_at     DATETIME NOT NULL,
+    CONSTRAINT fk_lr_visit   FOREIGN KEY (visit_id)   REFERENCES visits(visit_id),
     CONSTRAINT fk_lr_patient FOREIGN KEY (patient_id) REFERENCES patients(patient_id),
     CONSTRAINT fk_lr_record  FOREIGN KEY (record_id)  REFERENCES medical_records(record_id),
     CONSTRAINT fk_lr_doctor  FOREIGN KEY (doctor_id)  REFERENCES users(user_id)
@@ -162,14 +204,17 @@ CREATE TABLE IF NOT EXISTS lab_results (
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS prescriptions (
     prescription_id        INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+    visit_id               INT UNSIGNED NOT NULL,
     patient_id             INT UNSIGNED NOT NULL,
     record_id              INT UNSIGNED NOT NULL,
     doctor_id              INT UNSIGNED NOT NULL,
     medication_encrypted   TEXT NOT NULL,
     dosage_encrypted       TEXT NOT NULL,
     instructions_encrypted TEXT NULL,
-    status                 ENUM('pending','dispensed') NOT NULL DEFAULT 'pending',
+    catalog_price_kes      INT UNSIGNED NOT NULL,
+    status                 ENUM('pending','dispensed','refused') NOT NULL DEFAULT 'pending',
     created_at             DATETIME NOT NULL,
+    CONSTRAINT fk_rx_visit   FOREIGN KEY (visit_id)   REFERENCES visits(visit_id),
     CONSTRAINT fk_rx_patient FOREIGN KEY (patient_id) REFERENCES patients(patient_id),
     CONSTRAINT fk_rx_record  FOREIGN KEY (record_id)  REFERENCES medical_records(record_id),
     CONSTRAINT fk_rx_doctor  FOREIGN KEY (doctor_id)  REFERENCES users(user_id)
@@ -217,6 +262,17 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     INDEX idx_audit_user (user_id),
     INDEX idx_audit_flag (anomaly_flag),
     INDEX idx_audit_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- request_throttles : HMAC-scoped fixed-window budgets for unauthenticated
+-- login, OTP, and password-reset requests. Raw client IPs are never stored.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS request_throttles (
+    scope_hash        CHAR(64) PRIMARY KEY,
+    attempt_count     INT UNSIGNED NOT NULL,
+    window_started_at DATETIME NOT NULL,
+    INDEX idx_throttle_window (window_started_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------

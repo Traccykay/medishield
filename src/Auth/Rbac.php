@@ -111,10 +111,11 @@ final class Rbac
             self::ROLE_LAB,
             self::ROLE_PHARMACIST,
         ],
-        // Billing surfaces: admins, the dispensing pharmacist, and patients.
+        // Billing surfaces: reception staff record payments, admins supervise,
+        // and patients can read only their own visit-linked bills.
         'payments'  => [
             self::ROLE_ADMIN,
-            self::ROLE_PHARMACIST,
+            self::ROLE_RECEPTIONIST,
             self::ROLE_PATIENT,
         ],
     ];

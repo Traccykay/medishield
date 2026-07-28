@@ -6,6 +6,7 @@ namespace MediShield\Clinical;
 
 use MediShield\Patient\PatientRepository;
 use MediShield\Security\Crypto;
+use MediShield\Visit\VisitRepository;
 
 /**
  * Application workflow for clinical modules. It validates typed vitals, enforces
@@ -17,7 +18,8 @@ final class ClinicalService
     public function __construct(
         private ClinicalRepository $clinical,
         private PatientRepository $patients,
-        private Crypto $crypto
+        private Crypto $crypto,
+        private VisitRepository $visits
     ) {
     }
 
@@ -53,10 +55,11 @@ final class ClinicalService
         return ['ok' => true, 'errors' => [], 'vitals_id' => $id];
     }
 
-    public function addDiagnosis(int $patientId, int $doctorId, string $diagnosis, ?string $treatment): array
+    public function addDiagnosis(int $patientId, int $doctorId, int $visitId, string $diagnosis, ?string $treatment): array
     {
-        if (!$this->patients->isAssigned($patientId, $doctorId)) {
-            return ['ok' => false, 'errors' => ['You are not assigned to this patient.'], 'record_id' => null];
+        $encounterErrors = $this->validateEncounter($patientId, $doctorId, $visitId, false);
+        if ($encounterErrors !== []) {
+            return ['ok' => false, 'errors' => $encounterErrors, 'record_id' => null];
         }
 
         $diagnosis = trim($diagnosis);
@@ -73,6 +76,7 @@ final class ClinicalService
         }
 
         $recordId = $this->clinical->createMedicalRecord(
+            $visitId,
             $patientId,
             $doctorId,
             $this->crypto->encrypt($diagnosis),
@@ -82,9 +86,73 @@ final class ClinicalService
         return ['ok' => true, 'errors' => [], 'record_id' => $recordId];
     }
 
-    public function requestLab(int $patientId, int $doctorId, int $recordId, string $testName, ?string $reason): array
+    /**
+     * Create an encounter-bound clinical record and all of its selected orders.
+     * Catalog values are resolved here so a forged browser price or name can never
+     * be persisted as an order.
+     *
+     * @param array<int,mixed> $labTests
+     * @param array<int,mixed> $medications
+     * @return array{ok:bool,errors:string[],record_id:?int,lab_request_ids:int[],prescription_ids:int[]}
+     */
+    public function submitConsultation(
+        int $patientId,
+        int $doctorId,
+        int $visitId,
+        string $diagnosis,
+        ?string $treatment,
+        array $labTests,
+        array $medications
+    ): array {
+        $errors = $this->validateEncounter($patientId, $doctorId, $visitId);
+        $diagnosis = trim($diagnosis);
+        $treatment = $this->trimOrNull($treatment);
+        if ($diagnosis === '') {
+            $errors[] = 'Diagnosis is required.';
+        }
+        if (mb_strlen($diagnosis) > 4000 || ($treatment !== null && mb_strlen($treatment) > 4000)) {
+            $errors[] = 'Clinical notes must be 4000 characters or fewer.';
+        }
+
+        $labs = $this->validatedLabOrders($labTests, $errors);
+        $prescriptions = $this->validatedPrescriptionOrders($medications, $errors);
+        if ($errors !== []) {
+            return [
+                'ok' => false,
+                'errors' => array_values(array_unique($errors)),
+                'record_id' => null,
+                'lab_request_ids' => [],
+                'prescription_ids' => [],
+            ];
+        }
+
+        $encryptedPrescriptions = array_map(function (array $prescription): array {
+            return [
+                ...$prescription,
+                'medication' => $this->crypto->encrypt($prescription['medication']),
+                'dosage' => $this->crypto->encrypt($prescription['dosage']),
+                'instructions' => $prescription['instructions'] === null
+                    ? null
+                    : $this->crypto->encrypt($prescription['instructions']),
+            ];
+        }, $prescriptions);
+
+        $created = $this->clinical->createConsultation(
+            $visitId,
+            $patientId,
+            $doctorId,
+            $this->crypto->encrypt($diagnosis),
+            $treatment !== null ? $this->crypto->encrypt($treatment) : null,
+            $labs,
+            $encryptedPrescriptions
+        );
+
+        return ['ok' => true, 'errors' => [], ...$created];
+    }
+
+    public function requestLab(int $patientId, int $doctorId, int $visitId, int $recordId, string $testName, ?string $reason): array
     {
-        $errors = $this->validateDoctorRecord($patientId, $doctorId, $recordId);
+        $errors = $this->validateDoctorRecord($patientId, $doctorId, $visitId, $recordId);
         $testName = trim($testName);
         $reason = $this->trimOrNull($reason);
         if ($testName === '') {
@@ -95,23 +163,28 @@ final class ClinicalService
         if ($reason !== null && mb_strlen($reason) > 2000) {
             $errors[] = 'Reason must be 2000 characters or fewer.';
         }
+        $catalogPriceKes = ClinicalCatalog::priceForTest($testName);
+        if ($catalogPriceKes === null) {
+            $errors[] = 'Select a catalog lab test.';
+        }
         if ($errors !== []) {
             return ['ok' => false, 'errors' => $errors, 'lab_request_id' => null];
         }
 
-        $id = $this->clinical->createLabRequest($patientId, $recordId, $doctorId, $testName, $reason);
+        $id = $this->clinical->createLabRequest($visitId, $patientId, $recordId, $doctorId, $testName, $reason, $catalogPriceKes);
         return ['ok' => true, 'errors' => [], 'lab_request_id' => $id];
     }
 
     public function issuePrescription(
         int $patientId,
         int $doctorId,
+        int $visitId,
         int $recordId,
         string $medication,
         string $dosage,
         ?string $instructions
     ): array {
-        $errors = $this->validateDoctorRecord($patientId, $doctorId, $recordId);
+        $errors = $this->validateDoctorRecord($patientId, $doctorId, $visitId, $recordId);
         $medication = trim($medication);
         $dosage = trim($dosage);
         $instructions = $this->trimOrNull($instructions);
@@ -124,17 +197,23 @@ final class ClinicalService
         if (mb_strlen($medication) > 1000 || mb_strlen($dosage) > 1000 || ($instructions !== null && mb_strlen($instructions) > 2000)) {
             $errors[] = 'Prescription fields are too long.';
         }
+        $catalogPriceKes = ClinicalCatalog::priceForMedication($medication);
+        if ($catalogPriceKes === null) {
+            $errors[] = 'Select a catalog medication.';
+        }
         if ($errors !== []) {
             return ['ok' => false, 'errors' => $errors, 'prescription_id' => null];
         }
 
         $id = $this->clinical->createPrescription(
+            $visitId,
             $patientId,
             $recordId,
             $doctorId,
             $this->crypto->encrypt($medication),
             $this->crypto->encrypt($dosage),
-            $instructions !== null ? $this->crypto->encrypt($instructions) : null
+            $instructions !== null ? $this->crypto->encrypt($instructions) : null,
+            $catalogPriceKes
         );
 
         return ['ok' => true, 'errors' => [], 'prescription_id' => $id];
@@ -169,21 +248,25 @@ final class ClinicalService
         if ($prescription === null || (string) $prescription['status'] !== 'pending') {
             return ['ok' => false, 'errors' => ['Prescription is not pending.'], 'dispensing_id' => null];
         }
+        if (!$this->clinical->isActivePharmacist($pharmacistId)) {
+            return ['ok' => false, 'errors' => ['Pharmacist not found.'], 'dispensing_id' => null];
+        }
         if (!in_array($status, ['dispensed', 'refused'], true)) {
             return ['ok' => false, 'errors' => ['Dispensing status must be dispensed or refused.'], 'dispensing_id' => null];
         }
         $remarks = $this->trimOrNull($remarks);
+        if ($status === 'refused' && $remarks === null) {
+            return ['ok' => false, 'errors' => ['Refusal remarks are required.'], 'dispensing_id' => null];
+        }
         if ($remarks !== null && mb_strlen($remarks) > 2000) {
             return ['ok' => false, 'errors' => ['Remarks must be 2000 characters or fewer.'], 'dispensing_id' => null];
         }
 
-        $id = $this->clinical->dispensePrescription(
-            $prescriptionId,
-            (int) $prescription['patient_id'],
-            $pharmacistId,
-            $status,
-            $remarks
-        );
+        $id = $this->clinical->recordPharmacyOutcome($prescriptionId, $pharmacistId, $status, $remarks);
+        if ($id === null) {
+            return ['ok' => false, 'errors' => ['Prescription is not pending.'], 'dispensing_id' => null];
+        }
+
         return ['ok' => true, 'errors' => [], 'dispensing_id' => $id];
     }
 
@@ -212,17 +295,102 @@ final class ClinicalService
         return $vitals;
     }
 
-    private function validateDoctorRecord(int $patientId, int $doctorId, int $recordId): array
+    private function validateDoctorRecord(int $patientId, int $doctorId, int $visitId, int $recordId): array
     {
-        $errors = [];
-        if (!$this->patients->isAssigned($patientId, $doctorId)) {
-            $errors[] = 'You are not assigned to this patient.';
-        }
+        $errors = $this->validateEncounter($patientId, $doctorId, $visitId, false);
         $record = $this->clinical->findRecord($recordId);
-        if ($record === null || (int) $record['patient_id'] !== $patientId || (int) $record['doctor_id'] !== $doctorId) {
+        if ($record === null || (int) $record['patient_id'] !== $patientId || (int) $record['doctor_id'] !== $doctorId || (int) $record['visit_id'] !== $visitId) {
             $errors[] = 'Diagnosis record not found for this patient.';
         }
         return $errors;
+    }
+
+    private function validateEncounter(int $patientId, int $doctorId, int $visitId, bool $mustBeActive = true): array
+    {
+        if (!$this->patients->isAssigned($patientId, $doctorId)) {
+            return ['You are not assigned to this patient.'];
+        }
+        $visit = $visitId > 0 ? $this->visits->findById($visitId) : null;
+        if (
+            $visit === null
+            || (int) $visit['patient_id'] !== $patientId
+            || (int) $visit['doctor_id'] !== $doctorId
+            || ($mustBeActive && (string) $visit['status'] !== 'with_doctor')
+        ) {
+            return ['Consultation not found.'];
+        }
+        return [];
+    }
+
+    /**
+     * @param array<int,mixed> $labTests
+     * @param string[] $errors
+     * @return array<int,array{test_name:string,reason:?string,catalog_price_kes:int}>
+     */
+    private function validatedLabOrders(array $labTests, array &$errors): array
+    {
+        $orders = [];
+        foreach ($labTests as $testName) {
+            if (!is_string($testName)) {
+                $errors[] = 'Select only catalog lab tests.';
+                continue;
+            }
+            $testName = trim($testName);
+            $catalogPriceKes = ClinicalCatalog::priceForTest($testName);
+            if ($catalogPriceKes === null) {
+                $errors[] = 'Select only catalog lab tests.';
+                continue;
+            }
+            if (isset($orders[$testName])) {
+                $errors[] = 'Select each lab test only once.';
+                continue;
+            }
+            $orders[$testName] = ['test_name' => $testName, 'reason' => null, 'catalog_price_kes' => $catalogPriceKes];
+        }
+        return array_values($orders);
+    }
+
+    /**
+     * @param array<int,mixed> $medications
+     * @param string[] $errors
+     * @return array<int,array{medication:string,dosage:string,instructions:?string,catalog_price_kes:int}>
+     */
+    private function validatedPrescriptionOrders(array $medications, array &$errors): array
+    {
+        $orders = [];
+        foreach ($medications as $medication) {
+            if (!is_array($medication)) {
+                $errors[] = 'Medication selection is invalid.';
+                continue;
+            }
+            $name = trim((string) ($medication['medication'] ?? ''));
+            $dosage = trim((string) ($medication['dosage'] ?? ''));
+            $instructions = $this->trimOrNull(isset($medication['instructions']) ? (string) $medication['instructions'] : null);
+            $catalogPriceKes = ClinicalCatalog::priceForMedication($name);
+            if ($catalogPriceKes === null) {
+                $errors[] = 'Select only catalog medications.';
+            }
+            if ($dosage === '') {
+                $errors[] = 'Dosage is required for every selected medication.';
+            }
+            if (mb_strlen($dosage) > 1000 || ($instructions !== null && mb_strlen($instructions) > 2000)) {
+                $errors[] = 'Prescription fields are too long.';
+            }
+            if ($catalogPriceKes === null || $dosage === '' || mb_strlen($dosage) > 1000 || ($instructions !== null && mb_strlen($instructions) > 2000)) {
+                continue;
+            }
+            if (isset($orders[$name])) {
+                $errors[] = 'Select each medication only once.';
+                continue;
+            }
+            $orders[$name] = [
+                'medication' => $name,
+                'dosage' => $dosage,
+                'instructions' => $instructions,
+                'catalog_price_kes' => $catalogPriceKes,
+            ];
+        }
+        return array_values($orders);
     }
 
     private function decimal(mixed $value, float $min, float $max, string $label, array &$errors): ?float

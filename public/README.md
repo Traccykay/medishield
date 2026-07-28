@@ -50,6 +50,9 @@ without a web server.
 
 ```powershell
 # From the repo root, after config/config.php and the database exist:
-php -S 127.0.0.1:8000 -t public
+php -S 127.0.0.1:8000 -t public public/router.php
 # then browse http://127.0.0.1:8000/
 ```
+
+`router.php` is only for PHP's development server. It applies the same security
+headers to local static assets that `.htaccess` applies under XAMPP/Apache.

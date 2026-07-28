@@ -4,11 +4,16 @@ Clinical workflow classes live here. They cover the demo flow after patient
 assignment:
 
 - nurses record vitals and can route an assigned patient to a doctor
-- doctors add encrypted diagnoses/treatments, request lab tests, and issue
-  encrypted prescriptions
+- doctors submit an encounter-bound encrypted diagnosis/treatment with multiple
+  catalog lab tests and medications in one consultation; the server snapshots
+  each catalog price and encrypts prescription details
 - lab users work from the request queue and upload encrypted results
-- pharmacists work from the prescription queue and record dispensing outcomes
+- pharmacists work only from encounters currently assigned to pharmacy and record
+  dispensed or terminal refused outcomes; a refusal requires a reason and
+  atomically returns the linked encounter to its assigned doctor for review
 
 Pages call `ClinicalService` for validation, authorization-sensitive workflow
-rules, encryption, and transactions. `ClinicalRepository` owns the PDO prepared
-statements.
+rules, encryption, catalog validation, and transactions. `ClinicalRepository`
+owns the PDO prepared statements. New medical records, lab requests, and
+prescriptions always carry their `visit_id`; legacy rows may be NULL only where
+an existing database could not safely infer a historical encounter.

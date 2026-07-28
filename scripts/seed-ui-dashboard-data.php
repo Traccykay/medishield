@@ -21,13 +21,14 @@ use MediShield\Visit\VisitRepository;
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-if (getenv('MEDISHIELD_DB_NAME') !== 'medishield_ui_test') {
-    throw new RuntimeException('Dashboard UI data may only be seeded into medishield_ui_test.');
+$database = getenv('MEDISHIELD_DB_NAME') ?: 'medishield_ui_test';
+if (!in_array($database, ['medishield_ui_test', 'medishield_ui_account_test'], true)) {
+    throw new RuntimeException('Dashboard UI data may only be seeded into an isolated UI test database.');
 }
 
 $configPath = __DIR__ . '/../config/config.php';
 $config = require (is_file($configPath) ? $configPath : __DIR__ . '/../config/config.sample.php');
-$config['db']['name'] = 'medishield_ui_test';
+$config['db']['name'] = $database;
 
 $pdo = Connection::fromConfig($config);
 $clock = new Clock();
@@ -39,7 +40,8 @@ $clinicalRepository = new ClinicalRepository($pdo, $clock);
 $clinical = new ClinicalService(
     $clinicalRepository,
     $patients,
-    Crypto::fromHexKey($config['encryption_key_hex'])
+    Crypto::fromHexKey($config['encryption_key_hex']),
+    $visits
 );
 
 /** @return array<string,mixed> */
@@ -109,6 +111,58 @@ foreach ([$dashboardPatient, $doctorPatient, $labPatient, $pharmacyPatient] as $
 }
 
 $receptionVisit = $visits->create($receptionPatient, (int) $receptionist['user_id'], 'cash', null);
+$dashboardVisit = $visits->create($dashboardPatient, (int) $receptionist['user_id'], 'cash', null);
+$visits->updateState($dashboardVisit, 'completed', null, (int) $doctor['user_id']);
+
+if (getenv('MEDISHIELD_DASHBOARD_PATIENT_ONLY') === '1') {
+    $requireOk($clinical->recordVitals($dashboardPatient, (int) $nurse['user_id'], [
+        'temperature_c' => '36.8',
+        'systolic_mmhg' => '118',
+        'diastolic_mmhg' => '76',
+        'pulse_bpm' => '70',
+        'weight_kg' => '65',
+        'symptoms' => 'Routine dashboard test observation',
+    ]), 'Vitals recording');
+    $record = $clinical->addDiagnosis(
+        $dashboardPatient,
+        (int) $doctor['user_id'],
+        $dashboardVisit,
+        'Dashboard follow-up',
+        'Continue observation'
+    );
+    $requireOk($record, 'Dashboard diagnosis');
+    $recordId = (int) $record['record_id'];
+    $labRequest = $clinical->requestLab(
+        $dashboardPatient,
+        (int) $doctor['user_id'],
+        $dashboardVisit,
+        $recordId,
+        'Blood glucose',
+        'Routine follow-up'
+    );
+    $requireOk($labRequest, 'Completed lab request');
+    $requireOk(
+        $clinical->uploadLabResult((int) $labRequest['lab_request_id'], (int) $lab['user_id'], '5.2 mmol/L'),
+        'Lab result upload'
+    );
+    $prescription = $clinical->issuePrescription(
+        $dashboardPatient,
+        (int) $doctor['user_id'],
+        $dashboardVisit,
+        $recordId,
+        'Paracetamol 500 mg',
+        'One tablet every six hours',
+        'Take after meals'
+    );
+    $requireOk($prescription, 'Dispensed prescription');
+    $visits->updateState($dashboardVisit, 'pharmacy');
+    $requireOk(
+        $clinical->dispense((int) $prescription['prescription_id'], (int) $pharmacist['user_id'], 'dispensed', null),
+        'Prescription dispensing'
+    );
+    echo "Patient self-service UI data seeded for visit {$dashboardVisit}.\n";
+    exit;
+}
 
 $nurseVisit = $visits->create($nursePatient, (int) $receptionist['user_id'], 'cash', null);
 $visits->updateState($nurseVisit, 'with_nurse', (int) $nurse['user_id']);
@@ -145,6 +199,7 @@ $requireOk($clinical->recordVitals($dashboardPatient, (int) $nurse['user_id'], [
 $dashboardRecord = $clinical->addDiagnosis(
     $dashboardPatient,
     (int) $doctor['user_id'],
+    $dashboardVisit,
     'Dashboard follow-up',
     'Continue observation'
 );
@@ -154,6 +209,7 @@ $dashboardRecordId = (int) $dashboardRecord['record_id'];
 $completedLab = $clinical->requestLab(
     $dashboardPatient,
     (int) $doctor['user_id'],
+    $dashboardVisit,
     $dashboardRecordId,
     'Blood glucose',
     'Routine follow-up'
@@ -167,33 +223,37 @@ $requireOk(
 $dispensedPrescription = $clinical->issuePrescription(
     $dashboardPatient,
     (int) $doctor['user_id'],
+    $dashboardVisit,
     $dashboardRecordId,
     'Paracetamol 500 mg',
     'One tablet every six hours',
     'Take after meals'
 );
 $requireOk($dispensedPrescription, 'Dispensed prescription');
+$visits->updateState($dashboardVisit, 'pharmacy');
 $requireOk(
     $clinical->dispense((int) $dispensedPrescription['prescription_id'], (int) $pharmacist['user_id'], 'dispensed', null),
     'Prescription dispensing'
 );
 
-$labRecord = $clinical->addDiagnosis($labPatient, (int) $doctor['user_id'], 'Lab review', null);
+$labRecord = $clinical->addDiagnosis($labPatient, (int) $doctor['user_id'], $labVisit, 'Lab review', null);
 $requireOk($labRecord, 'Lab diagnosis');
 $pendingLab = $clinical->requestLab(
     $labPatient,
     (int) $doctor['user_id'],
+    $labVisit,
     (int) $labRecord['record_id'],
-    'Full blood count',
+    'Complete blood count (CBC)',
     'Investigate symptoms'
 );
 $requireOk($pendingLab, 'Pending lab request');
 
-$pharmacyRecord = $clinical->addDiagnosis($pharmacyPatient, (int) $doctor['user_id'], 'Pharmacy review', null);
+$pharmacyRecord = $clinical->addDiagnosis($pharmacyPatient, (int) $doctor['user_id'], $pharmacyVisit, 'Pharmacy review', null);
 $requireOk($pharmacyRecord, 'Pharmacy diagnosis');
 $pendingPrescription = $clinical->issuePrescription(
     $pharmacyPatient,
     (int) $doctor['user_id'],
+    $pharmacyVisit,
     (int) $pharmacyRecord['record_id'],
     'Paracetamol 500 mg',
     'One tablet every six hours',

@@ -18,7 +18,7 @@ module.exports = defineConfig({
     video: demoMode ? 'on' : 'retain-on-failure'
   },
   webServer: {
-    command: 'php -S 127.0.0.1:8765 -t public',
+    command: 'php -S 127.0.0.1:8765 -t public public/router.php',
     url: 'http://127.0.0.1:8765/login.php',
     reuseExistingServer: false,
     env: {

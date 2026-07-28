@@ -8,7 +8,7 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('pharmacy');
-$prescriptions = ms_clinical_repo()->prescriptions('pending');
+$prescriptions = ms_clinical_repo()->pharmacyPrescriptions();
 
 layout_app_header('Prescription queue', $user, 'payments');
 ?>

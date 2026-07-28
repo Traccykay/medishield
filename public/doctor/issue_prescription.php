@@ -25,7 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
         $errors[] = 'Your session has expired. Please try again.';
     } else {
-        $result = ms_clinical_service()->issuePrescription($patientId, (int) $user['user_id'], $recordId, $medication, $dosage, $instructions);
+        $result = ms_clinical_service()->issuePrescription($patientId, (int) $user['user_id'], $visitId, $recordId, $medication, $dosage, $instructions);
         if ($result['ok']) {
             ms_visit_service()->routeFromDoctor($visitId, (int) $user['user_id'], 'pharmacy');
             ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'doctor', 'action' => 'PRESCRIPTION_ISSUED', 'module' => 'doctor', 'affected_record_id' => (string) $result['prescription_id'], 'status' => 'SUCCESS']);
