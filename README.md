@@ -37,7 +37,9 @@ Cybersecurity is central to the project: authentication, role-based access contr
 - **HMAC hash-chained audit logs:** forensic audit entries are append-only and tamper-evident using HMAC-SHA256 with a server-side key.
 - **Anomaly detection:** suspicious and high-risk activity is flagged, including repeated failed logins, unauthorized access, IDOR attempts, CSRF failures, and integrity failures.
 - **CSRF protection:** state-changing forms use CSRF tokens.
-- **Secure sessions:** session ID regeneration, hardened cookies, idle timeout, and absolute timeout.
+- **Secure sessions:** strict cookie-only session IDs, post-MFA regeneration,
+  fail-closed pending/idle/absolute timeouts, and a monotonic account epoch that
+  revokes pending and authenticated sessions after password, status, or role changes.
 - **Request throttling:** HMAC-scoped fixed-window budgets limit login, OTP, and password-reset storms without storing raw IP addresses.
 - **Auditable least privilege:** the web database identity cannot update or delete audit rows; a separate maintenance identity can clear only retention-approved audit PII.
 - **Production transport boundary:** production rejects plaintext HTTP and trusts `X-Forwarded-Proto` only from explicitly configured TLS proxies.
@@ -65,7 +67,7 @@ medishield/
   src/ (Support/, Database/, Security/, Auth/  — PSR-4 namespace MediShield\)
   includes/ (bootstrap.php, guard.php, headers.php, layout.php)
   sql/ (schema.sql, seed.sql)
-  scripts/ (install-dependencies.ps1, configure-php-ini.ps1, setup-db.ps1, create-superadmin.php)
+  scripts/ (install-dependencies.ps1, configure-php-ini.ps1, setup-db.ps1, provision-initial-admin.php)
   tests/ (Unit/, Integration/)
 ```
 
@@ -135,12 +137,37 @@ Each command should print a version number.
    .\scripts\setup-db.ps1
    ```
 
-This creates a local database named `medishield_db`, adds example administrator
-data, applies upgrades, provisions a non-root web database account, and creates
-your private `config\config.php` file with unique encryption and audit keys. The
-configuration file is intentionally not uploaded to GitHub.
+This creates a local database named `medishield_db`, applies upgrades, provisions
+a non-root web database account, and creates your private `config\config.php`
+file with unique encryption and audit keys. It deliberately creates no
+application users and prints no login credential. The configuration file is
+intentionally not uploaded to GitHub.
 
-### 4. Start the application
+### 4. Provision the initial administrator
+
+Normal setup has no default login. Choose the initial administrator's real name
+and email address, bind the command explicitly to the configured database, and
+run:
+
+```powershell
+php scripts\provision-initial-admin.php `
+  --name="Initial Administrator" `
+  --email="administrator@example.com" `
+  --confirm-database=medishield_db `
+  --confirm-initial-admin
+```
+
+The command creates an **inactive** admin with no usable password, sends an
+expiring single-use activation link through the configured mail transport, and
+never prints a password or token. It refuses to run without both confirmation
+options. If any administrator already exists, it makes no changes, so rerunning
+it cannot replace or reset an existing account.
+
+In local development, the `log` mail transport writes the activation message to
+the newest file under `logs\mail\`. In production, provisioning refuses to run
+unless SMTP and an HTTPS `mail.app_base_url` are configured.
+
+### 5. Start the application
 
 In the same PowerShell window, run:
 
@@ -170,23 +197,41 @@ After changing Apache configuration, restart Apache and perform the exposure
 checks in [`SECURITY_TESTING.md`](SECURITY_TESTING.md). Passing tests against
 PHP's built-in server does not prove that Apache applies these restrictions.
 
-### 5. Sign in for the first time
+### 6. Activate and sign in for the first time
 
-| Field | Value |
-| --- | --- |
-| Email | `medishield.superadmin@gmail.com` |
-| Password | `ChangeMe!2026` |
-
-The first sign-in requires a password change and an OTP. During local
-development the OTP is written to the newest file in `logs\mail\`; open that
-file in Notepad and copy the code into the browser.
+Open the activation link delivered in step 4 and choose the initial
+administrator's password. Then sign in with that email and password. The login
+OTP is delivered through the same configured mail transport; during local
+development it appears in the newest file under `logs\mail\`.
 
 > The installer generates unique local keys. For a real deployment, set
 > `environment` to `production`, use HTTPS with a valid certificate, store keys
-> in a managed secret service, replace the example administrator password, and
-> configure SMTP. If TLS terminates at a reverse proxy, configure only that
+> in a managed secret service, and configure SMTP before provisioning the initial
+> administrator. If TLS terminates at a reverse proxy, configure only that
 > proxy's immediate IP in `transport.trusted_proxy_ips` and ensure it overwrites
 > (rather than forwards) `X-Forwarded-Proto`; never trust public client IPs.
+
+### Production startup configuration gate
+
+The exact configuration value `environment => 'production'` activates a
+fail-closed startup check. It runs immediately after the application error-log
+destination is installed and before sessions, database access, audit logging,
+OTP/reset/activation token issuance, or mailer construction.
+
+Production requires all of the following:
+
+- `mail.transport` is exactly `smtp`; `log`, missing, and unknown values are rejected.
+- `mail.app_base_url` is an HTTPS URL with a host and no embedded credentials,
+  query string, or fragment.
+- `mail.from_email` is valid, `mail.from_name` is non-empty, and
+  `mail.smtp.host`, `port`, `encryption` (`tls` or `ssl`), `username`,
+  `password`, and `timeout` are complete and valid.
+
+Startup failures are logged with a fixed diagnostic and reach the browser only
+through the existing generic 500 response. Configuration values and credentials
+are never rendered. Outside production, the local dump workflow remains
+available only through an explicit `mail.transport => 'log'`; missing and
+unknown transports fail closed rather than silently selecting file delivery.
 
 ## Running Tests
 
@@ -208,17 +253,16 @@ composer install
 | PHPUnit integration | Services and repositories with a fresh in-memory SQLite database: authentication, activation/OTP, session revocation, audit retention, user/patient access, and clinical workflows. | `composer test:integration` |
 | All PHP tests | Runs both PHPUnit suites. It does not need MySQL or change local application data. | `composer test` |
 | Playwright workflow | Exercises the real browser-based hospital workflow using disposable role-specific accounts. | `.\scripts\run-ui-tests.ps1` |
-| Playwright security harness | Exercises hostile browser requests: role/object-reference denial, live doctor-assignment revocation with nurse-queue recovery and released doctor capacity, forged-CSRF no-mutation, stored-XSS encoding, security headers, and generic authentication failures. The standard UI runner executes it with the workflow tests. | `.\scripts\run-ui-tests.ps1` |
+| Playwright security harness | Exercises hostile browser requests: role/object-reference denial, live doctor-assignment revocation with nurse-queue recovery and released doctor capacity, deterministic method/CSRF rejection across all mutation controllers, malformed-array no-mutation checks, stored-XSS encoding, security headers, and generic authentication failures. The standard UI runner executes it with the workflow tests. | `.\scripts\run-ui-tests.ps1` |
 | OWASP ZAP passive baseline | Scans the disposable local application for passive OWASP-style HTTP findings and writes HTML, JSON, and XML reports. Requires Docker Desktop. | `.\scripts\run-zap-baseline.ps1` |
 
 The browser and ZAP runners both call `scripts\ensure-mysql.ps1`: it checks a
 live SQL connection first, then supports Windows services, default XAMPP, and
 Scoop MariaDB before recreating **only** `medishield_ui_test`. They never
-change the normal `medishield_db` database. To run just the security harness
-after its prerequisites are available, use:
+change the normal `medishield_db` database. To run just the security harness after its prerequisites are available, use:
 
 ```powershell
-npx.cmd playwright test e2e\security-hostile.spec.js
+npx.cmd playwright test request-boundary security-hostile
 ```
 
 On failure, inspect `test-results` for the screenshot, video, and trace. See
@@ -261,7 +305,7 @@ supervisor walkthrough because it repeats the same checked workflow every time.
 Deliverable 1 includes:
 
 - Login and logout with secure sessions (id regeneration, idle + absolute timeout)
-- Seeded superadmin account (forced password change at first login)
+- CLI-only initial-admin provisioning with an inactive, single-use activation flow
 - Admin "registration" flow: create users and assign one of the seven roles
 - Admin user management: list users, activate/deactivate accounts
 - Admin dashboard with security monitoring: recent audit events, failed-login /

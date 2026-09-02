@@ -50,17 +50,18 @@ final class OtpService
      */
     public function issue(int $userId): string
     {
-        $this->otps->invalidateAllForUser($userId);
+        return $this->otps->transactional(function () use ($userId): string {
+            $this->otps->invalidateAllForUser($userId);
 
-        $code = $this->generateCode();
-        $hash = password_hash($code, PASSWORD_DEFAULT);
-        $expiresAt = $this->clock->now()
-            ->add(new \DateInterval('PT' . max(1, $this->ttlMinutes) . 'M'))
-            ->format('Y-m-d H:i:s');
+            $code = $this->generateCode();
+            $hash = password_hash($code, PASSWORD_DEFAULT);
+            $expiresAt = $this->clock->now()
+                ->add(new \DateInterval('PT' . max(1, $this->ttlMinutes) . 'M'))
+                ->format('Y-m-d H:i:s');
 
-        $this->otps->create($userId, $hash, $expiresAt);
-
-        return $code;
+            $this->otps->create($userId, $hash, $expiresAt);
+            return $code;
+        });
     }
 
     /**
@@ -75,38 +76,48 @@ final class OtpService
      */
     public function verify(int $userId, string $code): string
     {
-        $row = $this->otps->latestActiveForUser($userId);
-        if ($row === null) {
-            return 'none';
-        }
+        return $this->otps->transactional(function () use ($userId, $code): string {
+            $row = $this->otps->latestActiveForUser($userId, true);
+            if ($row === null) {
+                return 'none';
+            }
 
-        // Expiry takes priority — an expired code is never accepted.
-        if ($this->isExpired((string) $row['expires_at'])) {
-            return 'expired';
-        }
+            if ($this->isExpired((string) $row['expires_at'])) {
+                return $this->otps->markUsed((int) $row['otp_id']) ? 'expired' : 'none';
+            }
 
-        // Already burned through the attempt budget?
-        if ((int) $row['attempts'] >= $this->maxAttempts) {
-            return 'too_many';
-        }
+            if ((int) $row['attempts'] >= $this->maxAttempts) {
+                return $this->otps->markUsed((int) $row['otp_id']) ? 'too_many' : 'none';
+            }
 
-        if (password_verify($code, (string) $row['code_hash'])) {
-            $this->otps->markUsed((int) $row['otp_id']);
-            return 'ok';
-        }
+            if (password_verify($code, (string) $row['code_hash'])) {
+                return $this->otps->markUsed((int) $row['otp_id']) ? 'ok' : 'none';
+            }
 
-        $newCount = $this->otps->incrementAttempts((int) $row['otp_id']);
-        return $newCount >= $this->maxAttempts ? 'too_many' : 'invalid';
+            $newCount = $this->otps->incrementAttempts((int) $row['otp_id']);
+            if ($newCount === null) {
+                return 'none';
+            }
+            if ($newCount >= $this->maxAttempts) {
+                $this->otps->markUsed((int) $row['otp_id']);
+                return 'too_many';
+            }
+            return 'invalid';
+        });
+    }
+
+    /** Revoke any outstanding code after pending-login state is rejected. */
+    public function invalidateForUser(int $userId): void
+    {
+        $this->otps->transactional(
+            fn () => $this->otps->invalidateAllForUser($userId)
+        );
     }
 
     private function isExpired(string $expiresAt): bool
     {
-        try {
-            $exp = new \DateTimeImmutable($expiresAt, new \DateTimeZone('UTC'));
-        } catch (\Exception) {
-            return true; // unparseable expiry => treat as expired (fail safe)
-        }
-        return $this->clock->now() > $exp;
+        $expiry = Clock::parseDatabaseTimestamp($expiresAt);
+        return $expiry === null || $this->clock->now() >= $expiry;
     }
 
     /** Build a random code of the configured length from the unambiguous alphabet. */

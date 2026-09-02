@@ -27,4 +27,19 @@ final class DisposableDatabase
 
         return $database;
     }
+
+    public static function requireSetupTarget(string $configuredDatabase, string $selectedDatabase): string
+    {
+        if ($selectedDatabase === $configuredDatabase) {
+            return $selectedDatabase;
+        }
+
+        try {
+            return self::requireUiTestName($selectedDatabase);
+        } catch (InvalidArgumentException) {
+            throw new InvalidArgumentException(
+                'Database setup may only target the configured database or an isolated UI test database.'
+            );
+        }
+    }
 }

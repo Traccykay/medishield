@@ -21,10 +21,12 @@ declare(strict_types=1);
  *   - Session id is regenerated on success inside login_user() (anti-fixation).
  */
 
+use MediShield\Auth\Rbac;
 use MediShield\Security\Csrf;
 
 require_once __DIR__ . '/../includes/guard.php';
 require_once __DIR__ . '/../includes/layout.php';
+ms_send_no_store_headers();
 
 // Already fully logged in? Nothing to verify.
 if (is_logged_in()) {
@@ -32,30 +34,48 @@ if (is_logged_in()) {
     redirect($u['must_change'] ? '/change_password.php' : landing_path_for($u['role']));
 }
 
+$isPost = request_post_guard('auth');
+
 // No pending login => the user came here directly or the step expired.
 $pending = $_SESSION['pending_login'] ?? null;
 if (!is_array($pending) || empty($pending['user_id'])) {
     redirect('/login.php');
 }
 
-$userId = (int) $pending['user_id'];
-$role   = (string) ($pending['role'] ?? 'guest');
+$pendingResult = ms_session_validator()->validatePendingLogin($pending);
+if ($pendingResult['status'] !== 'valid') {
+    $candidateId = $pending['user_id'] ?? null;
+    $candidateRole = $pending['role'] ?? null;
+    $userId = is_int($candidateId) && $candidateId > 0 ? $candidateId : null;
+    $role = is_string($candidateRole) && Rbac::isValidRole($candidateRole)
+        ? $candidateRole
+        : 'guest';
+    if ($userId !== null) {
+        ms_otp_service()->invalidateForUser($userId);
+    }
+    ms_audit_log([
+        'user_id' => $userId,
+        'user_role' => $role,
+        'action' => $pendingResult['status'] === 'expired' ? 'OTP_EXPIRED' : 'OTP_FAILED',
+        'module' => 'auth',
+        'status' => $pendingResult['status'] === 'expired' ? 'FAILED' : 'BLOCKED',
+        'anomaly_flag' => $pendingResult['status'] === 'malformed' ? 'SUSPICIOUS' : 'NORMAL',
+    ]);
+    unset($_SESSION['pending_login']);
+    redirect($pendingResult['status'] === 'expired'
+        ? '/login.php?otp=expired'
+        : '/login.php?otp=revoked');
+}
+
+$authoritativeUser = (array) $pendingResult['user'];
+$userId = (int) $authoritativeUser['user_id'];
+$role   = (string) $authoritativeUser['role'];
 $error  = null;
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $code = strtoupper(trim((string) ($_POST['otp'] ?? '')));
+if ($isPost) {
+    $code = strtoupper(trim(request_string($_POST['otp'] ?? null)));
 
-    if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
-        ms_audit_log([
-            'user_id'      => $userId,
-            'user_role'    => $role,
-            'action'       => 'CSRF_REJECTED',
-            'module'       => 'auth',
-            'status'       => 'BLOCKED',
-            'anomaly_flag' => 'SUSPICIOUS',
-        ]);
-        $error = 'Your session has expired. Please try again.';
-    } elseif (!ms_request_throttle()->allow(
+    if (!ms_request_throttle()->allow(
         'otp_verify',
         ms_client_ip(),
         (int) (ms_config()['request_throttling']['otp_max_attempts'] ?? 60),
@@ -74,12 +94,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $status = ms_otp_service()->verify($userId, $code);
 
         if ($status === 'ok') {
-            // Re-fetch the authoritative user row; never trust session-cached fields.
-            $user = ms_user_repo()->findById($userId);
-            if ($user === null) {
+            // Re-check the epoch after code consumption, closing the account-state
+            // race between page load and OTP redemption.
+            $finalPending = ms_session_validator()->validatePendingLogin($pending);
+            if ($finalPending['status'] !== 'valid') {
+                ms_audit_log([
+                    'user_id' => $userId,
+                    'user_role' => $role,
+                    'action' => 'OTP_FAILED',
+                    'module' => 'auth',
+                    'status' => 'BLOCKED',
+                ]);
                 unset($_SESSION['pending_login']);
-                redirect('/login.php');
+                redirect('/login.php?otp=revoked');
             }
+            $user = (array) $finalPending['user'];
 
             ms_audit_log([
                 'user_id'   => $userId,

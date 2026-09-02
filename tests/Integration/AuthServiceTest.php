@@ -16,6 +16,7 @@ use PHPUnit\Framework\TestCase;
  */
 final class AuthServiceTest extends TestCase
 {
+    private \PDO $pdo;
     private UserRepository $repo;
     private AuthService $auth;
     private Clock $clock;
@@ -23,7 +24,8 @@ final class AuthServiceTest extends TestCase
     protected function setUp(): void
     {
         $this->clock = new Clock(static fn () => new \DateTimeImmutable('2026-01-01 12:00:00', new \DateTimeZone('UTC')));
-        $this->repo  = new UserRepository(TestSchema::pdo(), $this->clock);
+        $this->pdo = TestSchema::pdo();
+        $this->repo  = new UserRepository($this->pdo, $this->clock);
         $this->auth  = new AuthService($this->repo, $this->clock); // defaults: 5 / 3 / 15min
     }
 
@@ -54,6 +56,7 @@ final class AuthServiceTest extends TestCase
     {
         $result = $this->auth->attemptLogin('ghost@example.com', 'whatever');
         self::assertSame('invalid', $result['status']);
+        self::assertSame('unknown_account', $result['internal_status']);
         self::assertNull($result['user']);
     }
 
@@ -66,6 +69,7 @@ final class AuthServiceTest extends TestCase
         $result = $this->auth->attemptLogin('alice@example.com', 'wrong-password');
 
         self::assertSame('invalid', $result['status']);
+        self::assertSame('wrong_password', $result['internal_status']);
         self::assertNull($result['user']); // no session is established on failure
         self::assertSame($id, $result['target_user_id']);
         self::assertSame('doctor', $result['target_user_role']);
@@ -90,7 +94,8 @@ final class AuthServiceTest extends TestCase
         // Even the lockout (HIGH_RISK) event must name the account under attack.
         $result = $this->auth->attemptLogin('bob@example.com', 'Str0ng!Pass1');
 
-        self::assertSame('locked', $result['status']);
+        self::assertSame('invalid', $result['status']);
+        self::assertSame('locked_account', $result['internal_status']);
         self::assertSame($id, $result['target_user_id']);
         self::assertSame('doctor', $result['target_user_role']);
     }
@@ -100,6 +105,7 @@ final class AuthServiceTest extends TestCase
         $this->seedUser('inactive@example.com', 'Str0ng!Pass1', 'inactive');
         $result = $this->auth->attemptLogin('inactive@example.com', 'Str0ng!Pass1');
         self::assertSame('invalid', $result['status']);
+        self::assertSame('inactive_account', $result['internal_status']);
     }
 
     public function testThreeFailuresFlagSuspicious(): void
@@ -122,7 +128,9 @@ final class AuthServiceTest extends TestCase
         }
         $fifth = $this->auth->attemptLogin('doc@example.com', 'wrong');
 
-        self::assertSame('locked', $fifth['status']);
+        self::assertSame('invalid', $fifth['status']);
+        self::assertSame('locked_account', $fifth['internal_status']);
+        self::assertSame('ACCOUNT_LOCKED', $fifth['audit_action']);
         self::assertSame('HIGH_RISK', $fifth['anomaly']);
         // locked_until should be now + 15 minutes.
         self::assertSame('2026-01-01 12:15:00', $this->repo->findById($id)['locked_until']);
@@ -136,7 +144,24 @@ final class AuthServiceTest extends TestCase
         }
         // Correct password, but still inside the lock window (same fixed clock).
         $result = $this->auth->attemptLogin('doc@example.com', 'Str0ng!Pass1');
-        self::assertSame('locked', $result['status']);
+        self::assertSame('invalid', $result['status']);
+        self::assertSame('locked_account', $result['internal_status']);
+    }
+
+    public function testMalformedLockTimestampFailsClosed(): void
+    {
+        $id = $this->seedUser('malformed-lock@example.com');
+        $this->pdo->prepare(
+            'UPDATE users SET locked_until = :locked_until WHERE user_id = :user_id'
+        )->execute([
+            ':locked_until' => '2025-02-30 12:15:00',
+            ':user_id' => $id,
+        ]);
+
+        $result = $this->auth->attemptLogin('malformed-lock@example.com', 'Str0ng!Pass1');
+
+        self::assertSame('invalid', $result['status']);
+        self::assertSame('locked_account', $result['internal_status']);
     }
 
     public function testLockExpiresAfterWindow(): void
@@ -151,10 +176,40 @@ final class AuthServiceTest extends TestCase
         for ($i = 0; $i < 5; $i++) {
             $auth->attemptLogin('doc@example.com', 'wrong');
         }
-        self::assertSame('locked', $auth->attemptLogin('doc@example.com', 'Str0ng!Pass1')['status']);
+        $locked = $auth->attemptLogin('doc@example.com', 'Str0ng!Pass1');
+        self::assertSame('invalid', $locked['status']);
+        self::assertSame('locked_account', $locked['internal_status']);
 
         // Advance 16 minutes -> lock expired -> correct password now succeeds.
         $now = $now->add(new \DateInterval('PT16M'));
         self::assertSame('success', $auth->attemptLogin('doc@example.com', 'Str0ng!Pass1')['status']);
+    }
+
+    public function testAllAccountFailureStatesShareOneExternalStatus(): void
+    {
+        $this->seedUser('wrong@example.com');
+        $this->seedUser('inactive@example.com', 'Str0ng!Pass1', 'inactive');
+        $this->seedUser('locked@example.com');
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $this->auth->attemptLogin('locked@example.com', 'wrong');
+        }
+
+        $results = [
+            $this->auth->attemptLogin('unknown@example.com', 'Str0ng!Pass1'),
+            $this->auth->attemptLogin('inactive@example.com', 'Str0ng!Pass1'),
+            $this->auth->attemptLogin('wrong@example.com', 'wrong'),
+            $this->auth->attemptLogin('locked@example.com', 'Str0ng!Pass1'),
+        ];
+
+        self::assertSame(
+            ['invalid'],
+            array_values(array_unique(array_column($results, 'status'))),
+            'Externally visible control flow must not disclose the account state.'
+        );
+        self::assertSame(
+            ['unknown_account', 'inactive_account', 'wrong_password', 'locked_account'],
+            array_column($results, 'internal_status'),
+            'Internal outcomes must remain precise for auditing and incident response.'
+        );
     }
 }

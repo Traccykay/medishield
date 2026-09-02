@@ -9,17 +9,18 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('reception');
-$patientId = (int) ($_GET['patient_id'] ?? $_POST['patient_id'] ?? 0);
+$isPost = request_post_guard('reception');
+$patientId = request_positive_int(
+    $isPost ? ($_POST['patient_id'] ?? null) : ($_GET['patient_id'] ?? null)
+);
 $errors = [];
 $paymentMethod = 'cash';
 $insurer = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $paymentMethod = (string) ($_POST['payment_method'] ?? '');
-    $insurer = (string) ($_POST['insurer'] ?? '');
-    if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
-        $errors[] = 'Your session has expired. Please try again.';
-    } elseif ($patientId > 0) {
+if ($isPost) {
+    $paymentMethod = request_string($_POST['payment_method'] ?? null);
+    $insurer = request_string($_POST['insurer'] ?? null);
+    if ($patientId > 0) {
         $result = ms_visit_service()->createVisit($patientId, (int) $user['user_id'], $paymentMethod, $insurer);
         if ($result['ok']) {
             ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'receptionist', 'action' => 'PATIENT_REGISTERED', 'module' => 'reception', 'affected_record_id' => (string) $result['visit_id'], 'status' => 'SUCCESS']);

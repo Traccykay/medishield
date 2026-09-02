@@ -35,7 +35,7 @@ layout_app_header('Dashboard', $user, 'dashboard');
 
     <ul class="ms-list">
         <li><a href="<?= e(ms_url('/change_password.php')) ?>">Change my password</a></li>
-        <li><a href="<?= e(ms_url('/logout.php')) ?>">Log out</a></li>
+        <li><?php layout_logout_form(); ?></li>
     </ul>
 </section>
 <?php

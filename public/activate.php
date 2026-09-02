@@ -26,6 +26,7 @@ use MediShield\Security\Csrf;
 
 require_once __DIR__ . '/../includes/guard.php';
 require_once __DIR__ . '/../includes/layout.php';
+ms_send_no_store_headers();
 
 // A logged-in user has no business on the activation page.
 if (is_logged_in()) {
@@ -33,9 +34,11 @@ if (is_logged_in()) {
     redirect($u['must_change'] ? '/change_password.php' : landing_path_for($u['role']));
 }
 
+$isPost = request_post_guard('auth');
+
 // The token arrives in the query string (GET) and is echoed back as a hidden field
 // on POST so the form submit keeps the same activation token.
-$tokenValue = (string) ($_POST['token'] ?? $_GET['token'] ?? '');
+$tokenValue = request_string($isPost ? ($_POST['token'] ?? null) : ($_GET['token'] ?? null));
 
 $errors  = [];
 $success = false;
@@ -53,37 +56,26 @@ if ($tokenValue === '') {
     }
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tokenValue !== '') {
-    if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
+if ($isPost && $tokenValue !== '') {
+    $password = request_string($_POST['password'] ?? null);
+    $confirm  = request_string($_POST['confirm_password'] ?? null);
+
+    $result = ms_activation_service()->activate($tokenValue, $password, $confirm);
+
+    if ($result['ok']) {
         ms_audit_log([
-            'user_role'    => 'guest',
-            'action'       => 'CSRF_REJECTED',
-            'module'       => 'auth',
-            'status'       => 'BLOCKED',
-            'anomaly_flag' => 'SUSPICIOUS',
+            'user_id'            => (int) $result['user_id'],
+            'user_role'          => 'user',
+            'action'             => 'ACCOUNT_ACTIVATED',
+            'module'             => 'auth',
+            'affected_record_id' => (int) $result['user_id'],
+            'status'             => 'SUCCESS',
         ]);
-        $errors = ['Your session has expired. Please try again.'];
+        $success = true;
     } else {
-        $password = (string) ($_POST['password'] ?? '');
-        $confirm  = (string) ($_POST['confirm_password'] ?? '');
-
-        $result = ms_activation_service()->activate($tokenValue, $password, $confirm);
-
-        if ($result['ok']) {
-            ms_audit_log([
-                'user_id'            => (int) $result['user_id'],
-                'user_role'          => 'user',
-                'action'             => 'ACCOUNT_ACTIVATED',
-                'module'             => 'auth',
-                'affected_record_id' => (int) $result['user_id'],
-                'status'             => 'SUCCESS',
-            ]);
-            $success = true;
-        } else {
-            $errors = $result['errors'];
-            // Re-check validity so a still-good token keeps the form on screen.
-            $valid = ms_activation_service()->validate($tokenValue)['ok'];
-        }
+        $errors = $result['errors'];
+        // Re-check validity so a still-good token keeps the form on screen.
+        $valid = ms_activation_service()->validate($tokenValue)['ok'];
     }
 }
 
@@ -108,11 +100,13 @@ layout_header('Activate account');
                 <input type="hidden" name="token" value="<?= e($tokenValue) ?>">
 
                 <label class="ms-label" for="password">New password</label>
-                <input class="ms-input" type="password" id="password" name="password" required autofocus>
+                <input class="ms-input" type="password" id="password" name="password"
+                       minlength="12" required autofocus>
                 <p class="ms-help">Minimum 12 characters with upper/lower case, a number and a symbol.</p>
 
                 <label class="ms-label" for="confirm_password">Confirm password</label>
-                <input class="ms-input" type="password" id="confirm_password" name="confirm_password" required>
+                <input class="ms-input" type="password" id="confirm_password" name="confirm_password"
+                       minlength="12" required>
 
                 <button class="ms-btn ms-btn-primary ms-btn-block" type="submit">Activate account</button>
             </form>

@@ -22,7 +22,7 @@ without a web server.
 |------|---------|--------|
 | `index.php` | Entry point; routes the visitor to login or their landing page. | Public |
 | `login.php` | Login form + authentication. Audits LOGIN_SUCCESS/LOGIN_FAILED. | Public |
-| `logout.php` | Ends the session; audits LOGOUT. | Authenticated |
+| `logout.php` | POST-only session termination; audits LOGOUT. | Authenticated |
 | `change_password.php` | Set a new password (also the forced first-login change). Audits PASSWORD_RESET. | Authenticated |
 | `dashboard.php` | Generic landing page for non-admin roles in Deliverable 1. | Authenticated |
 | `patients.php` | Patient workspace: admin searches all demographics, nurses/doctors see assigned patients, patients are routed to their own profile. | Authenticated + role/object checks |
@@ -42,14 +42,22 @@ without a web server.
 - **Guard first.** A protected page calls `require_login()`, `require_role()` or
   `require_area()` *before* reading or writing anything. Hidden UI is never a
   substitute for a server-side check.
-- **CSRF on every POST.** `Csrf::check($_SESSION, $_POST[Csrf::FIELD])` runs
-  before any state change; failures are audited as `CSRF_REJECTED`.
+- **One request boundary on every form controller.**
+  `request_post_guard($module)` permits GET rendering, accepts only verified
+  POST mutations, and rejects every other method. Action-only controllers pass
+  `postOnly: true`. A missing, wrong, or array-shaped token receives the same
+  generic 403 response and exactly one `CSRF_REJECTED` audit attempt before any
+  field parsing, object lookup, or domain work.
+- **Array-safe request parsing.** Controllers use `request_positive_int()` and
+  `request_string()` after the request guard, so malformed arrays cannot become
+  object ID 1 or trigger a PHP type error.
 - **Escape every output** with `e()` (HTML-escaping) — defence against XSS.
 - **Build internal links/redirects with `ms_url('/path')`** (and let `redirect()`
   handle base paths) — never hardcode `/login.php`. This keeps the intended
   `public` document root working while retaining the protected
   `http://localhost/medishield/public/` development fallback.
-- **Audit security events** with `ms_audit_log([...])`; it never crashes the page.
+- **Audit security events** with `ms_audit_log([...])`; a failed audit write is
+  logged internally and never lets a rejected request reach domain mutation.
 - **No secrets or stack traces** are sent to the browser (see `bootstrap.php`).
 
 ## Serving locally

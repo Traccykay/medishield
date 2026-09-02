@@ -7,9 +7,9 @@ declare(strict_types=1);
  * -------------------
  * Lets the signed-in user set a new password. This page serves two situations:
  *
- *   1. A FORCED change at first login. Admin-created accounts (including the
- *      seeded superadmin) start with must_change_password = 1, so guard.php
- *      redirects them here until they pick their own password.
+ *   1. A FORCED change for accounts created with a temporary password.
+ *      must_change_password = 1 makes guard.php redirect them here until they
+ *      choose their own password.
  *   2. A VOLUNTARY change at any later time.
  *
  * Because of case (1) this is the one protected page that must remain reachable
@@ -29,29 +29,21 @@ use MediShield\Security\Csrf;
 
 require_once __DIR__ . '/../includes/guard.php';
 require_once __DIR__ . '/../includes/layout.php';
+ms_send_no_store_headers();
 
 // Allow access even when must_change_password is set (that is the whole point).
 $user = require_login(allowPasswordChange: true);
+$isPost = request_post_guard('auth');
 
 $errors = [];
 $forced = (bool) $user['must_change'];
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $current = (string) ($_POST['current_password'] ?? '');
-    $new     = (string) ($_POST['new_password'] ?? '');
-    $confirm = (string) ($_POST['confirm_password'] ?? '');
+if ($isPost) {
+    $current = request_string($_POST['current_password'] ?? null);
+    $new     = request_string($_POST['new_password'] ?? null);
+    $confirm = request_string($_POST['confirm_password'] ?? null);
 
-    if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
-        ms_audit_log([
-            'user_id'      => (int) $user['user_id'],
-            'user_role'    => (string) $user['role'],
-            'action'       => 'CSRF_REJECTED',
-            'module'       => 'auth',
-            'status'       => 'BLOCKED',
-            'anomaly_flag' => 'SUSPICIOUS',
-        ]);
-        $errors[] = 'Your session has expired. Please try again.';
-    } elseif ($new !== $confirm) {
+    if ($new !== $confirm) {
         // Cheap client-side-style check done server-side: confirmation must match.
         $errors[] = 'The new password and its confirmation do not match.';
     } else {
@@ -66,11 +58,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'status'    => 'SUCCESS',
             ]);
 
-            // Reflect the cleared flag in the live session so guard.php stops
-            // redirecting here on the next request.
-            $_SESSION['auth']['must_change'] = false;
-
-            redirect(landing_path_for($user['role']));
+            audit_forced_logout($user, 'SUCCESS');
+            logout_user();
+            redirect('/login.php?password=changed');
         }
 
         ms_audit_log([
@@ -104,11 +94,13 @@ layout_header('Change password', $user);
         <input class="ms-input" type="password" id="current_password" name="current_password" required autofocus>
 
         <label class="ms-label" for="new_password">New password</label>
-        <input class="ms-input" type="password" id="new_password" name="new_password" required>
+        <input class="ms-input" type="password" id="new_password" name="new_password"
+               minlength="12" required>
         <p class="ms-help">Use at least 12 characters with upper- and lower-case letters, a number and a symbol.</p>
 
         <label class="ms-label" for="confirm_password">Confirm new password</label>
-        <input class="ms-input" type="password" id="confirm_password" name="confirm_password" required>
+        <input class="ms-input" type="password" id="confirm_password" name="confirm_password"
+               minlength="12" required>
 
         <button class="ms-btn ms-btn-primary ms-btn-block" type="submit">Update password</button>
     </form>

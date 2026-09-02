@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('node:fs');
 const path = require('node:path');
-const { loginWithOtp } = require('./helpers');
+const { loginWithOtp, logout, readNewMail } = require('./helpers');
 
 test.describe.configure({ mode: 'serial' });
 
@@ -43,7 +43,7 @@ test('blocks role and object-reference attacks without disclosing patient data',
   const patientId = new URL(page.url()).searchParams.get('patient_id');
   expect(patientId).not.toBeNull();
 
-  await page.goto('/logout.php');
+  await logout(page);
   await loginWithOtp(page, 'ui.nurse@medishield.test');
 
   await page.goto(`/patient_profile.php?patient_id=${patientId}`);
@@ -71,7 +71,7 @@ test('revoked doctor assignment immediately blocks reads, IDOR, and mutation', a
   await page.getByLabel('Payment method').selectOption('cash');
   await page.getByRole('button', { name: 'Add to triage queue' }).click();
 
-  await page.goto('/logout.php');
+  await logout(page);
   await loginWithOtp(page, 'ui.nurse@medishield.test');
   await page.goto('/nurse/triage.php');
   const triageRow = page.getByRole('row').filter({ hasText: patientName });
@@ -91,7 +91,7 @@ test('revoked doctor assignment immediately blocks reads, IDOR, and mutation', a
   });
   await page.getByRole('button', { name: 'Assign doctor' }).click();
 
-  await page.goto('/logout.php');
+  await logout(page);
   await loginWithOtp(page, authorizedDoctorEmail);
   const consultationRow = page.getByRole('row').filter({ hasText: patientName });
   const consultationHref = await consultationRow.getByRole('link', { name: 'Open' }).getAttribute('href');
@@ -104,14 +104,14 @@ test('revoked doctor assignment immediately blocks reads, IDOR, and mutation', a
   await page.getByRole('button', { name: 'Save consultation and selected orders' }).click();
   await expect(page.getByText(authorizedDiagnosis)).toBeVisible();
 
-  await page.goto('/logout.php');
+  await logout(page);
   await loginWithOtp(page, 'ui.admin@medishield.test');
   await page.goto(`/admin/assign_patient.php?patient_id=${patientId}`);
   const doctorAssignment = page.getByRole('row').filter({ hasText: authorizedDoctorEmail });
   await doctorAssignment.getByRole('button', { name: 'Unassign' }).click();
   await expect(page.getByText('Assignment removed.')).toBeVisible();
 
-  await page.goto('/logout.php');
+  await logout(page);
   await loginWithOtp(page, 'ui.nurse@medishield.test');
   const recoveredNurseRow = page.getByRole('row')
     .filter({ hasText: patientName })
@@ -120,7 +120,7 @@ test('revoked doctor assignment immediately blocks reads, IDOR, and mutation', a
   await recoveredNurseRow.getByRole('link', { name: 'Assign doctor' }).click();
   await expect(page.getByLabel('Doctor').locator(`option:has-text("${authorizedDoctorEmail}")`)).toHaveCount(1);
 
-  await page.goto('/logout.php');
+  await logout(page);
   await loginWithOtp(page, authorizedDoctorEmail);
   await expect(page.getByText(patientName)).toHaveCount(0);
   for (const url of [
@@ -136,7 +136,7 @@ test('revoked doctor assignment immediately blocks reads, IDOR, and mutation', a
   }
 
   await page.goto('/change_password.php');
-  const csrfToken = await page.locator('input[name="csrf_token"]').inputValue();
+  const csrfToken = await page.locator('input[name="csrf_token"]').first().inputValue();
   const deniedMutation = await page.request.post('/doctor/add_diagnosis.php', {
     form: {
       csrf_token: csrfToken,
@@ -147,7 +147,7 @@ test('revoked doctor assignment immediately blocks reads, IDOR, and mutation', a
   });
   expect(deniedMutation.status()).toBe(403);
 
-  await page.goto('/logout.php');
+  await logout(page);
   await loginWithOtp(page, 'ui.admin@medishield.test');
   await page.goto('/admin/audit.php');
   const denialRow = page.getByRole('row')
@@ -158,7 +158,7 @@ test('revoked doctor assignment immediately blocks reads, IDOR, and mutation', a
   await expect(denialRow).toContainText('BLOCKED');
   await expect(denialRow).toContainText('HIGH_RISK');
 
-  await page.goto('/logout.php');
+  await logout(page);
   await loginWithOtp(page, 'ui.nurse@medishield.test');
   const rerouteRow = page.getByRole('row')
     .filter({ hasText: patientName })
@@ -169,13 +169,13 @@ test('revoked doctor assignment immediately blocks reads, IDOR, and mutation', a
   });
   await page.getByRole('button', { name: 'Assign doctor' }).click();
 
-  await page.goto('/logout.php');
+  await logout(page);
   await loginWithOtp(page, authorizedDoctorEmail);
   await page.goto(`/doctor/view_patient.php?patient_id=${patientId}&visit_id=${visitId}`);
   await expect(page.getByText(authorizedDiagnosis)).toBeVisible();
   await expect(page.getByText(forgedDiagnosis)).toHaveCount(0);
 
-  await page.goto('/logout.php');
+  await logout(page);
   await loginWithOtp(page, wrongDoctorEmail);
   await page.goto(`/doctor/view_patient.php?patient_id=${patientId}&visit_id=${visitId}`);
   await expect(page.getByRole('heading', { name: 'Access denied' })).toBeVisible();
@@ -197,8 +197,8 @@ test('rejects a forged CSRF form POST without creating a patient', async ({ page
     }
   });
 
-  expect(response.status()).toBe(200);
-  await expect(response.text()).resolves.toContain('Your session has expired. Please try again.');
+  expect(response.status()).toBe(403);
+  await expect(response.text()).resolves.toBe('Request could not be processed.');
 
   await page.goto('/patients.php?q=CSRF%20Rejected%20Patient');
   await expect(page.getByText('No matching patients found.')).toBeVisible();
@@ -279,19 +279,114 @@ test('sends security headers and gives generic invalid-login errors', async ({ p
   expect(response.headers()['cross-origin-opener-policy']).toBe('same-origin');
   expect(response.headers()['cross-origin-resource-policy']).toBe('same-origin');
   expect(response.headers()['x-powered-by']).toBeUndefined();
+  expect(response.headers()['cache-control']).toContain('no-store');
 
   const stylesheet = await page.request.get('/assets/css/style.css');
   expect(stylesheet.headers()['x-content-type-options']).toBe('nosniff');
   expect(stylesheet.headers()['cross-origin-resource-policy']).toBe('same-origin');
 
-  for (const email of ['ui.receptionist@medishield.test', 'unknown@medishield.test']) {
+  const attempts = [
+    ['ui.receptionist@medishield.test', 'Incorrect!2026'],
+    ['ui.inactive-probe@medishield.test', 'UiTest!2026A'],
+    ['unknown@medishield.test', 'Incorrect!2026'],
+  ];
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    attempts.push(['ui.login-probe@medishield.test', 'Incorrect!2026']);
+  }
+  attempts.push(['ui.login-probe@medishield.test', 'UiTest!2026A']);
+
+  for (const [email, password] of attempts) {
     await page.goto('/login.php');
     await page.getByLabel('Email').fill(email);
-    await page.getByLabel('Password').fill('Incorrect!2026');
+    await page.getByLabel('Password').fill(password);
     await page.getByRole('button', { name: 'Sign in' }).click();
     await expect(page.getByText('Invalid email or password.')).toBeVisible();
+    await expect(page.getByText(/temporarily locked/i)).toHaveCount(0);
     await expect(page.getByText(/account .* does not exist/i)).toHaveCount(0);
   }
+});
+
+test('rejects an attacker-chosen session id and ignores URL session ids', async ({ page }) => {
+  await page.goto('/login.php');
+  const origin = new URL(page.url()).origin;
+  const chosenId = 'attackerchosenvalidsessionid123456';
+
+  await page.context().clearCookies();
+  await page.context().addCookies([{
+    name: 'MEDISHIELD_SID',
+    value: chosenId,
+    url: origin,
+    httpOnly: true,
+    sameSite: 'Strict'
+  }]);
+  await page.goto(`/login.php?MEDISHIELD_SID=${chosenId}`);
+
+  const sessionCookie = (await page.context().cookies(origin))
+    .find((cookie) => cookie.name === 'MEDISHIELD_SID');
+  expect(sessionCookie).toBeDefined();
+  expect(sessionCookie.value).not.toBe(chosenId);
+});
+
+test('revokes pending MFA after an account status cycle', async ({ page, browser }) => {
+  const mailDir = path.join(__dirname, '..', 'test-results', 'mail');
+  const messagesBefore = fs.readdirSync(mailDir).length;
+
+  await page.goto('/login.php');
+  await page.getByLabel('Email').fill('ui.pending-mfa-probe@medishield.test');
+  await page.getByLabel('Password').fill('UiTest!2026A');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: 'Enter your code' })).toBeVisible();
+  const otpMessage = await readNewMail(mailDir, messagesBefore);
+  const code = otpMessage.match(/code is: ([A-Z0-9]+)/)[1];
+
+  const adminContext = await browser.newContext();
+  const adminPage = await adminContext.newPage();
+  await loginWithOtp(adminPage, 'ui.admin@medishield.test');
+  await adminPage.goto('/admin/users.php');
+  const probeRow = adminPage.getByRole('row').filter({ hasText: 'ui.pending-mfa-probe@medishield.test' });
+  const probeId = (await probeRow.locator('td').first().textContent()).trim();
+  await probeRow.getByRole('button', { name: 'Deactivate' }).click();
+  await probeRow.getByRole('button', { name: 'Activate' }).click();
+
+  await page.getByLabel('Verification code').fill(code);
+  await page.getByRole('button', { name: 'Verify' }).click();
+  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+  await expect(page.getByText('Your sign-in state changed. Please sign in again.')).toBeVisible();
+
+  await adminPage.goto('/admin/audit.php');
+  const revocation = adminPage.getByRole('row')
+    .filter({ hasText: 'OTP_FAILED' })
+    .filter({ hasText: 'BLOCKED' })
+    .filter({ hasText: probeId })
+    .first();
+  await expect(revocation).toBeVisible();
+  await adminContext.close();
+});
+
+test('does not revive an authenticated session after deactivate and reactivate', async ({ page, browser }) => {
+  await loginWithOtp(page, 'ui.session-probe@medishield.test');
+  await expect(page.getByRole('heading', { name: 'Patient dashboard' })).toBeVisible();
+
+  const adminContext = await browser.newContext();
+  const adminPage = await adminContext.newPage();
+  await loginWithOtp(adminPage, 'ui.admin@medishield.test');
+  await adminPage.goto('/admin/users.php');
+  const probeRow = adminPage.getByRole('row').filter({ hasText: 'ui.session-probe@medishield.test' });
+  const probeId = (await probeRow.locator('td').first().textContent()).trim();
+  await probeRow.getByRole('button', { name: 'Deactivate' }).click();
+  await probeRow.getByRole('button', { name: 'Activate' }).click();
+
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+
+  await adminPage.goto('/admin/audit.php');
+  const revokedLogout = adminPage.getByRole('row')
+    .filter({ hasText: 'LOGOUT' })
+    .filter({ hasText: 'BLOCKED' })
+    .filter({ hasText: probeId })
+    .first();
+  await expect(revokedLogout).toBeVisible();
+  await adminContext.close();
 });
 
 test('revokes an outstanding reset link when an administrator deactivates the account', async ({ page }) => {
@@ -316,7 +411,7 @@ test('revokes an outstanding reset link when an administrator deactivates the ac
   await doctorRow.getByRole('button', { name: 'Deactivate' }).click();
   await expect(doctorRow.getByText('inactive')).toBeVisible();
 
-  await page.goto('/logout.php');
+  await logout(page);
   await page.goto(`/activate.php?token=${resetToken}`);
   await expect(page.getByText('This activation link is invalid or has already been used.')).toBeVisible();
   await expect(page.getByLabel('New password')).toHaveCount(0);

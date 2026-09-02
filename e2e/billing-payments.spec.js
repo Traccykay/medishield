@@ -69,7 +69,8 @@ test('patient sees only their paid bill and forged mutation does not change it',
       quantity: '1'
     }
   });
-  expect(await response.text()).toContain('Your session has expired. Please try again.');
+  expect(response.status()).toBe(403);
+  expect(await response.text()).toBe('Request could not be processed.');
   await page.goto('/payments.php');
   await expect(page.getByText('Total: KES 800')).toBeVisible();
   await expect(page.getByText('Paracetamol 500 mg')).toHaveCount(0);

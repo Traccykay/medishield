@@ -12,8 +12,8 @@ declare(strict_types=1);
  *   - CSRF token required on POST.
  *   - Generic "Invalid email or password" message for every failure mode so the
  *     form never reveals whether an email exists (anti-enumeration).
- *   - Lockout and anomaly flags come from AuthService; we only surface a generic
- *     locked message and audit the real detail.
+ *   - Lockout and anomaly flags come from AuthService; every account-state failure
+ *     surfaces the same generic message while the audit retains the real outcome.
  *   - Every attempt is written to the forensic audit log (SUCCESS / FAILED),
  *     carrying the anomaly flag the service computed.
  *   - Session id is regenerated on success (handled in login_user()).
@@ -23,6 +23,7 @@ use MediShield\Security\Csrf;
 
 require_once __DIR__ . '/../includes/guard.php';
 require_once __DIR__ . '/../includes/layout.php';
+ms_send_no_store_headers();
 
 // Already authenticated? Skip the form.
 if (is_logged_in()) {
@@ -30,33 +31,28 @@ if (is_logged_in()) {
     redirect($u['must_change'] ? '/change_password.php' : landing_path_for($u['role']));
 }
 
+$isPost = request_post_guard('auth');
 $error  = null;
 $email  = '';
 $notice = isset($_GET['timeout']) ? 'Your session expired. Please log in again.' : null;
-if (isset($_GET['otp']) && $_GET['otp'] === 'expired') {
+$otpNotice = request_string($_GET['otp'] ?? null);
+$passwordNotice = request_string($_GET['password'] ?? null);
+if ($otpNotice === 'expired') {
     $notice = 'Your verification code expired. Please sign in again to get a new one.';
-} elseif (isset($_GET['otp']) && $_GET['otp'] === 'too_many') {
+} elseif ($otpNotice === 'too_many') {
     $notice = 'Too many incorrect codes were entered. Please sign in again.';
+} elseif ($otpNotice === 'revoked') {
+    $notice = 'Your sign-in state changed. Please sign in again.';
+} elseif ($passwordNotice === 'changed') {
+    $notice = 'Your password was changed. Sign in again to continue.';
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email    = trim((string) ($_POST['email'] ?? ''));
-    $password = (string) ($_POST['password'] ?? '');
+if ($isPost) {
+    unset($_SESSION['pending_login']);
+    $email    = trim(request_string($_POST['email'] ?? null));
+    $password = request_string($_POST['password'] ?? null);
 
-    if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
-        // CSRF failure is itself a security event worth recording.
-        ms_audit_log([
-            'user_role'    => 'guest',
-            'action'       => 'CSRF_REJECTED',
-            'module'       => 'auth',
-            'status'       => 'BLOCKED',
-            'anomaly_flag' => 'SUSPICIOUS',
-            // Capture the typed email (PII, retention-scrubbed) so an admin can see
-            // which account a blocked attempt was aimed at.
-            'attempted_identifier' => $email !== '' ? $email : null,
-        ]);
-        $error = 'Your session has expired. Please try again.';
-    } elseif (!ms_request_throttle()->allow(
+    if (!ms_request_throttle()->allow(
         'login',
         ms_client_ip(),
         (int) (ms_config()['request_throttling']['login_max_attempts'] ?? 100),
@@ -104,11 +100,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
 
             // Only non-sensitive routing data lives in the pending record.
-            $_SESSION['pending_login'] = [
-                'user_id'    => (int) $user['user_id'],
-                'role'       => (string) $user['role'],
-                'started_at' => time(),
-            ];
+            $_SESSION['pending_login'] = ms_session_validator()->createPendingLogin($user);
 
             redirect('/verify_otp.php');
         }
@@ -122,7 +114,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ms_audit_log([
             'user_id'      => $targetId,
             'user_role'    => $targetRole ?? 'guest',
-            'action'       => 'LOGIN_FAILED',
+            'action'       => (string) ($result['audit_action'] ?? 'LOGIN_FAILED'),
             'module'       => 'auth',
             'status'       => 'FAILED',
             'anomaly_flag' => (string) ($result['anomaly'] ?? 'NORMAL'),
@@ -133,9 +125,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'attempted_identifier' => $email !== '' ? $email : null,
         ]);
 
-        $error = $result['status'] === 'locked'
-            ? 'This account is temporarily locked. Please try again later.'
-            : 'Invalid email or password.';
+        $error = 'Invalid email or password.';
     }
 }
 

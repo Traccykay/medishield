@@ -8,31 +8,30 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('lab');
-$requestId = (int) ($_GET['lab_request_id'] ?? $_POST['lab_request_id'] ?? 0);
+$isPost = request_post_guard('lab');
+$requestId = request_positive_int(
+    $isPost ? ($_POST['lab_request_id'] ?? null) : ($_GET['lab_request_id'] ?? null)
+);
 $request = $requestId > 0 ? ms_clinical_repo()->findLabRequest($requestId) : null;
 if ($request === null || (string) $request['status'] !== 'pending') {
     redirect('/lab/requests.php');
 }
 $errors = [];
 $resultText = '';
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $resultText = (string) ($_POST['result'] ?? '');
-    if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
-        $errors[] = 'Your session has expired. Please try again.';
-    } else {
-        $result = ms_clinical_service()->uploadLabResult($requestId, (int) $user['user_id'], $resultText);
-        if ($result['ok']) {
-            $visitId = (int) ($request['visit_id'] ?? 0);
-            ms_visit_service()->returnFromLab(
-                $visitId,
-                ms_clinical_repo()->hasPendingLabRequestsForVisit($visitId),
-                ms_clinical_repo()->hasPendingPrescriptionsForVisit($visitId)
-            );
-            ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'lab', 'action' => 'LAB_RESULT_UPLOADED', 'module' => 'lab', 'affected_record_id' => (string) $requestId, 'status' => 'SUCCESS']);
-            redirect('/lab/requests.php');
-        }
-        $errors = $result['errors'];
+if ($isPost) {
+    $resultText = request_string($_POST['result'] ?? null);
+    $result = ms_clinical_service()->uploadLabResult($requestId, (int) $user['user_id'], $resultText);
+    if ($result['ok']) {
+        $visitId = (int) ($request['visit_id'] ?? 0);
+        ms_visit_service()->returnFromLab(
+            $visitId,
+            ms_clinical_repo()->hasPendingLabRequestsForVisit($visitId),
+            ms_clinical_repo()->hasPendingPrescriptionsForVisit($visitId)
+        );
+        ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'lab', 'action' => 'LAB_RESULT_UPLOADED', 'module' => 'lab', 'affected_record_id' => (string) $requestId, 'status' => 'SUCCESS']);
+        redirect('/lab/requests.php');
     }
+    $errors = $result['errors'];
 }
 $token = Csrf::token($_SESSION);
 layout_app_header('Upload lab result', $user, 'reports');

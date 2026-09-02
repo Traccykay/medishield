@@ -6,12 +6,13 @@ service orchestration actually work end-to-end, not just in isolation.
 
 | Test | Covers (`src/...`) |
 |------|--------------------|
-| `UserRepositoryTest.php` | `Auth/UserRepository` — create / find / uniqueness, failed-login counting, lock/unlock, status changes. |
-| `AuthServiceTest.php` | `Auth/AuthService` — login success/failure, anti-enumeration timing, lockout at the configured threshold, `SUSPICIOUS`/`HIGH_RISK` flags, force-password-change, and **failed-login attribution** (a wrong password against a real account exposes `target_user_id`/`target_user_role` for the audit log; an unknown email does not). |
-| `ActivationServiceTest.php` | `Auth/ActivationService` — hashed, expiring, single-use account-activation tokens and password validation. |
-| `OtpServiceTest.php` | `Auth/OtpService` — hashed one-time codes, expiry, retries, lockout, and replacement-code invalidation. |
+| `UserRepositoryTest.php` | `Auth/UserRepository` — create/find, lockout counters, monotonic auth epochs, role/status/password revocation, atomic OTP invalidation, and rollback on failure. |
+| `AuthServiceTest.php` | `Auth/AuthService` — one externally visible failure state across unknown, inactive, wrong-password, fifth-attempt, and locked accounts while preserving precise internal outcomes, attribution, anomaly flags, and lock audit action. |
+| `ActivationServiceTest.php` | `Auth/ActivationService` — hashed, expiring, conditionally single-use activation/reset tokens, transactional credential updates, and rollback on OTP-invalidation failure. |
+| `InitialAdminProvisionerTest.php` | `Auth/InitialAdminProvisioner` — inactive initial-admin creation, activation delivery, replay no-op, existing-admin preservation, hostile input rejection, and rollback on delivery failure. |
+| `OtpServiceTest.php` | `Auth/OtpService` — hashed one-time codes, transactional conditional consumption, expiry burning, retries, lockout burning, replay denial, and replacement-code invalidation. |
 | `UserServiceTest.php` | `Auth/UserService` — account creation, validation, password changes, and pending-user state. |
-| `SessionValidatorTest.php` | `Auth/SessionValidator` — server-side validation and revocation of preserved sessions after account deactivation, password change/reset, or malformed session data. |
+| `SessionValidatorTest.php` | `Auth/SessionValidator` — pending-MFA age/state binding plus server-side epoch revocation after password, status, role, or lock transitions; malformed timestamps fail closed. |
 | `AuditLoggerTest.php` | `Audit/AuditLogger` — append-only HMAC hash-chain writes, `verifyChain()` tamper detection, `recent()` newest-first reads with limit clamping, and the **`attempted_identifier`** column (stored/returned, defaults to NULL, and is NOT part of the hash chain so it can be scrubbed later). |
 | `AuditRetentionTest.php` | `Audit/AuditRetention` — the PII scrub: `purgeIdentifiersOlderThan()` nulls `attempted_identifier` only on rows older than the cutoff, returns the affected count, **keeps `verifyChain()` ok**, and never deletes a row. |
 | `PatientServiceTest.php` | `Patient/PatientService` — demographics validation, staff assignment, search, and patient/nurse/admin access rules. Doctor encounter policy is covered separately by `DoctorPatientAuthorizerTest`. |

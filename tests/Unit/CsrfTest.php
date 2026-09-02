@@ -38,4 +38,12 @@ final class CsrfTest extends TestCase
         self::assertFalse(Csrf::check($session, ''));
         self::assertFalse(Csrf::check([], 'anything')); // no token in session
     }
+
+    public function testCheckRejectsArrayTokenWithoutThrowing(): void
+    {
+        $session = [];
+        Csrf::token($session);
+
+        self::assertFalse(Csrf::check($session, ['attacker-controlled']));
+    }
 }

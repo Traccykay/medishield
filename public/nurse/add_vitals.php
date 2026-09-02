@@ -8,8 +8,13 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('nurse');
-$patientId = (int) ($_GET['patient_id'] ?? $_POST['patient_id'] ?? 0);
-$visitId = (int) ($_GET['visit_id'] ?? $_POST['visit_id'] ?? 0);
+$isPost = request_post_guard('nurse');
+$patientId = request_positive_int(
+    $isPost ? ($_POST['patient_id'] ?? null) : ($_GET['patient_id'] ?? null)
+);
+$visitId = request_positive_int(
+    $isPost ? ($_POST['visit_id'] ?? null) : ($_GET['visit_id'] ?? null)
+);
 $visit = $visitId > 0 ? ms_visit_repo()->findById($visitId) : null;
 if ($patientId <= 0 || !ms_patient_service()->canViewPatient($user, $patientId)
     || ($visitId > 0 && ($visit === null || (int) $visit['patient_id'] !== $patientId || (int) $visit['nurse_id'] !== (int) $user['user_id'] || (string) $visit['status'] !== 'with_nurse'))) {
@@ -19,20 +24,16 @@ $patient = ms_patient_repo()->findById($patientId);
 $errors = [];
 $values = ['temperature_c' => '', 'systolic_mmhg' => '', 'diastolic_mmhg' => '', 'pulse_bpm' => '', 'weight_kg' => '', 'symptoms' => ''];
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($isPost) {
     foreach (array_keys($values) as $key) {
-        $values[$key] = trim((string) ($_POST[$key] ?? ''));
+        $values[$key] = trim(request_string($_POST[$key] ?? null));
     }
-    if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
-        $errors[] = 'Your session has expired. Please try again.';
-    } else {
-        $result = ms_clinical_service()->recordVitals($patientId, (int) $user['user_id'], $values);
-        if ($result['ok']) {
-            ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'nurse', 'action' => 'VITALS_RECORDED', 'module' => 'nurse', 'affected_record_id' => (string) $patientId, 'status' => 'SUCCESS']);
-            redirect('/nurse/view_vitals.php?patient_id=' . $patientId);
-        }
-        $errors = $result['errors'];
+    $result = ms_clinical_service()->recordVitals($patientId, (int) $user['user_id'], $values);
+    if ($result['ok']) {
+        ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'nurse', 'action' => 'VITALS_RECORDED', 'module' => 'nurse', 'affected_record_id' => (string) $patientId, 'status' => 'SUCCESS']);
+        redirect('/nurse/view_vitals.php?patient_id=' . $patientId);
     }
+    $errors = $result['errors'];
 }
 
 $token = Csrf::token($_SESSION);

@@ -207,7 +207,9 @@ New audit actions added in this deliverable: `OTP_SENT`, `OTP_VERIFIED`,
 
 **SQL**
 - `sql/schema.sql` + two idempotent migrations for `otp_codes` and
-  `account_activations`; `sql/seed.sql` superadmin email is now gmail-style.
+  `account_activations`; `sql/seed.sql` intentionally installs no user.
+- `scripts/provision-initial-admin.php` creates the first inactive admin through
+  the normal expiring activation flow and never prints a generated credential.
 
 **Tests**
 - `tests/Integration/OtpServiceTest.php`, `ActivationServiceTest.php`, plus new
@@ -225,10 +227,12 @@ written to `logs/mail/*.txt`. Read the OTP/activation link from there.
    apply the two files in `sql/migrations/` directly.
 2. **Run the test suite:** `php vendor\bin\phpunit` — expect all green (88+ tests).
 3. **OTP login:**
-   - Open `/login.php`, sign in as the superadmin.
+   - On a database with no admin, run the guarded
+     `scripts\provision-initial-admin.php` command documented in `README.md`.
+   - Open the delivered activation link and choose the admin password.
+   - Open `/login.php`, then sign in with that administrator account.
    - Open the newest file in `logs/mail/` to get the code.
-   - Enter it on `/verify_otp.php` → you reach the dashboard. (First login also
-     forces a password change.)
+   - Enter it on `/verify_otp.php` → you reach the dashboard.
    - Try a wrong code to see `OTP_FAILED`; wait past 10 min to see `OTP_EXPIRED`.
 4. **Account activation:**
    - As admin, `/admin/create_user.php` → create a user (no password field).

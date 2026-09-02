@@ -34,6 +34,7 @@ final class TestSchema
             failed_login_count   INTEGER NOT NULL DEFAULT 0,
             locked_until         TEXT    NULL,
             must_change_password INTEGER NOT NULL DEFAULT 0,
+            auth_version         INTEGER NOT NULL DEFAULT 1,
             created_at           TEXT    NOT NULL,
             updated_at           TEXT    NOT NULL
         );

@@ -10,7 +10,7 @@ namespace MediShield\Mail;
  * Tiny abstraction over "send an email", so the rest of the application
  * (OTP delivery, activation links) does not care HOW mail is delivered.
  *
- * Two implementations exist:
+ * Two implementations exist and are selected by {@see MailerFactory}:
  *   - {@see LogMailer}  : development/testing — writes the message to a file
  *                         under logs/mail/ instead of contacting a real server.
  *                         This lets the OTP/activation flows be demonstrated and
@@ -18,9 +18,9 @@ namespace MediShield\Mail;
  *   - {@see SmtpMailer} : production — sends over SMTP using PHPMailer, driven
  *                         entirely by config (no credentials in code).
  *
- * The concrete instance is chosen in bootstrap.php (`ms_mailer()`) from the
- * `mail.transport` config value. Services that send mail accept a Mailer in their
- * constructor so tests can inject a fake.
+ * The concrete instance is chosen in bootstrap.php (`ms_mailer()`) from an
+ * explicit, validated `mail.transport` value. Services that send mail accept a
+ * Mailer in their constructor so tests can inject a fake.
  */
 interface Mailer
 {

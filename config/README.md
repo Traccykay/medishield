@@ -29,3 +29,14 @@ php -r "echo 'enc='.bin2hex(random_bytes(32)).\"`n\".'hmac='.bin2hex(random_byte
 - **Never commit `config.php`** (enforced by `.gitignore`).
 - `encryption_key_hex` and `audit_hmac_key_hex` must be **different** 32-byte keys.
 - The sample keys are for development only — replace them anywhere real data lives.
+- The exact `environment => 'production'` value enables the production startup
+  gate; a missing value retains the development default.
+- Set `mail.transport` explicitly. `log` is accepted only outside production;
+  missing and unknown values are rejected in every environment.
+- Production requires `mail.transport => 'smtp'`, an HTTPS
+  `mail.app_base_url` without embedded credentials/query/fragment, a valid
+  `mail.from_email`, a non-empty sender name, and complete SMTP host, port,
+  `tls`/`ssl`, username, password, and 1–300 second timeout settings.
+- Production configuration is validated after the configured application error
+  log is installed but before session startup or any database, audit, token, or
+  mail side effect. The browser receives only the generic 500 boundary.

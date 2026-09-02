@@ -21,33 +21,41 @@ $config['db']['name'] = $database;
 
 $pdo = Connection::fromConfig($config);
 $accounts = [
-    ['UI Receptionist', 'ui.receptionist@medishield.test', 'receptionist'],
-    ['UI Nurse', 'ui.nurse@medishield.test', 'nurse'],
-    ['UI Doctor', 'ui.doctor@medishield.test', 'doctor'],
-    ['UI Other Doctor', 'ui.other-doctor@medishield.test', 'doctor'],
-    ['UI Lab', 'ui.lab@medishield.test', 'lab'],
-    ['UI Pharmacist', 'ui.pharmacist@medishield.test', 'pharmacist'],
-    ['UI Patient', 'ui.patient@medishield.test', 'patient'],
-    ['UI Billing Patient', 'ui.billing-patient@medishield.test', 'patient'],
-    ['UI Other Billing Patient', 'ui.other-billing-patient@medishield.test', 'patient'],
-    ['UI Administrator', 'ui.admin@medishield.test', 'admin'],
+    ['UI Receptionist', 'ui.receptionist@medishield.test', 'receptionist', false],
+    ['UI Nurse', 'ui.nurse@medishield.test', 'nurse', false],
+    ['UI Doctor', 'ui.doctor@medishield.test', 'doctor', false],
+    ['UI Other Doctor', 'ui.other-doctor@medishield.test', 'doctor', false],
+    ['UI Lab', 'ui.lab@medishield.test', 'lab', false],
+    ['UI Pharmacist', 'ui.pharmacist@medishield.test', 'pharmacist', false],
+    ['UI Patient', 'ui.patient@medishield.test', 'patient', false],
+    ['UI Billing Patient', 'ui.billing-patient@medishield.test', 'patient', false],
+    ['UI Other Billing Patient', 'ui.other-billing-patient@medishield.test', 'patient', false],
+    ['UI Administrator', 'ui.admin@medishield.test', 'admin', false],
+    ['UI Forced Password Administrator', 'ui.forced-password-admin@medishield.test', 'admin', true],
+    ['UI Login Failure Probe', 'ui.login-probe@medishield.test', 'patient', false],
+    ['UI Inactive Login Probe', 'ui.inactive-probe@medishield.test', 'patient', false, 'inactive'],
+    ['UI Pending MFA Probe', 'ui.pending-mfa-probe@medishield.test', 'patient', false],
+    ['UI Session Revocation Probe', 'ui.session-probe@medishield.test', 'patient', false],
 ];
 $delete = $pdo->prepare('DELETE FROM users WHERE email = :email');
 $insert = $pdo->prepare(
     'INSERT INTO users
         (full_name, email, password_hash, role, status, failed_login_count, locked_until, must_change_password, created_at, updated_at)
      VALUES
-        (:full_name, :email, :password_hash, :role, :status, 0, NULL, 0, UTC_TIMESTAMP(), UTC_TIMESTAMP())'
+        (:full_name, :email, :password_hash, :role, :status, 0, NULL, :must_change_password, UTC_TIMESTAMP(), UTC_TIMESTAMP())'
 );
 
-foreach ($accounts as [$name, $email, $role]) {
+foreach ($accounts as $account) {
+    [$name, $email, $role, $mustChangePassword] = $account;
+    $status = $account[4] ?? 'active';
     $delete->execute([':email' => $email]);
     $insert->execute([
         ':full_name' => $name,
         ':email' => $email,
-        ':password_hash' => password_hash('UiTest!2026', PASSWORD_DEFAULT),
+        ':password_hash' => password_hash('UiTest!2026A', PASSWORD_DEFAULT),
         ':role' => $role,
-        ':status' => 'active',
+        ':status' => $status,
+        ':must_change_password' => $mustChangePassword ? 1 : 0,
     ]);
 }
 

@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS users (
     failed_login_count   INT UNSIGNED NOT NULL DEFAULT 0,
     locked_until         DATETIME NULL,                          -- account is "locked" while this is in the future
     must_change_password TINYINT(1) NOT NULL DEFAULT 0,
+    auth_version         BIGINT UNSIGNED NOT NULL DEFAULT 1,     -- monotonic credential/status/role epoch
     created_at           DATETIME NOT NULL,
     updated_at           DATETIME NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

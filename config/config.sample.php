@@ -22,7 +22,8 @@
 declare(strict_types=1);
 
 return [
-    // Set to 'production' only behind HTTPS with a generated config/config.php.
+    // The exact value 'production' enables production safety gates. A missing
+    // value defaults to development; do not use aliases such as 'prod'.
     'environment' => 'development',
 
     // --- Database connection (XAMPP defaults) ---
@@ -54,6 +55,7 @@ return [
     'session' => [
         'idle_timeout_seconds'     => 1200,   // 20 minutes of inactivity
         'absolute_timeout_seconds' => 28800,  // 8 hours since login
+        'pending_login_timeout_seconds' => 600, // first factor must reach MFA within 10 minutes
         'cookie_name'              => 'MEDISHIELD_SID',
     ],
 
@@ -92,11 +94,14 @@ return [
     ],
 
     // --- Email (used for OTP codes and account-activation links) ---
-    // 'transport' selects how mail is delivered:
+    // 'transport' must be set explicitly:
     //   'log'  : DEV default — no real email is sent. Each message is written as a
     //            file under dump_dir (logs/mail/) so you can read the OTP/activation
     //            link locally without an SMTP server.
     //   'smtp' : PRODUCTION — send via the SMTP settings below using PHPMailer.
+    // Production bootstrap accepts only 'smtp', an HTTPS app_base_url, a valid
+    // sender address, and complete SMTP host/port/TLS/identity/password/timeout
+    // settings. Missing or unknown transports fail closed in every environment.
     // NEVER hardcode a real mailbox password here; supply it via the environment or
     // an untracked config/config.php in real deployments.
     'mail' => [

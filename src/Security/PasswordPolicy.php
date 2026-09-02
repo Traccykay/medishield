@@ -24,7 +24,7 @@ namespace MediShield\Security;
 final class PasswordPolicy
 {
     /** Minimum acceptable password length. */
-    public const MIN_LENGTH = 10;
+    public const MIN_LENGTH = 12;
 
     /**
      * Validate a candidate password.

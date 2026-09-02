@@ -45,3 +45,17 @@ if (!function_exists('ms_send_security_headers')) {
         }
     }
 }
+
+if (!function_exists('ms_send_no_store_headers')) {
+    /** Prevent browsers and intermediaries from retaining authentication responses. */
+    function ms_send_no_store_headers(): void
+    {
+        if (headers_sent()) {
+            return;
+        }
+
+        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+    }
+}

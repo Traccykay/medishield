@@ -4,6 +4,7 @@ Reusable helpers used by the test suites. They are not tests themselves.
 
 | File | Responsibility |
 |------|----------------|
+| `bootstrap_config_probe.php` | Subprocess entry point that injects isolated configuration into the real bootstrap and marks any DB/credential/mail continuation for ordering assertions. |
 | `TestSchema.php` | Builds the database schema (currently `users` and `audit_logs`) inside an in-memory SQLite `PDO`, so integration tests get a clean, isolated database without needing a running MySQL/MariaDB server. The DDL mirrors the relevant parts of `sql/schema.sql` using portable types. |
 
 ## Conventions

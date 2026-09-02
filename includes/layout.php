@@ -18,7 +18,24 @@ declare(strict_types=1);
  * Depends on bootstrap.php (for e()) — include that first.
  */
 
+use MediShield\Security\Csrf;
+
 require_once __DIR__ . '/bootstrap.php';
+
+if (!function_exists('layout_logout_form')) {
+    /** Render a CSRF-protected logout action without exposing logout as a GET link. */
+    function layout_logout_form(
+        string $label = 'Log out',
+        string $formClass = 'ms-inline-form',
+        string $buttonClass = 'ms-btn ms-btn-sm'
+    ): void {
+        $token = Csrf::token($_SESSION);
+        echo '<form method="post" action="' . e(ms_url('/logout.php')) . '" class="' . e($formClass) . "\">\n";
+        echo '<input type="hidden" name="' . e(Csrf::FIELD) . '" value="' . e($token) . "\">\n";
+        echo '<button type="submit" class="' . e($buttonClass) . '">' . e($label) . "</button>\n";
+        echo "</form>\n";
+    }
+}
 
 if (!function_exists('layout_header')) {
     /**
@@ -45,7 +62,7 @@ if (!function_exists('layout_header')) {
         if ($user !== null) {
             echo "<div class=\"ms-nav-user\">\n";
             echo '<span>' . e($user['full_name'] ?? '') . ' (' . e($user['role'] ?? '') . ")</span>\n";
-            echo '<a class="ms-btn ms-btn-sm" href="' . e(ms_url('/logout.php')) . "\">Log out</a>\n";
+            layout_logout_form();
             echo "</div>\n";
         }
         echo "</div>\n</nav>\n";
@@ -143,7 +160,7 @@ if (!function_exists('layout_app_header')) {
         echo "<div class=\"ms-topbar-user\">\n";
         echo '<span class="ms-topbar-name">' . e($user['full_name'] ?? '')
             . ' <span class="ms-badge ms-badge-muted">' . e($role) . "</span></span>\n";
-        echo '<a class="ms-btn ms-btn-sm" href="' . e(ms_url('/logout.php')) . "\">Log out</a>\n";
+        layout_logout_form();
         echo "</div>\n</header>\n";
 
         // --- Body: sidebar + content ---
@@ -151,6 +168,14 @@ if (!function_exists('layout_app_header')) {
         echo "<nav class=\"ms-sidebar\" aria-label=\"Main navigation\">\n";
         foreach (\MediShield\Auth\Rbac::navFor($role) as $key) {
             if (!isset($items[$key])) {
+                continue;
+            }
+            if ($key === 'logout') {
+                layout_logout_form(
+                    $items[$key]['label'],
+                    'ms-sidebar-form',
+                    'ms-sidebar-link ms-sidebar-button'
+                );
                 continue;
             }
             $active = ($key === $activeNav) ? ' active' : '';

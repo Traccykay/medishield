@@ -8,20 +8,17 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('nurse');
+$isPost = request_post_guard('triage');
 $errors = [];
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $visitId = (int) ($_POST['visit_id'] ?? 0);
-    if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
-        $errors[] = 'Your session has expired. Please try again.';
-    } else {
-        $result = ms_visit_service()->moveToNurse($visitId, (int) $user['user_id']);
-        if ($result['ok']) {
-            $visit = ms_visit_repo()->findById($visitId);
-            ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'nurse', 'action' => 'ASSIGNMENT_CHANGED', 'module' => 'triage', 'affected_record_id' => (string) $visitId, 'status' => 'SUCCESS']);
-            redirect('/nurse/add_vitals.php?patient_id=' . (int) $visit['patient_id'] . '&visit_id=' . $visitId);
-        }
-        $errors = $result['errors'];
+if ($isPost) {
+    $visitId = request_positive_int($_POST['visit_id'] ?? null);
+    $result = ms_visit_service()->moveToNurse($visitId, (int) $user['user_id']);
+    if ($result['ok']) {
+        $visit = ms_visit_repo()->findById($visitId);
+        ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'nurse', 'action' => 'ASSIGNMENT_CHANGED', 'module' => 'triage', 'affected_record_id' => (string) $visitId, 'status' => 'SUCCESS']);
+        redirect('/nurse/add_vitals.php?patient_id=' . (int) $visit['patient_id'] . '&visit_id=' . $visitId);
     }
+    $errors = $result['errors'];
 }
 $queue = ms_visit_service()->triageQueue();
 $token = Csrf::token($_SESSION);

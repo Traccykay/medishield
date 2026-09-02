@@ -22,6 +22,8 @@ namespace MediShield\Support;
  */
 final class Clock
 {
+    public const DATABASE_TIMESTAMP_FORMAT = 'Y-m-d H:i:s';
+
     /** @var callable():\DateTimeImmutable */
     private $nowFn;
 
@@ -44,7 +46,7 @@ final class Clock
     /** Current time formatted as a MySQL/SQLite-friendly UTC string: 'Y-m-d H:i:s'. */
     public function nowString(): string
     {
-        return $this->now()->format('Y-m-d H:i:s');
+        return $this->now()->format(self::DATABASE_TIMESTAMP_FORMAT);
     }
 
     /**
@@ -55,6 +57,35 @@ final class Clock
     {
         return $this->now()
             ->add(new \DateInterval('PT' . max(0, $minutes) . 'M'))
-            ->format('Y-m-d H:i:s');
+            ->format(self::DATABASE_TIMESTAMP_FORMAT);
+    }
+
+    /**
+     * Parse the exact UTC representation persisted by MediShield.
+     *
+     * PHP's general DateTime parser normalizes impossible dates such as February
+     * 30 instead of rejecting them. Security decisions must not accept that
+     * normalization, so both the input shape and round-trip value are required.
+     */
+    public static function parseDatabaseTimestamp(mixed $value): ?\DateTimeImmutable
+    {
+        if (
+            !is_string($value)
+            || preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/D', $value) !== 1
+        ) {
+            return null;
+        }
+
+        $parsed = \DateTimeImmutable::createFromFormat(
+            '!' . self::DATABASE_TIMESTAMP_FORMAT,
+            $value,
+            new \DateTimeZone('UTC')
+        );
+
+        if ($parsed === false || $parsed->format(self::DATABASE_TIMESTAMP_FORMAT) !== $value) {
+            return null;
+        }
+
+        return $parsed;
     }
 }

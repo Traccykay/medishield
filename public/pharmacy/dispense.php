@@ -9,7 +9,10 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('pharmacy');
-$rxId = (int) ($_GET['prescription_id'] ?? $_POST['prescription_id'] ?? 0);
+$isPost = request_post_guard('pharmacy');
+$rxId = request_positive_int(
+    $isPost ? ($_POST['prescription_id'] ?? null) : ($_GET['prescription_id'] ?? null)
+);
 $rx = $rxId > 0 ? ms_clinical_repo()->findPrescription($rxId) : null;
 $visit = $rx === null || !isset($rx['visit_id']) ? null : ms_visit_repo()->findById((int) $rx['visit_id']);
 if ($rx === null || (string) $rx['status'] !== 'pending' || $visit === null || (string) $visit['status'] !== 'pharmacy') {
@@ -18,19 +21,15 @@ if ($rx === null || (string) $rx['status'] !== 'pending' || $visit === null || (
 $errors = [];
 $remarks = '';
 $status = 'dispensed';
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $status = (string) ($_POST['status'] ?? 'dispensed');
-    $remarks = (string) ($_POST['remarks'] ?? '');
-    if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
-        $errors[] = 'Your session has expired. Please try again.';
-    } else {
-        $result = ms_clinical_service()->dispense($rxId, (int) $user['user_id'], $status, $remarks);
-        if ($result['ok']) {
-            ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'pharmacist', 'action' => 'MEDICATION_DISPENSED', 'module' => 'pharmacy', 'affected_record_id' => (string) $rxId, 'status' => 'SUCCESS']);
-            redirect('/pharmacy/prescriptions.php');
-        }
-        $errors = $result['errors'];
+if ($isPost) {
+    $status = request_string($_POST['status'] ?? 'dispensed');
+    $remarks = request_string($_POST['remarks'] ?? null);
+    $result = ms_clinical_service()->dispense($rxId, (int) $user['user_id'], $status, $remarks);
+    if ($result['ok']) {
+        ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'pharmacist', 'action' => 'MEDICATION_DISPENSED', 'module' => 'pharmacy', 'affected_record_id' => (string) $rxId, 'status' => 'SUCCESS']);
+        redirect('/pharmacy/prescriptions.php');
     }
+    $errors = $result['errors'];
 }
 $token = Csrf::token($_SESSION);
 layout_app_header('Dispense medication', $user, 'payments');

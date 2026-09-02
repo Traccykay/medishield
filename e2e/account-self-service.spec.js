@@ -2,7 +2,7 @@ const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
-const { loginWithOtp, readNewMail } = require('./helpers');
+const { loginWithOtp, logout, readNewMail } = require('./helpers');
 
 const root = path.resolve(__dirname, '..');
 const mailDir = process.env.MEDISHIELD_MAIL_DUMP_DIR
@@ -36,17 +36,21 @@ test('administrator creates, activates, resets, and safely manages a user accoun
   await loginWithOtp(page, 'ui.admin@medishield.test');
   const token = await createPendingPatientUser(page);
 
-  await page.goto('/logout.php');
+  await logout(page);
   await page.goto(`/activate.php?token=${token}`);
-  await page.getByLabel('New password', { exact: true }).fill('Weak');
-  await page.getByLabel('Confirm password').fill('Different!Pass2026');
+  const activationPasswordInput = page.getByLabel('New password', { exact: true });
+  const activationConfirmationInput = page.getByLabel('Confirm password');
+  await expect(activationPasswordInput).toHaveAttribute('minlength', '12');
+  await expect(activationConfirmationInput).toHaveAttribute('minlength', '12');
+  await activationPasswordInput.fill('Weak');
+  await activationConfirmationInput.fill('Different!Pass2026');
   await page.getByRole('button', { name: 'Activate account' }).click();
   await expect(page.getByText('The two passwords do not match.')).toBeVisible();
 
   await page.getByLabel('New password', { exact: true }).fill('weak');
   await page.getByLabel('Confirm password').fill('weak');
   await page.getByRole('button', { name: 'Activate account' }).click();
-  await expect(page.getByText('Password must be at least 10 characters long.')).toBeVisible();
+  await expect(page.getByText('Password must be at least 12 characters long.')).toBeVisible();
 
   await page.getByLabel('New password', { exact: true }).fill(activationPassword);
   await page.getByLabel('Confirm password').fill(activationPassword);
@@ -57,7 +61,7 @@ test('administrator creates, activates, resets, and safely manages a user accoun
   await expect(page.getByRole('heading', { name: 'Patient dashboard' })).toBeVisible();
   await expect(page.getByText('No patient record is linked to your login yet. Please contact the administrator.')).toBeVisible();
 
-  await page.goto('/logout.php');
+  await logout(page);
   await loginWithOtp(page, 'ui.admin@medishield.test');
   await page.goto('/admin/users.php');
 
@@ -95,7 +99,7 @@ test('administrator creates, activates, resets, and safely manages a user accoun
   await expect(page.getByText('Password reset link sent to the user.')).toBeVisible();
   const resetToken = activationToken(await readNewMail(mailDir, messagesBefore));
 
-  await page.goto('/logout.php');
+  await logout(page);
   await page.goto(`/activate.php?token=${resetToken}`);
   await page.getByLabel('New password', { exact: true }).fill(resetPassword);
   await page.getByLabel('Confirm password').fill(resetPassword);
@@ -110,11 +114,13 @@ test('forces an initial password change and validates voluntary password changes
   const forcedPassword = 'Forced!Pass2026';
   const voluntaryPassword = 'Voluntary!Pass2026';
 
-  await loginWithOtp(page, 'medishield.superadmin@gmail.com', 'ChangeMe!2026');
+  await loginWithOtp(page, 'ui.forced-password-admin@medishield.test', 'UiTest!2026A');
   await expect(page.getByRole('heading', { name: 'Change your password' })).toBeVisible();
   await expect(page.getByText('For your security you must set a new password before continuing.')).toBeVisible();
+  await expect(page.getByLabel('New password', { exact: true })).toHaveAttribute('minlength', '12');
+  await expect(page.getByLabel('Confirm new password')).toHaveAttribute('minlength', '12');
 
-  await page.getByLabel('Current password').fill('ChangeMe!2026');
+  await page.getByLabel('Current password').fill('UiTest!2026A');
   await page.getByLabel('New password', { exact: true }).fill(forcedPassword);
   await page.getByLabel('Confirm new password').fill('Mismatch!Pass2026');
   await page.getByRole('button', { name: 'Update password' }).click();
@@ -126,12 +132,12 @@ test('forces an initial password change and validates voluntary password changes
   await page.getByRole('button', { name: 'Update password' }).click();
   await expect(page.getByText('Your current password is incorrect.')).toBeVisible();
 
-  await page.getByLabel('Current password').fill('ChangeMe!2026');
+  await page.getByLabel('Current password').fill('UiTest!2026A');
   await page.getByLabel('New password', { exact: true }).fill(forcedPassword);
   await page.getByLabel('Confirm new password').fill(forcedPassword);
   await page.getByRole('button', { name: 'Update password' }).click();
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
-  await loginWithOtp(page, 'medishield.superadmin@gmail.com', forcedPassword);
+  await loginWithOtp(page, 'ui.forced-password-admin@medishield.test', forcedPassword);
   await expect(page.getByRole('heading', { name: 'Administrator dashboard' })).toBeVisible();
 
   await page.goto('/change_password.php');
@@ -145,14 +151,14 @@ test('forces an initial password change and validates voluntary password changes
   await page.getByLabel('New password', { exact: true }).fill('short');
   await page.getByLabel('Confirm new password').fill('short');
   await page.getByRole('button', { name: 'Update password' }).click();
-  await expect(page.getByText('Password must be at least 10 characters long.')).toBeVisible();
+  await expect(page.getByText('Password must be at least 12 characters long.')).toBeVisible();
 
   await page.getByLabel('Current password').fill(forcedPassword);
   await page.getByLabel('New password', { exact: true }).fill(voluntaryPassword);
   await page.getByLabel('Confirm new password').fill(voluntaryPassword);
   await page.getByRole('button', { name: 'Update password' }).click();
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
-  await loginWithOtp(page, 'medishield.superadmin@gmail.com', voluntaryPassword);
+  await loginWithOtp(page, 'ui.forced-password-admin@medishield.test', voluntaryPassword);
   await expect(page.getByRole('heading', { name: 'Administrator dashboard' })).toBeVisible();
 });
 
@@ -178,7 +184,7 @@ test('patient self-service shows only the linked patient record and denies anoth
   const otherPatientId = new URL(page.url()).searchParams.get('patient_id');
   expect(otherPatientId).not.toBeNull();
 
-  await page.goto('/logout.php');
+  await logout(page);
   await loginWithOtp(page, 'ui.patient@medishield.test');
   await expect(page.getByRole('heading', { name: 'Patient dashboard' })).toBeVisible();
   await expect(page.getByTestId('patient-vitals-count')).toHaveText('1');

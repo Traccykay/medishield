@@ -21,6 +21,7 @@ declare(strict_types=1);
  */
 
 use MediShield\Auth\Rbac;
+use MediShield\Security\Csrf;
 
 require_once __DIR__ . '/bootstrap.php';
 
@@ -33,7 +34,7 @@ if (!function_exists('current_user')) {
      * The currently authenticated user as a small associative array, or null when
      * nobody is logged in. Only non-sensitive identity fields are kept in session.
      *
-     * @return array{user_id:int,role:string,full_name:string,email:string,must_change:bool,credential_fingerprint:string}|null
+     * @return array{user_id:int,role:string,full_name:string,email:string,must_change:bool,auth_version:int}|null
      */
     function current_user(): ?array
     {
@@ -64,10 +65,10 @@ if (!function_exists('login_user')) {
         // New privilege level => new session id, discarding the pre-login one.
         session_regenerate_id(true);
 
-        $now = time();
         $_SESSION['auth'] = ms_session_validator()->createAuthenticatedSession($user);
-        $_SESSION['login_at']      = $now;  // for absolute timeout
-        $_SESSION['last_activity'] = $now;  // for idle timeout
+        foreach (ms_session_validator()->createLoginTimestamps() as $key => $value) {
+            $_SESSION[$key] = $value;
+        }
     }
 }
 
@@ -100,6 +101,33 @@ if (!function_exists('logout_user')) {
     }
 }
 
+if (!function_exists('audit_forced_logout')) {
+    /**
+     * Record a timeout or server-side revocation without copying arbitrary session
+     * values into the forensic log.
+     *
+     * @param array<string,mixed> $auth
+     */
+    function audit_forced_logout(array $auth, string $status, string $anomaly = 'NORMAL'): void
+    {
+        $candidateId = $auth['user_id'] ?? null;
+        $userId = is_int($candidateId) && $candidateId > 0 ? $candidateId : null;
+        $candidateRole = $auth['role'] ?? null;
+        $role = is_string($candidateRole) && Rbac::isValidRole($candidateRole)
+            ? $candidateRole
+            : 'guest';
+
+        ms_audit_log([
+            'user_id' => $userId,
+            'user_role' => $role,
+            'action' => 'LOGOUT',
+            'module' => 'auth',
+            'status' => $status,
+            'anomaly_flag' => $anomaly,
+        ]);
+    }
+}
+
 /* ---------------------------------------------------------------------------
  * Timeout enforcement
  * ------------------------------------------------------------------------- */
@@ -118,19 +146,25 @@ if (!function_exists('enforce_timeouts')) {
         $cfg      = ms_config()['session'];
         $idleMax  = (int) ($cfg['idle_timeout_seconds'] ?? 1200);
         $absMax   = (int) ($cfg['absolute_timeout_seconds'] ?? 28800);
-        $now      = time();
-        $lastSeen = (int) ($_SESSION['last_activity'] ?? $now);
-        $loginAt  = (int) ($_SESSION['login_at'] ?? $now);
-
-        $idleExpired = ($now - $lastSeen) > $idleMax;
-        $absExpired  = ($now - $loginAt) > $absMax;
-
-        if ($idleExpired || $absExpired) {
+        $timingStatus = ms_session_validator()->validateSessionTiming(
+            [
+                'login_at' => $_SESSION['login_at'] ?? null,
+                'last_activity' => $_SESSION['last_activity'] ?? null,
+            ],
+            $idleMax,
+            $absMax
+        );
+        if ($timingStatus !== 'valid') {
+            audit_forced_logout(
+                current_user() ?? [],
+                $timingStatus === 'expired' ? 'SUCCESS' : 'BLOCKED',
+                $timingStatus === 'malformed' ? 'SUSPICIOUS' : 'NORMAL'
+            );
             logout_user();
             redirect('/login.php?timeout=1');
         }
 
-        $_SESSION['last_activity'] = $now;
+        $_SESSION['last_activity'] = time();
     }
 }
 
@@ -145,7 +179,7 @@ if (!function_exists('require_login')) {
      * redirect to the change-password page — unless $allowPasswordChange is true
      * (which the change-password page itself passes, to avoid a redirect loop).
      *
-     * @return array{user_id:int,role:string,full_name:string,email:string,must_change:bool,credential_fingerprint:string}
+     * @return array{user_id:int,role:string,full_name:string,email:string,must_change:bool,auth_version:int}
      */
     function require_login(bool $allowPasswordChange = false): array
     {
@@ -164,6 +198,7 @@ if (!function_exists('require_login')) {
         if ($user === null) {
             // A status or password change in another browser invalidates this
             // preserved session before any protected page can act on it.
+            audit_forced_logout(current_user() ?? [], 'BLOCKED');
             logout_user();
             redirect('/login.php');
         }
@@ -260,6 +295,81 @@ if (!function_exists('request_string')) {
         return is_string($value) || is_int($value) || is_float($value)
             ? (string) $value
             : '';
+    }
+}
+
+if (!function_exists('request_post_guard')) {
+    /**
+     * Enforce the request method and validate CSRF before a controller parses
+     * request fields, looks up an object, or invokes domain work.
+     *
+     * Mixed GET/form pages receive false for GET and true for a verified POST.
+     * Action-only controllers pass $postOnly=true so every non-POST method is
+     * rejected with 405. CSRF failures always terminate with the same generic
+     * 403 response after exactly one best-effort audit attempt.
+     */
+    function request_post_guard(string $module, bool $postOnly = false): bool
+    {
+        $method = $_SERVER['REQUEST_METHOD'] ?? '';
+        $method = is_string($method) ? strtoupper($method) : '';
+
+        if ($method === 'GET' && !$postOnly) {
+            return false;
+        }
+
+        if ($method !== 'POST') {
+            if (!headers_sent()) {
+                header('Allow: POST');
+            }
+            http_response_code(405);
+            exit('Request method not allowed.');
+        }
+
+        if (Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
+            return true;
+        }
+
+        $allowedModules = [
+            'admin',
+            'auth',
+            'billing',
+            'doctor',
+            'lab',
+            'nurse',
+            'patients',
+            'pharmacy',
+            'reception',
+            'triage',
+        ];
+        $auditModule = in_array($module, $allowedModules, true) ? $module : 'auth';
+
+        $actor = current_user();
+        $candidateId = is_array($actor) ? ($actor['user_id'] ?? null) : null;
+        $candidateRole = is_array($actor) ? ($actor['role'] ?? null) : null;
+        $role = is_string($candidateRole) && Rbac::isValidRole($candidateRole)
+            ? $candidateRole
+            : 'guest';
+        $userId = $role !== 'guest' && is_int($candidateId) && $candidateId > 0
+            ? $candidateId
+            : null;
+
+        try {
+            ms_audit_log([
+                'user_id' => $userId,
+                'user_role' => $role,
+                'action' => 'CSRF_REJECTED',
+                'module' => $auditModule,
+                'status' => 'BLOCKED',
+                'anomaly_flag' => 'SUSPICIOUS',
+            ]);
+        } catch (\Throwable $exception) {
+            // The rejection must remain fail-closed even if an alternate audit
+            // adapter violates ms_audit_log()'s no-throw contract.
+            error_log('[request-guard] CSRF audit failed: ' . $exception->getMessage());
+        }
+
+        http_response_code(403);
+        exit('Request could not be processed.');
     }
 }
 

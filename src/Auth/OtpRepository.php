@@ -50,12 +50,15 @@ final class OtpRepository
      * We only ever consider the newest unused row so an attacker cannot replay an
      * older, superseded code.
      */
-    public function latestActiveForUser(int $userId): ?array
+    public function latestActiveForUser(int $userId, bool $lockForUpdate = false): ?array
     {
+        $lockSql = $lockForUpdate && $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql'
+            ? ' FOR UPDATE'
+            : '';
         $stmt = $this->pdo->prepare(
             'SELECT * FROM otp_codes
               WHERE user_id = :user_id AND used_at IS NULL
-              ORDER BY otp_id DESC LIMIT 1'
+              ORDER BY otp_id DESC LIMIT 1' . $lockSql
         );
         $stmt->execute([':user_id' => $userId]);
         $row = $stmt->fetch();
@@ -63,23 +66,33 @@ final class OtpRepository
     }
 
     /** Mark a single code consumed so it can never be used again. */
-    public function markUsed(int $otpId): void
+    public function markUsed(int $otpId): bool
     {
-        $this->pdo->prepare(
-            'UPDATE otp_codes SET used_at = :now WHERE otp_id = :id'
-        )->execute([':now' => $this->clock->nowString(), ':id' => $otpId]);
+        $stmt = $this->pdo->prepare(
+            'UPDATE otp_codes
+                SET used_at = :now
+              WHERE otp_id = :id AND used_at IS NULL'
+        );
+        $stmt->execute([':now' => $this->clock->nowString(), ':id' => $otpId]);
+        return $stmt->rowCount() === 1;
     }
 
     /** Increment the wrong-attempt counter for a code and return the new count. */
-    public function incrementAttempts(int $otpId): int
+    public function incrementAttempts(int $otpId): ?int
     {
-        $this->pdo->prepare(
-            'UPDATE otp_codes SET attempts = attempts + 1 WHERE otp_id = :id'
-        )->execute([':id' => $otpId]);
-
-        $stmt = $this->pdo->prepare('SELECT attempts FROM otp_codes WHERE otp_id = :id');
+        $stmt = $this->pdo->prepare(
+            'UPDATE otp_codes
+                SET attempts = attempts + 1
+              WHERE otp_id = :id AND used_at IS NULL'
+        );
         $stmt->execute([':id' => $otpId]);
-        return (int) $stmt->fetchColumn();
+        if ($stmt->rowCount() !== 1) {
+            return null;
+        }
+
+        $read = $this->pdo->prepare('SELECT attempts FROM otp_codes WHERE otp_id = :id');
+        $read->execute([':id' => $otpId]);
+        return (int) $read->fetchColumn();
     }
 
     /**
@@ -92,5 +105,29 @@ final class OtpRepository
             'UPDATE otp_codes SET used_at = :now
               WHERE user_id = :user_id AND used_at IS NULL'
         )->execute([':now' => $this->clock->nowString(), ':user_id' => $userId]);
+    }
+
+    /**
+     * Run a read/check/consume sequence atomically. Nested callers participate in
+     * an existing transaction rather than attempting unsupported savepoints.
+     */
+    public function transactional(callable $operation): mixed
+    {
+        $ownsTransaction = !$this->pdo->inTransaction();
+        if ($ownsTransaction) {
+            $this->pdo->beginTransaction();
+        }
+        try {
+            $result = $operation();
+            if ($ownsTransaction) {
+                $this->pdo->commit();
+            }
+            return $result;
+        } catch (\Throwable $error) {
+            if ($ownsTransaction && $this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $error;
+        }
     }
 }

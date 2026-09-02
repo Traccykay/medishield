@@ -268,6 +268,15 @@ body {
     background: var(--ms-primary);
     color: var(--ms-primary-ink);
 }
+.ms-sidebar-form { margin: 0; }
+.ms-sidebar-button {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+}
 .ms-content {
     flex: 1;
     min-width: 0;            /* allow tables to scroll instead of overflowing */

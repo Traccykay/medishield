@@ -5,6 +5,7 @@ declare(strict_types=1);
 use MediShield\Database\Connection;
 use MediShield\Database\VitalEncryptionMigration;
 use MediShield\Security\Crypto;
+use MediShield\Support\DisposableDatabase;
 
 if (PHP_SAPI !== 'cli') {
     http_response_code(403);
@@ -17,9 +18,16 @@ $configPath = __DIR__ . '/../config/config.php';
 $config = require (is_file($configPath) ? $configPath : __DIR__ . '/../config/config.sample.php');
 $setupUser = getenv('MEDISHIELD_SETUP_DB_USER');
 $setupPass = getenv('MEDISHIELD_SETUP_DB_PASS');
+$setupDatabase = getenv('MEDISHIELD_SETUP_DB_NAME');
 if (is_string($setupUser) && $setupUser !== '') {
     $config['db']['user'] = $setupUser;
     $config['db']['pass'] = is_string($setupPass) ? $setupPass : '';
+}
+if (is_string($setupDatabase) && $setupDatabase !== '') {
+    $config['db']['name'] = DisposableDatabase::requireSetupTarget(
+        (string) $config['db']['name'],
+        $setupDatabase
+    );
 }
 
 (new VitalEncryptionMigration(

@@ -45,16 +45,17 @@ final class ActivationService
      */
     public function issueFor(int $userId): string
     {
-        $this->activations->invalidateAllForUser($userId);
+        return $this->activations->transactional(function () use ($userId): string {
+            $this->activations->invalidateAllForUser($userId);
 
-        $token = bin2hex(random_bytes(32)); // 64 hex chars, ~256 bits of entropy
-        $expiresAt = $this->clock->now()
-            ->add(new \DateInterval('PT' . max(1, $this->ttlHours) . 'H'))
-            ->format('Y-m-d H:i:s');
+            $token = bin2hex(random_bytes(32)); // 64 hex chars, ~256 bits of entropy
+            $expiresAt = $this->clock->now()
+                ->add(new \DateInterval('PT' . max(1, $this->ttlHours) . 'H'))
+                ->format('Y-m-d H:i:s');
 
-        $this->activations->create($userId, $this->hashToken($token), $expiresAt);
-
-        return $token;
+            $this->activations->create($userId, $this->hashToken($token), $expiresAt);
+            return $token;
+        });
     }
 
     /**
@@ -85,42 +86,51 @@ final class ActivationService
      */
     public function activate(string $token, string $password, string $confirm): array
     {
-        $row = $this->activations->findActiveByHash($this->hashToken($token));
-        if ($row === null) {
-            return ['ok' => false, 'errors' => ['This activation link is invalid or has already been used.'], 'user_id' => null];
-        }
-        if ($this->isExpired((string) $row['expires_at'])) {
-            return ['ok' => false, 'errors' => ['This activation link has expired. Please ask an administrator to resend it.'], 'user_id' => null];
-        }
+        return $this->activations->transactional(function () use ($token, $password, $confirm): array {
+            $row = $this->activations->findActiveByHash($this->hashToken($token), true);
+            if ($row === null) {
+                return ['ok' => false, 'errors' => ['This activation link is invalid or has already been used.'], 'user_id' => null];
+            }
+            if ($this->isExpired((string) $row['expires_at'])) {
+                $this->activations->markUsed((int) $row['activation_id']);
+                return ['ok' => false, 'errors' => ['This activation link has expired. Please ask an administrator to resend it.'], 'user_id' => null];
+            }
 
-        $userId = (int) $row['user_id'];
-        $user   = $this->users->findById($userId);
-        if ($user === null) {
-            return ['ok' => false, 'errors' => ['The account for this link no longer exists.'], 'user_id' => null];
-        }
+            $userId = (int) $row['user_id'];
+            $user = $this->users->findById($userId, true);
+            if ($user === null) {
+                return ['ok' => false, 'errors' => ['The account for this link no longer exists.'], 'user_id' => null];
+            }
 
-        $errors = [];
-        foreach ($this->passwordPolicy->validate($password, (string) $user['email']) as $passwordError) {
-            $errors[] = $passwordError;
-        }
-        if ($password !== $confirm) {
-            $errors[] = 'The two passwords do not match.';
-        }
+            $errors = $this->passwordPolicy->validate($password, (string) $user['email']);
+            if ($password !== $confirm) {
+                $errors[] = 'The two passwords do not match.';
+            }
+            if ($errors !== []) {
+                return ['ok' => false, 'errors' => $errors, 'user_id' => $userId];
+            }
 
-        if ($errors !== []) {
-            return ['ok' => false, 'errors' => $errors, 'user_id' => $userId];
-        }
+            $status = (string) $user['status'];
+            $isPending = $status === 'inactive'
+                && (string) $user['password_hash'] === UserService::PENDING_PASSWORD_SENTINEL
+                && (int) $user['must_change_password'] === 0;
+            if ($status !== 'active' && !$isPending) {
+                return ['ok' => false, 'errors' => ['This activation link is invalid or has already been used.'], 'user_id' => null];
+            }
+            if (!$this->activations->markUsed((int) $row['activation_id'])) {
+                return ['ok' => false, 'errors' => ['This activation link is invalid or has already been used.'], 'user_id' => null];
+            }
 
-        $passwordHash = password_hash($password, PASSWORD_DEFAULT);
-        $updated = (string) $user['status'] === 'active'
-            ? $this->users->resetActiveAccountPassword($userId, $passwordHash)
-            : $this->users->activatePendingAccount($userId, $passwordHash);
-        if (!$updated) {
-            return ['ok' => false, 'errors' => ['This activation link is invalid or has already been used.'], 'user_id' => null];
-        }
-        $this->activations->markUsed((int) $row['activation_id']);
+            $passwordHash = password_hash($password, PASSWORD_DEFAULT);
+            $updated = $status === 'active'
+                ? $this->users->resetActiveAccountPassword($userId, $passwordHash)
+                : $this->users->activatePendingAccount($userId, $passwordHash);
+            if (!$updated) {
+                throw new \LogicException('Locked activation state changed unexpectedly.');
+            }
 
-        return ['ok' => true, 'errors' => [], 'user_id' => $userId];
+            return ['ok' => true, 'errors' => [], 'user_id' => $userId];
+        });
     }
 
     /** SHA-256 of the high-entropy token — safe deterministic lookup key. */
@@ -131,11 +141,7 @@ final class ActivationService
 
     private function isExpired(string $expiresAt): bool
     {
-        try {
-            $exp = new \DateTimeImmutable($expiresAt, new \DateTimeZone('UTC'));
-        } catch (\Exception) {
-            return true; // unparseable expiry => treat as expired (fail safe)
-        }
-        return $this->clock->now() > $exp;
+        $expiry = Clock::parseDatabaseTimestamp($expiresAt);
+        return $expiry === null || $this->clock->now() >= $expiry;
     }
 }

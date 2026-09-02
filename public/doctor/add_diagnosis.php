@@ -9,8 +9,13 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('doctor');
-$patientId = request_positive_int($_GET['patient_id'] ?? $_POST['patient_id'] ?? null);
-$visitId = request_positive_int($_GET['visit_id'] ?? $_POST['visit_id'] ?? null);
+$isPost = request_post_guard('doctor');
+$patientId = request_positive_int(
+    $isPost ? ($_POST['patient_id'] ?? null) : ($_GET['patient_id'] ?? null)
+);
+$visitId = request_positive_int(
+    $isPost ? ($_POST['visit_id'] ?? null) : ($_GET['visit_id'] ?? null)
+);
 require_doctor_patient_access($user, $patientId, $visitId, 'doctor:add_diagnosis');
 $patient = ms_patient_repo()->findById($patientId);
 $errors = [];
@@ -22,16 +27,20 @@ $selectedMedicationIndexes = [];
 $dosages = [];
 $instructions = [];
 $medicationNames = array_keys(ClinicalCatalog::MEDICATIONS);
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($isPost) {
     $diagnosis = request_string($_POST['diagnosis'] ?? null);
     $treatment = request_string($_POST['treatment'] ?? null);
-    $labTests = is_array($_POST['lab_tests'] ?? null) ? $_POST['lab_tests'] : [];
+    $rawLabTests = is_array($_POST['lab_tests'] ?? null) ? $_POST['lab_tests'] : [];
+    $labTests = array_values(array_filter(
+        array_map('request_string', $rawLabTests),
+        static fn (string $test): bool => $test !== ''
+    ));
     $medicationIndices = is_array($_POST['medication_indices'] ?? null) ? $_POST['medication_indices'] : [];
     $dosages = is_array($_POST['medication_dosages'] ?? null) ? $_POST['medication_dosages'] : [];
     $instructions = is_array($_POST['medication_instructions'] ?? null) ? $_POST['medication_instructions'] : [];
     $medications = [];
     foreach ($medicationIndices as $index) {
-        $index = is_scalar($index) ? filter_var($index, FILTER_VALIDATE_INT) : false;
+        $index = filter_var(request_string($index), FILTER_VALIDATE_INT);
         if ($index === false || !isset($medicationNames[$index])) {
             $medications[] = [];
             continue;
@@ -43,63 +52,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'instructions' => request_string($instructions[$index] ?? null),
         ];
     }
-    if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
-        $errors[] = 'Your session has expired. Please try again.';
-    } else {
-        $result = ms_clinical_service()->submitConsultation(
-            $patientId,
-            (int) $user['user_id'],
-            $visitId,
-            $diagnosis,
-            $treatment,
-            $labTests,
-            $medications
-        );
-        if ($result['ok']) {
-            ms_audit_log([
-                'user_id' => (int) $user['user_id'],
-                'user_role' => 'doctor',
-                'action' => 'DIAGNOSIS_ADDED',
-                'module' => 'doctor',
-                'affected_record_id' => (string) $result['record_id'],
-                'status' => 'SUCCESS',
-                'anomaly_flag' => 'NORMAL',
-            ]);
-            $redirectPath = '/doctor/view_patient.php?patient_id=' . $patientId . '&visit_id=' . $visitId;
-            $destination = $result['lab_request_ids'] !== []
-                ? 'lab'
-                : ($result['prescription_ids'] !== [] ? 'pharmacy' : null);
-            if ($destination !== null) {
-                $routing = ms_visit_service()->routeFromDoctor(
-                    $visitId,
-                    $patientId,
-                    (int) $user['user_id'],
-                    $destination
-                );
-                if (!$routing['ok']) {
-                    $errors = [
-                        'The consultation and selected orders were saved, but the visit could not be routed. '
-                        . 'Please refresh the patient record before continuing.',
-                    ];
-                    ms_audit_log([
-                        'user_id' => (int) $user['user_id'],
-                        'user_role' => 'doctor',
-                        'action' => 'UNAUTHORIZED_ACCESS',
-                        'module' => 'doctor',
-                        'affected_record_id' => (string) $patientId,
-                        'status' => 'BLOCKED',
-                        'anomaly_flag' => 'HIGH_RISK',
-                    ]);
-                } else {
-                    $redirectPath = '/doctor/dashboard.php';
-                }
+    $result = ms_clinical_service()->submitConsultation(
+        $patientId,
+        (int) $user['user_id'],
+        $visitId,
+        $diagnosis,
+        $treatment,
+        $labTests,
+        $medications
+    );
+    if ($result['ok']) {
+        ms_audit_log([
+            'user_id' => (int) $user['user_id'],
+            'user_role' => 'doctor',
+            'action' => 'DIAGNOSIS_ADDED',
+            'module' => 'doctor',
+            'affected_record_id' => (string) $result['record_id'],
+            'status' => 'SUCCESS',
+            'anomaly_flag' => 'NORMAL',
+        ]);
+        $redirectPath = '/doctor/view_patient.php?patient_id=' . $patientId . '&visit_id=' . $visitId;
+        $destination = $result['lab_request_ids'] !== []
+            ? 'lab'
+            : ($result['prescription_ids'] !== [] ? 'pharmacy' : null);
+        if ($destination !== null) {
+            $routing = ms_visit_service()->routeFromDoctor(
+                $visitId,
+                $patientId,
+                (int) $user['user_id'],
+                $destination
+            );
+            if (!$routing['ok']) {
+                $errors = [
+                    'The consultation and selected orders were saved, but the visit could not be routed. '
+                    . 'Please refresh the patient record before continuing.',
+                ];
+                ms_audit_log([
+                    'user_id' => (int) $user['user_id'],
+                    'user_role' => 'doctor',
+                    'action' => 'UNAUTHORIZED_ACCESS',
+                    'module' => 'doctor',
+                    'affected_record_id' => (string) $patientId,
+                    'status' => 'BLOCKED',
+                    'anomaly_flag' => 'HIGH_RISK',
+                ]);
+            } else {
+                $redirectPath = '/doctor/dashboard.php';
             }
-            if ($errors === []) {
-                redirect($redirectPath);
-            }
-        } else {
-            $errors = $result['errors'];
         }
+        if ($errors === []) {
+            redirect($redirectPath);
+        }
+    } else {
+        $errors = $result['errors'];
     }
 }
 $token = Csrf::token($_SESSION);

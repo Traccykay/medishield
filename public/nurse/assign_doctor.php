@@ -8,8 +8,13 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('nurse');
-$patientId = (int) ($_GET['patient_id'] ?? $_POST['patient_id'] ?? 0);
-$visitId = (int) ($_GET['visit_id'] ?? $_POST['visit_id'] ?? 0);
+$isPost = request_post_guard('nurse');
+$patientId = request_positive_int(
+    $isPost ? ($_POST['patient_id'] ?? null) : ($_GET['patient_id'] ?? null)
+);
+$visitId = request_positive_int(
+    $isPost ? ($_POST['visit_id'] ?? null) : ($_GET['visit_id'] ?? null)
+);
 $visit = $visitId > 0 ? ms_visit_repo()->findById($visitId) : null;
 if ($patientId <= 0 || $visit === null || (int) $visit['patient_id'] !== $patientId || (int) $visit['nurse_id'] !== (int) $user['user_id'] || (string) $visit['status'] !== 'with_nurse') {
     deny_access($user, 'nurse:assign_doctor');
@@ -17,18 +22,14 @@ if ($patientId <= 0 || $visit === null || (int) $visit['patient_id'] !== $patien
 $patient = ms_patient_repo()->findById($patientId);
 $errors = [];
 $success = null;
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $doctorId = (int) ($_POST['doctor_id'] ?? 0);
-    if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
-        $errors[] = 'Your session has expired. Please try again.';
+if ($isPost) {
+    $doctorId = request_positive_int($_POST['doctor_id'] ?? null);
+    $result = ms_visit_service()->assignDoctor($visitId, (int) $user['user_id'], $doctorId);
+    if ($result['ok']) {
+        ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'nurse', 'action' => 'ASSIGNMENT_CHANGED', 'module' => 'nurse', 'affected_record_id' => (string) $patientId, 'status' => 'SUCCESS']);
+        redirect('/nurse/dashboard.php');
     } else {
-        $result = ms_visit_service()->assignDoctor($visitId, (int) $user['user_id'], $doctorId);
-        if ($result['ok']) {
-            ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'nurse', 'action' => 'ASSIGNMENT_CHANGED', 'module' => 'nurse', 'affected_record_id' => (string) $patientId, 'status' => 'SUCCESS']);
-            redirect('/nurse/dashboard.php');
-        } else {
-            $errors = $result['errors'];
-        }
+        $errors = $result['errors'];
     }
 }
 $doctors = ms_visit_service()->availableDoctors();

@@ -32,6 +32,30 @@ final class DisposableDatabaseTest extends TestCase
         DisposableDatabase::requireUiTestName('');
     }
 
+    public function testRequireSetupTarget_WithConfiguredDatabase_ReturnsName(): void
+    {
+        self::assertSame(
+            'medishield_db',
+            DisposableDatabase::requireSetupTarget('medishield_db', 'medishield_db')
+        );
+    }
+
+    public function testRequireSetupTarget_WithApprovedDisposableDatabase_ReturnsName(): void
+    {
+        self::assertSame(
+            'medishield_ui_test',
+            DisposableDatabase::requireSetupTarget('medishield_db', 'medishield_ui_test')
+        );
+    }
+
+    public function testRequireSetupTarget_WithUntrustedOverride_ThrowsException(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('configured database or an isolated UI test database');
+
+        DisposableDatabase::requireSetupTarget('medishield_db', 'medishield_arbitrary');
+    }
+
     /** @return array<string,array{string}> */
     public static function allowedNames(): array
     {

@@ -7,13 +7,18 @@ temporary mail-dump directory to verify the local delivery adapter:
 | Test | Covers (`src/...`) |
 |------|--------------------|
 | `CryptoTest.php` | `Security/Crypto` — AES-256-GCM round-trip, tamper detection, key-length validation. |
-| `PasswordPolicyTest.php` | `Security/PasswordPolicy` — length / character-class rules, email-equality rejection. |
+| `PasswordPolicyTest.php` | `Security/PasswordPolicy` — 12-character minimum, character-class rules, and email-equality rejection. |
 | `CsrfTest.php` | `Security/Csrf` — token generation and constant-time verification. |
+| `RequestGuardTest.php` | `includes/guard.php` — terminating method/CSRF rejection, safe actor attribution, exactly-one audit attempts, and fail-closed behavior when audit storage fails. |
 | `RbacTest.php` | `Auth/Rbac` — role validity, area access, dashboard routing, admin-only user management. |
 | `AuditChainTest.php` | `Security/AuditChain` — HMAC-SHA256 hash computation and chain linkage. |
 | `LogMailerTest.php` | `Mail/LogMailer` — safe local mail-dump creation and message writing. |
-| `DisposableDatabaseTest.php` | `Support/DisposableDatabase` — UI seed scripts accept only named disposable databases. |
-| `DeploymentBoundaryTest.php` | Checked-in Apache rules and CLI-only maintenance-script entry guards. |
+| `MailerFactoryTest.php` | `Mail/MailerFactory` — exact transport selection, production log rejection, and no unknown/missing fallback. |
+| `BootstrapConfigValidatorTest.php` | `Support/BootstrapConfigValidator` — development/test log compatibility plus production SMTP, HTTPS URL, sender, TLS, credential, port, and timeout requirements. |
+| `BootstrapConfigurationTest.php` | Real bootstrap subprocesses — validation ordering, generic browser failures with no sensitive output, no DB/token/mail continuation on rejection, production SMTP/HTTPS acceptance, and development log delivery. |
+| `DisposableDatabaseTest.php` | `Support/DisposableDatabase` — UI seeds accept only named disposable databases, while setup helpers accept the configured target or a named disposable target and reject arbitrary overrides. |
+| `ClockTest.php` | `Support/Clock` — exact UTC database timestamp parsing rejects missing, non-canonical, and normalized-impossible values. |
+| `DeploymentBoundaryTest.php` | Checked-in Apache rules, strict/cookie-only session bootstrap ordering, CLI-only maintenance-script guards, credential-free production setup, explicit initial-admin confirmation, selected-database propagation, and subprocess enforcement by disposable migration/seed helpers. |
 | `ApacheConfiguratorTest.php` | PowerShell 5.1/7 native-command compatibility, generated vhost/listener boundaries, denied-response inspection, and rollback command routing. |
 | `ErrorBoundaryTest.php` | Subprocess failures prove early bootstrap/configuration diagnostics are logged but never rendered, while scalar secret arguments are omitted from exception traces. |
 

@@ -12,21 +12,49 @@ Run them from the repository root in this order:
 | 1 | `install-dependencies.ps1` | **Administrator** | Bootstraps every prerequisite with a check-then-install pattern: installs **Chocolatey** if missing, then XAMPP 8.1 + Composer (via Chocolatey) if missing, then calls `configure-php-ini.ps1`, then runs `composer install`. Safe to re-run — already-installed tools are detected and skipped. |
 | 2 | `configure-php-ini.ps1` | not required | Configures the target PHP's `php.ini` to the canonical MediShield baseline (extensions + settings). Called automatically by script #1, but can be run standalone. |
 | 3 | `configure-xampp-apache.ps1` | **Administrator** | Preserves XAMPP's default localhost site, configures `medishield.local` with `public/` as its separate document root, enables overrides and `mod_rewrite`, suppresses Apache version details, validates syntax, restarts Apache, and probes public/denied paths. |
-| 4 | `setup-db.ps1` | not required | Creates the `medishield_db` database, loads `sql/schema.sql` + `sql/seed.sql`, applies every idempotent migration in `sql/migrations/`, provisions the non-root web and audit-maintenance identities, verifies audit-table least privilege, and generates `config/config.php` with unique secrets. |
+| 4 | `setup-db.ps1` | not required | Creates the `medishield_db` database, loads the schema and non-credential seed data, applies every idempotent migration in `sql/migrations/`, provisions the non-root web and audit-maintenance identities, verifies audit-table least privilege, and generates `config/config.php` with unique secrets. It creates no application user. |
+| 5 | `provision-initial-admin.php` | not required | One-time, explicit initial-admin bootstrap. Creates an inactive admin and delivers an expiring single-use activation link without generating or printing a password. |
+
+### Initial administrator
+
+After normal database setup, provision the first administrator explicitly:
+
+```powershell
+php scripts\provision-initial-admin.php `
+  --name="Initial Administrator" `
+  --email="administrator@example.com" `
+  --confirm-database=medishield_db `
+  --confirm-initial-admin
+```
+
+The database confirmation must exactly match `config\config.php`. The command
+is replay-safe: if any admin row already exists, it preserves that row and sends
+nothing. A delivery failure rolls back the new pending user and activation
+token. Production execution additionally requires the SMTP transport and an
+HTTPS application base URL. Normal web bootstrap enforces that same boundary
+even earlier: exact production mode also requires a valid sender identity and
+complete SMTP host, port, TLS mode, username, password, and timeout before any
+session or database operation. The command records `USER_CREATED` and
+`ACTIVATION_SENT` only after the inactive account and activation delivery
+succeed.
 
 ### Maintenance scripts (run on a schedule, not part of setup)
 
 | Script | When | What it does |
 |--------|------|--------------|
 | `purge-audit-pii.php` | cron / Task Scheduler (e.g. daily) | Scrubs PII (`attempted_identifier`, the email typed on a failed login) from `audit_logs` rows older than `audit.pii_retention_days`. Never deletes rows and never touches the hash chain, so `verifyChain()` stays ok. Uses the isolated maintenance identity, which has column-level update permission only. See `src/Audit/README.md`. |
-| `migrate-vitals-encryption.php` | called by `setup-db.ps1` | Encrypts legacy plaintext vitals during the controlled schema upgrade. |
-| `seed-ui-test-users.php` | Playwright global setup | Seeds role accounts only in `medishield_ui_test` or `medishield_ui_account_test`. |
+| `migrate-vitals-encryption.php` | called by `setup-db.ps1` | Encrypts legacy plaintext vitals during the controlled schema upgrade. `setup-db.ps1` passes its selected database explicitly; the helper accepts only the configured database or a named disposable UI database. |
+| `seed-ui-test-users.php` | Playwright global setup | Seeds deterministic role and forced-password fixtures only in `medishield_ui_test` or `medishield_ui_account_test`. |
 | `seed-ui-dashboard-data.php` | selected Playwright scenarios | Seeds workflow data only in the same two disposable databases. |
 
 Every PHP file in this directory rejects non-CLI execution before loading
-Composer or application configuration. Both UI seed scripts and
-`setup-ui-test-db.ps1` use the same exact disposable-database allowlist; they
-cannot target `medishield_db` or an arbitrary database name.
+Composer or application configuration. The initial-admin provisioner also
+requires explicit operation and database confirmations. Both UI seed scripts
+and `setup-ui-test-db.ps1` use the same exact disposable-database allowlist;
+they cannot target `medishield_db` or an arbitrary database name. The
+setup-time vitals migration validates its explicit target through the same
+boundary, accepting either the configured normal database or a named
+disposable database and rejecting every mismatched arbitrary override.
 
 | `setup-ui-test-db.ps1` | before Playwright UI tests | Rebuilds the disposable `medishield_ui_test` database. Playwright calls this automatically and never modifies development data. |
 | `run-ui-tests.ps1` | before submitting UI-affecting or security-sensitive changes | Checks required runtimes, installs pinned Playwright dependencies/Chromium when absent, then runs the full isolated browser workflow and hostile-path security suites. Pass `-Demo` for a visible, slowed, recorded supervisor walkthrough. |

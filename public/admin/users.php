@@ -24,6 +24,7 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $admin = require_area('admin');
+$isPost = request_post_guard('admin');
 
 $errors  = [];
 $success = null;
@@ -31,21 +32,11 @@ if (isset($_GET['reset'])) {
     $success = 'Password reset link sent to the user.';
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $targetId  = (int) ($_POST['user_id'] ?? 0);
-    $newStatus = (string) ($_POST['status'] ?? '');
+if ($isPost) {
+    $targetId  = request_positive_int($_POST['user_id'] ?? null);
+    $newStatus = request_string($_POST['status'] ?? null);
 
-    if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
-        ms_audit_log([
-            'user_id'      => (int) $admin['user_id'],
-            'user_role'    => (string) $admin['role'],
-            'action'       => 'CSRF_REJECTED',
-            'module'       => 'admin',
-            'status'       => 'BLOCKED',
-            'anomaly_flag' => 'SUSPICIOUS',
-        ]);
-        $errors[] = 'Your session has expired. Please try again.';
-    } elseif (!in_array($newStatus, ['active', 'inactive'], true)) {
+    if (!in_array($newStatus, ['active', 'inactive'], true)) {
         $errors[] = 'Invalid status requested.';
     } elseif ($targetId === (int) $admin['user_id']) {
         // Self-lockout guard: you cannot deactivate the account you are using.

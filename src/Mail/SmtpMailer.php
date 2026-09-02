@@ -49,6 +49,7 @@ final class SmtpMailer implements Mailer
             $mail->SMTPAuth   = true;
             $mail->Username   = (string) ($this->smtp['username'] ?? '');
             $mail->Password   = (string) ($this->smtp['password'] ?? '');
+            $mail->Timeout    = (int) ($this->smtp['timeout'] ?? 15);
 
             // 'tls' => STARTTLS on 587; 'ssl' => implicit TLS on 465.
             $encryption = (string) ($this->smtp['encryption'] ?? 'tls');

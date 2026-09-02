@@ -5,8 +5,8 @@ the engine XAMPP bundles).
 
 | File | Purpose |
 |------|---------|
-| `schema.sql` | Creates all tables for the full system (spec §10), including visit-linked `billing_bills` and immutable `billing_charges` price snapshots. Uses `CREATE TABLE IF NOT EXISTS`, so it is safe to re-run. |
-| `seed.sql` | Inserts the bootstrap **superadmin** account (`INSERT IGNORE`, safe to re-run). |
+| `schema.sql` | Creates all tables for the full system (spec §10), including the monotonic `users.auth_version` session-revocation epoch. Uses `CREATE TABLE IF NOT EXISTS`, so it is safe to re-run. |
+| `seed.sql` | Production-safe seed entry point. It deliberately contains no user or deterministic credential. |
 | `migrations/` | Idempotent incremental changes (`ALTER TABLE ...`) that bring an **existing** database up to date — because `CREATE TABLE IF NOT EXISTS` leaves an already-created table untouched. `setup-db.ps1` applies these after `schema.sql`. See `migrations/README.md`. |
 
 ## Loading
@@ -22,18 +22,31 @@ mysql -u root medishield_db < sql\schema.sql
 mysql -u root medishield_db < sql\seed.sql
 ```
 
-## Default superadmin
-- **Email:** `medishield.superadmin@gmail.com`
-- **Password:** `ChangeMe!2026`  (you are forced to change it on first login)
+## Initial administrator
 
-This account is used to register all other users. Re-generate the hash in
-`seed.sql` for any non-demo deployment.
+Normal and fresh setup creates no administrator. After `scripts\setup-db.ps1`,
+use the guarded CLI flow documented in the root README:
+
+```powershell
+php scripts\provision-initial-admin.php `
+  --name="Initial Administrator" `
+  --email="administrator@example.com" `
+  --confirm-database=medishield_db `
+  --confirm-initial-admin
+```
+
+This stores an inactive account with no usable password and sends an expiring
+single-use activation link. Existing administrator rows are never replaced,
+reset, or deleted. Deterministic credentials exist only in
+`scripts\seed-ui-test-users.php`, whose disposable-database allowlist excludes
+the normal application database.
 
 ## Notes
-- Only `users` is exercised by Deliverable 1; the other tables are created now so
-  later modules slot in without migrations.
 - Timestamps are stored in UTC. `audit_logs` is designed to be append-only — in a
   hardened deployment the application DB user is granted only `SELECT, INSERT` on it.
+- `users.auth_version` starts at 1 and only increases. Password, account-status,
+  and role mutations advance it while invalidating unused OTPs in the same
+  transaction, so stale pending or authenticated sessions cannot be revived.
 - `audit_logs.attempted_identifier` stores the email typed on a failed login (so an
   admin can follow up on possibly-leaked credentials, even for unknown accounts).
   It is **PII held outside the HMAC hash chain** and is scrubbed after the retention

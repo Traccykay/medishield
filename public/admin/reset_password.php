@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-use MediShield\Security\Csrf;
-
 require_once __DIR__ . '/../../includes/guard.php';
+ms_send_no_store_headers();
 
 $admin = require_area('admin');
-$userId = (int) ($_POST['user_id'] ?? 0);
-if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null) || $userId <= 0) {
+request_post_guard('admin', postOnly: true);
+$userId = request_positive_int($_POST['user_id'] ?? null);
+if ($userId <= 0) {
     redirect('/admin/users.php');
 }
 

@@ -45,9 +45,9 @@ final class Csrf
      * Timing-safe check that a submitted token matches the session token.
      *
      * @param array<string,mixed> $session   Session storage (e.g. $_SESSION).
-     * @param string|null         $submitted Token received from the form POST.
+     * @param mixed               $submitted Raw token received from the form POST.
      */
-    public static function check(array $session, ?string $submitted): bool
+    public static function check(array $session, mixed $submitted): bool
     {
         $stored = $session[self::SESSION_KEY] ?? null;
         if (!is_string($stored) || $stored === '' || !is_string($submitted) || $submitted === '') {

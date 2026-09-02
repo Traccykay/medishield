@@ -11,16 +11,16 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/guard.php';
 
-$user = current_user();
-if ($user !== null) {
-    ms_audit_log([
-        'user_id'   => (int) $user['user_id'],
-        'user_role' => (string) $user['role'],
-        'action'    => 'LOGOUT',
-        'module'    => 'auth',
-        'status'    => 'SUCCESS',
-    ]);
-}
+$user = require_login(allowPasswordChange: true);
+request_post_guard('auth', postOnly: true);
+
+ms_audit_log([
+    'user_id'   => (int) $user['user_id'],
+    'user_role' => (string) $user['role'],
+    'action'    => 'LOGOUT',
+    'module'    => 'auth',
+    'status'    => 'SUCCESS',
+]);
 
 logout_user();
 redirect('/login.php');

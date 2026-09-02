@@ -14,10 +14,12 @@ require_once __DIR__ . '/error_boundary.php';
  *   2. Loads the Composer autoloader (PSR-4 "MediShield\\" => src/).
  *   3. Loads the generated configuration (config/config.php).
  *   4. Forces UTC and routes diagnostics to logs/app_errors.log.
- *   5. Hardens and starts the PHP session (HttpOnly, SameSite=Strict, Secure on
+ *   5. Rejects unsafe production mail/base-URL configuration before any state,
+ *      database, audit, credential, or mail operation can occur.
+ *   6. Hardens and starts the PHP session (HttpOnly, SameSite=Strict, Secure on
  *      HTTPS) BEFORE any output — this must happen before session_start().
- *   6. Sends the security headers (see headers.php).
- *   7. Exposes a tiny lazy "service container" (ms_db, ms_auth, ms_user_service,
+ *   7. Sends the security headers (see headers.php).
+ *   8. Exposes a tiny lazy "service container" (ms_db, ms_auth, ms_user_service,
  *      ms_audit, ms_crypto, ...) plus view helpers (e(), redirect(), ms_audit_log()).
  *
  * Pages should never instantiate repositories/services directly; they ask the
@@ -40,9 +42,8 @@ use MediShield\Auth\UserService;
 use MediShield\Clinical\ClinicalRepository;
 use MediShield\Clinical\ClinicalService;
 use MediShield\Database\Connection;
-use MediShield\Mail\LogMailer;
 use MediShield\Mail\Mailer;
-use MediShield\Mail\SmtpMailer;
+use MediShield\Mail\MailerFactory;
 use MediShield\Patient\PatientRepository;
 use MediShield\Patient\PatientService;
 use MediShield\Security\AuditChain;
@@ -50,6 +51,7 @@ use MediShield\Security\Crypto;
 use MediShield\Security\PasswordPolicy;
 use MediShield\Security\RequestThrottle;
 use MediShield\Security\TransportSecurity;
+use MediShield\Support\BootstrapConfigValidator;
 use MediShield\Support\Clock;
 use MediShield\Visit\VisitRepository;
 use MediShield\Visit\VisitService;
@@ -97,6 +99,7 @@ if (!function_exists('ms_config')) {
 date_default_timezone_set('UTC');
 $configuredErrorLog = ms_config()['error_log'] ?? (__DIR__ . '/../logs/app_errors.log');
 ms_error_boundary_set_log_file((string) $configuredErrorLog);
+BootstrapConfigValidator::validate(ms_config());
 
 /* ---------------------------------------------------------------------------
  * 3. Session hardening + start (must precede any output)
@@ -104,6 +107,12 @@ ms_error_boundary_set_log_file((string) $configuredErrorLog);
 
 (static function (): void {
     if (session_status() === PHP_SESSION_ACTIVE) {
+        if (
+            (int) ini_get('session.use_strict_mode') !== 1
+            || (int) ini_get('session.use_only_cookies') !== 1
+        ) {
+            throw new \RuntimeException('An insecure session was started before application bootstrap.');
+        }
         return;
     }
 
@@ -117,6 +126,15 @@ ms_error_boundary_set_log_file((string) $configuredErrorLog);
         exit('HTTPS is required.');
     }
 
+    ini_set('session.use_strict_mode', '1');
+    ini_set('session.use_only_cookies', '1');
+    if (
+        (int) ini_get('session.use_strict_mode') !== 1
+        || (int) ini_get('session.use_only_cookies') !== 1
+    ) {
+        throw new \RuntimeException('Required session security settings could not be applied.');
+    }
+
     session_set_cookie_params([
         'lifetime' => 0,
         'path'     => '/',
@@ -127,7 +145,9 @@ ms_error_boundary_set_log_file((string) $configuredErrorLog);
     ]);
 
     session_name($cfg['session']['cookie_name'] ?? 'MEDISHIELD_SID');
-    session_start();
+    if (!session_start()) {
+        throw new \RuntimeException('The secure session could not be started.');
+    }
 })();
 
 require_once __DIR__ . '/headers.php';
@@ -202,7 +222,11 @@ if (!function_exists('ms_session_validator')) {
     function ms_session_validator(): SessionValidator
     {
         static $validator = null;
-        return $validator ??= new SessionValidator(ms_user_repo());
+        return $validator ??= new SessionValidator(
+            ms_user_repo(),
+            ms_clock(),
+            (int) (ms_config()['session']['pending_login_timeout_seconds'] ?? 600)
+        );
     }
 }
 
@@ -243,32 +267,13 @@ if (!function_exists('ms_is_https_request')) {
 
 if (!function_exists('ms_mailer')) {
     /**
-     * The configured mail transport. 'log' (default) writes each message to
-     * logs/mail/ for local development; 'smtp' sends real email via PHPMailer.
-     * SmtpMailer is only constructed when actually selected, so PHPMailer is not
-     * required to be installed for the default dev flow.
+     * The explicitly configured mail transport. Log delivery is restricted to
+     * non-production environments; unknown or missing transports fail closed.
      */
     function ms_mailer(): Mailer
     {
         static $mailer = null;
-        if ($mailer === null) {
-            $cfg       = ms_config()['mail'] ?? [];
-            $transport = $cfg['transport'] ?? 'log';
-
-            if ($transport === 'smtp') {
-                $mailer = new SmtpMailer(
-                    (array) ($cfg['smtp'] ?? []),
-                    (string) ($cfg['from_email'] ?? 'no-reply@medishield.local'),
-                    (string) ($cfg['from_name'] ?? 'MediShield')
-                );
-            } else {
-                $mailer = new LogMailer(
-                    (string) ($cfg['dump_dir'] ?? (__DIR__ . '/../logs/mail')),
-                    ms_clock()
-                );
-            }
-        }
-        return $mailer;
+        return $mailer ??= MailerFactory::fromConfig(ms_config(), ms_clock());
     }
 }
 

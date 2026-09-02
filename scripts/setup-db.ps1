@@ -3,7 +3,7 @@
 Creates and seeds the MediShield MySQL database.
 
 .DESCRIPTION
-Run this after XAMPP is installed and MySQL is running from the XAMPP Control Panel. The script creates the database, loads sql\schema.sql and sql\seed.sql, creates a least-privilege web account, and generates config\config.php with unique cryptographic keys when needed.
+Run this after XAMPP is installed and MySQL is running from the XAMPP Control Panel. The script creates the database, loads the schema and non-credential seed data, creates a least-privilege web account, and generates config\config.php with unique cryptographic keys when needed.
 
 .USAGE
 powershell -ExecutionPolicy Bypass -File scripts\setup-db.ps1
@@ -275,20 +275,46 @@ try {
         throw "Vitals encryption migration not found at '$vitalsMigrationPath'."
     }
     Write-Host 'Encrypting legacy vitals, if any'
-    $env:MEDISHIELD_SETUP_DB_USER = $DbUser
-    $env:MEDISHIELD_SETUP_DB_PASS = $DbPass
-    & php $vitalsMigrationPath
-    Remove-Item Env:MEDISHIELD_SETUP_DB_USER -ErrorAction SilentlyContinue
-    Remove-Item Env:MEDISHIELD_SETUP_DB_PASS -ErrorAction SilentlyContinue
-    if ($LASTEXITCODE -ne 0) {
-        throw "Vitals encryption migration failed with exit code $LASTEXITCODE."
+    $previousSetupDatabase = [Environment]::GetEnvironmentVariable('MEDISHIELD_SETUP_DB_NAME', 'Process')
+    $previousSetupUser = [Environment]::GetEnvironmentVariable('MEDISHIELD_SETUP_DB_USER', 'Process')
+    $previousSetupPass = [Environment]::GetEnvironmentVariable('MEDISHIELD_SETUP_DB_PASS', 'Process')
+    try {
+        $env:MEDISHIELD_SETUP_DB_NAME = $DbName
+        $env:MEDISHIELD_SETUP_DB_USER = $DbUser
+        $env:MEDISHIELD_SETUP_DB_PASS = $DbPass
+        & php $vitalsMigrationPath
+        $vitalsMigrationExitCode = $LASTEXITCODE
+    } finally {
+        if ($null -eq $previousSetupDatabase) {
+            Remove-Item Env:MEDISHIELD_SETUP_DB_NAME -ErrorAction SilentlyContinue
+        } else {
+            $env:MEDISHIELD_SETUP_DB_NAME = $previousSetupDatabase
+        }
+        if ($null -eq $previousSetupUser) {
+            Remove-Item Env:MEDISHIELD_SETUP_DB_USER -ErrorAction SilentlyContinue
+        } else {
+            $env:MEDISHIELD_SETUP_DB_USER = $previousSetupUser
+        }
+        if ($null -eq $previousSetupPass) {
+            Remove-Item Env:MEDISHIELD_SETUP_DB_PASS -ErrorAction SilentlyContinue
+        } else {
+            $env:MEDISHIELD_SETUP_DB_PASS = $previousSetupPass
+        }
+    }
+    if ($vitalsMigrationExitCode -ne 0) {
+        throw "Vitals encryption migration failed with exit code $vitalsMigrationExitCode."
     }
 
     Write-Host ''
     Write-Host 'Database setup completed successfully.' -ForegroundColor Green
-    Write-Host 'Superadmin login:'
-    Write-Host '  Email:    medishield.superadmin@gmail.com'
-    Write-Host '  Password: ChangeMe!2026'
+    Write-Host 'No application user credentials were seeded or printed.'
+    $disposableUiDatabases = @('medishield_ui_test', 'medishield_ui_account_test')
+    if ($DbName -in $disposableUiDatabases) {
+        Write-Host 'The CLI-guarded UI seeder will add deterministic fixtures to this allowlisted disposable database.'
+    } else {
+        Write-Host 'For a normal database with no administrator, explicitly provision one with:'
+        Write-Host "  php scripts\provision-initial-admin.php --name=`"<full name>`" --email=`"<email>`" --confirm-database=$DbName --confirm-initial-admin"
+    }
 }
 catch {
     Write-Error "Database setup failed: $($_.Exception.Message) If MySQL is not running, start MySQL in the XAMPP Control Panel and rerun this script."

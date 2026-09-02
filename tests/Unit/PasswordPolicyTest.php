@@ -23,6 +23,13 @@ final class PasswordPolicyTest extends TestCase
         self::assertSame([], $this->policy->validate('Str0ng!Pass1', 'jane@example.com'));
     }
 
+    public function testRequiresAtLeastTwelveCharacters(): void
+    {
+        self::assertSame(12, PasswordPolicy::MIN_LENGTH);
+        self::assertFalse($this->policy->isValid('Short!Pass1', 'a@b.com'));
+        self::assertTrue($this->policy->isValid('Strong!Pass12', 'a@b.com'));
+    }
+
     public function testRejectsTooShort(): void
     {
         $errors = $this->policy->validate('Ab1!xyz', 'a@b.com'); // 7 chars

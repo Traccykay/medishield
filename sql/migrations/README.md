@@ -8,9 +8,9 @@ before a new column existed will not pick that column up just by re-running
 ## What lives here
 
 One `*.sql` file per incremental change, named `YYYY-MM-DD_short_description.sql`.
-Each file must be **idempotent** (safe to run more than once) — typically by using
-MariaDB's `ADD COLUMN IF NOT EXISTS` / `DROP COLUMN IF EXISTS`, or an
-`INSERT ... ON DUPLICATE KEY UPDATE`.
+Each file must be **idempotent** (safe to run more than once). Cross-engine
+column changes use an `information_schema` guard plus a prepared DDL statement;
+seed changes use deterministic keys with an upsert where appropriate.
 
 ## How they are applied
 
@@ -43,9 +43,10 @@ Get-Content sql\migrations\2026-06-29_add_attempted_identifier.sql -Raw |
 | `2026-07-20_link_clinical_orders_to_visits.sql` | Links new diagnoses, lab orders, and prescriptions to their visit and stores the server-resolved catalog price. Legacy rows remain unlinked with a NULL visit/price because mapping them to a visit would be ambiguous; new application writes always supply both values. |
 | `2026-07-20_add_prescription_refused_status.sql` | Adds the terminal `refused` prescription status. A pharmacy refusal remains auditable and returns the linked encounter to its assigned doctor rather than leaving it in the pharmacy queue. |
 | `2026-07-24_add_request_throttles.sql` | Adds HMAC-scoped, fixed-window request budgets for login, OTP verification, and password-reset endpoints. The table contains no raw client IP addresses. |
+| `2026-09-02_add_auth_version.sql` | Adds the monotonic `users.auth_version` authentication epoch. Password, status, and role transitions increment it and atomically invalidate outstanding OTPs, preventing pending MFA or preserved sessions from surviving authoritative account changes. |
 
-## MySQL 8 note
+## MySQL 8 / MariaDB compatibility
 
-`ADD COLUMN IF NOT EXISTS` is a MariaDB extension. MediShield targets the MariaDB
-that ships with XAMPP. If you run against MySQL 8, remove the `IF NOT EXISTS`
-clause and apply the migration exactly once.
+Migrations must run unchanged on both supported engines. Do not use MariaDB-only
+`ADD COLUMN IF NOT EXISTS`; use an `information_schema.COLUMNS` existence check
+and execute the `ALTER TABLE` only when the column is absent.

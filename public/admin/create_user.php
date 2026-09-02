@@ -6,8 +6,8 @@ declare(strict_types=1);
  * admin/create_user.php
  * ---------------------
  * The administrator "registration" form (spec §9.2). MediShield has NO public
- * self-registration: only an admin (e.g. the seeded superadmin) creates accounts
- * and assigns one of the seven roles.
+ * self-registration: only an authenticated administrator creates accounts and
+ * assigns one of the seven roles.
  *
  * Account-activation-link flow: the admin does NOT set a password. The account is
  * created PENDING (status 'inactive', no usable password) and an activation token
@@ -30,6 +30,7 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $admin = require_area('admin');
+$isPost = request_post_guard('admin');
 
 $errors   = [];
 $success  = null;
@@ -37,76 +38,64 @@ $fullName = '';
 $email    = '';
 $role     = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $fullName = trim((string) ($_POST['full_name'] ?? ''));
-    $email    = trim((string) ($_POST['email'] ?? ''));
-    $role     = (string) ($_POST['role'] ?? '');
+if ($isPost) {
+    $fullName = trim(request_string($_POST['full_name'] ?? null));
+    $email    = trim(request_string($_POST['email'] ?? null));
+    $role     = request_string($_POST['role'] ?? null);
 
-    if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
+    $result = ms_user_service()->createPendingUser($fullName, $email, $role);
+
+    if ($result['ok']) {
+        $newUserId = (int) $result['user_id'];
+
         ms_audit_log([
-            'user_id'      => (int) $admin['user_id'],
-            'user_role'    => (string) $admin['role'],
-            'action'       => 'CSRF_REJECTED',
+            'user_id'            => (int) $admin['user_id'],
+            'user_role'          => (string) $admin['role'],
+            'action'             => 'USER_CREATED',
             'module'       => 'admin',
-            'status'       => 'BLOCKED',
-            'anomaly_flag' => 'SUSPICIOUS',
+            'affected_record_id' => $newUserId,
+            'status'             => 'SUCCESS',
         ]);
-        $errors[] = 'Your session has expired. Please try again.';
+
+        // Mint an activation token and email the link. The token is single-use
+        // and time-limited (see ActivationService); only its hash is stored.
+        $activationToken = ms_activation_service()->issueFor($newUserId);
+        $baseUrl = rtrim((string) (ms_config()['mail']['app_base_url'] ?? ''), '/');
+        $link = $baseUrl . '/activate.php?token=' . urlencode($activationToken);
+
+        ms_mailer()->send(
+            $email,
+            $fullName,
+            'Activate your MediShield account',
+            "Hello " . $fullName . ",\n\n"
+            . "An administrator has created a MediShield account for you.\n"
+            . "To activate it and choose your password, open this link:\n\n"
+            . $link . "\n\n"
+            . "The link expires in " . (int) (ms_config()['activation']['ttl_hours'] ?? 48)
+            . " hours. If you were not expecting this, you can ignore this email.\n"
+        );
+
+        ms_audit_log([
+            'user_id'            => (int) $admin['user_id'],
+            'user_role'          => (string) $admin['role'],
+            'action'             => 'ACTIVATION_SENT',
+            'module'             => 'admin',
+            'affected_record_id' => $newUserId,
+            'status'             => 'SUCCESS',
+        ]);
+
+        $success = 'User created. An activation link has been emailed so they can set their own password and activate the account.';
+        // Clear the form for the next entry.
+        $fullName = $email = $role = '';
     } else {
-        $result = ms_user_service()->createPendingUser($fullName, $email, $role);
-
-        if ($result['ok']) {
-            $newUserId = (int) $result['user_id'];
-
-            ms_audit_log([
-                'user_id'            => (int) $admin['user_id'],
-                'user_role'          => (string) $admin['role'],
-                'action'             => 'USER_CREATED',
-                'module'             => 'admin',
-                'affected_record_id' => $newUserId,
-                'status'             => 'SUCCESS',
-            ]);
-
-            // Mint an activation token and email the link. The token is single-use
-            // and time-limited (see ActivationService); only its hash is stored.
-            $activationToken = ms_activation_service()->issueFor($newUserId);
-            $baseUrl = rtrim((string) (ms_config()['mail']['app_base_url'] ?? ''), '/');
-            $link = $baseUrl . '/activate.php?token=' . urlencode($activationToken);
-
-            ms_mailer()->send(
-                $email,
-                $fullName,
-                'Activate your MediShield account',
-                "Hello " . $fullName . ",\n\n"
-                . "An administrator has created a MediShield account for you.\n"
-                . "To activate it and choose your password, open this link:\n\n"
-                . $link . "\n\n"
-                . "The link expires in " . (int) (ms_config()['activation']['ttl_hours'] ?? 48)
-                . " hours. If you were not expecting this, you can ignore this email.\n"
-            );
-
-            ms_audit_log([
-                'user_id'            => (int) $admin['user_id'],
-                'user_role'          => (string) $admin['role'],
-                'action'             => 'ACTIVATION_SENT',
-                'module'             => 'admin',
-                'affected_record_id' => $newUserId,
-                'status'             => 'SUCCESS',
-            ]);
-
-            $success = 'User created. An activation link has been emailed so they can set their own password and activate the account.';
-            // Clear the form for the next entry.
-            $fullName = $email = $role = '';
-        } else {
-            ms_audit_log([
-                'user_id'   => (int) $admin['user_id'],
-                'user_role' => (string) $admin['role'],
-                'action'    => 'USER_CREATED',
-                'module'    => 'admin',
-                'status'    => 'FAILED',
-            ]);
-            $errors = $result['errors'];
-        }
+        ms_audit_log([
+            'user_id'   => (int) $admin['user_id'],
+            'user_role' => (string) $admin['role'],
+            'action'    => 'USER_CREATED',
+            'module'    => 'admin',
+            'status'    => 'FAILED',
+        ]);
+        $errors = $result['errors'];
     }
 }
 

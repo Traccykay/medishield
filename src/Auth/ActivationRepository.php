@@ -56,12 +56,15 @@ final class ActivationRepository
      * Look up an UNUSED activation row by its token hash, or null. We match on the
      * hash (never the plaintext) and ignore already-consumed rows.
      */
-    public function findActiveByHash(string $tokenHash): ?array
+    public function findActiveByHash(string $tokenHash, bool $lockForUpdate = false): ?array
     {
+        $lockSql = $lockForUpdate && $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql'
+            ? ' FOR UPDATE'
+            : '';
         $stmt = $this->pdo->prepare(
             'SELECT * FROM account_activations
               WHERE token_hash = :token_hash AND used_at IS NULL
-              LIMIT 1'
+              LIMIT 1' . $lockSql
         );
         $stmt->execute([':token_hash' => $tokenHash]);
         $row = $stmt->fetch();
@@ -69,11 +72,15 @@ final class ActivationRepository
     }
 
     /** Mark a token consumed so the activation link can never be reused. */
-    public function markUsed(int $activationId): void
+    public function markUsed(int $activationId): bool
     {
-        $this->pdo->prepare(
-            'UPDATE account_activations SET used_at = :now WHERE activation_id = :id'
-        )->execute([':now' => $this->clock->nowString(), ':id' => $activationId]);
+        $stmt = $this->pdo->prepare(
+            'UPDATE account_activations
+                SET used_at = :now
+              WHERE activation_id = :id AND used_at IS NULL'
+        );
+        $stmt->execute([':now' => $this->clock->nowString(), ':id' => $activationId]);
+        return $stmt->rowCount() === 1;
     }
 
     /**
@@ -86,5 +93,26 @@ final class ActivationRepository
             'UPDATE account_activations SET used_at = :now
               WHERE user_id = :user_id AND used_at IS NULL'
         )->execute([':now' => $this->clock->nowString(), ':user_id' => $userId]);
+    }
+
+    /** Run token lookup and conditional consumption as one transaction. */
+    public function transactional(callable $operation): mixed
+    {
+        $ownsTransaction = !$this->pdo->inTransaction();
+        if ($ownsTransaction) {
+            $this->pdo->beginTransaction();
+        }
+        try {
+            $result = $operation();
+            if ($ownsTransaction) {
+                $this->pdo->commit();
+            }
+            return $result;
+        } catch (\Throwable $error) {
+            if ($ownsTransaction && $this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $error;
+        }
     }
 }

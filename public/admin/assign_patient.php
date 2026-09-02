@@ -16,27 +16,19 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $admin = require_area('admin');
+$isPost = request_post_guard('patients');
 
 $errors = [];
 $success = null;
-$selectedPatientId = (int) ($_GET['patient_id'] ?? $_POST['patient_id'] ?? 0);
+$selectedPatientId = request_positive_int(
+    $isPost ? ($_POST['patient_id'] ?? null) : ($_GET['patient_id'] ?? null)
+);
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $selectedPatientId = (int) ($_POST['patient_id'] ?? 0);
-    $staffUserId = (int) ($_POST['staff_user_id'] ?? 0);
-    $action = (string) ($_POST['assignment_action'] ?? 'assign');
+if ($isPost) {
+    $staffUserId = request_positive_int($_POST['staff_user_id'] ?? null);
+    $action = request_string($_POST['assignment_action'] ?? null);
 
-    if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
-        ms_audit_log([
-            'user_id' => (int) $admin['user_id'],
-            'user_role' => (string) $admin['role'],
-            'action' => 'CSRF_REJECTED',
-            'module' => 'patients',
-            'status' => 'BLOCKED',
-            'anomaly_flag' => 'SUSPICIOUS',
-        ]);
-        $errors[] = 'Your session has expired. Please try again.';
-    } elseif ($action === 'unassign') {
+    if ($action === 'unassign') {
         $staff = ms_user_repo()->findById($staffUserId);
         $result = $staff !== null && (string) $staff['role'] === 'doctor'
             ? ms_visit_service()->revokeDoctorAssignment($selectedPatientId, $staffUserId)

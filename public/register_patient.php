@@ -18,6 +18,7 @@ $user = require_login();
 if (!in_array((string) $user['role'], ['admin', 'receptionist'], true)) {
     deny_access($user, 'patient:register');
 }
+$isPost = request_post_guard('patients');
 
 $errors = [];
 $success = null;
@@ -38,56 +39,44 @@ $values = [
     'emergency_contact' => '',
 ];
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($isPost) {
     foreach (array_keys($values) as $key) {
         if ($key === 'patient_number') {
             continue;
         }
-        $values[$key] = trim((string) ($_POST[$key] ?? ''));
+        $values[$key] = trim(request_string($_POST[$key] ?? null));
     }
 
-    if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
-        ms_audit_log([
-            'user_id' => (int) $user['user_id'],
-            'user_role' => (string) $user['role'],
-            'action' => 'CSRF_REJECTED',
-            'module' => 'patients',
-            'status' => 'BLOCKED',
-            'anomaly_flag' => 'SUSPICIOUS',
-        ]);
-        $errors[] = 'Your session has expired. Please try again.';
-    } else {
-        if ((string) $user['role'] !== 'admin') {
-            $values['user_id'] = '';
-        }
+    if ((string) $user['role'] !== 'admin') {
+        $values['user_id'] = '';
+    }
 
-        $result = ms_patient_service()->registerPatient($values, $serverPatientNumber);
-        if ($result['ok']) {
-            unset($_SESSION[$patientNumberSessionKey]);
-            $patientId = (int) $result['patient_id'];
-            ms_audit_log([
-                'user_id' => (int) $user['user_id'],
-                'user_role' => (string) $user['role'],
-                'action' => 'PATIENT_REGISTERED',
-                'module' => 'patients',
-                'affected_record_id' => (string) $patientId,
-                'status' => 'SUCCESS',
-            ]);
-            $destination = (string) $user['role'] === 'receptionist'
-                ? '/reception/intake.php?patient_id=' . $patientId
-                : '/patient_profile.php?patient_id=' . $patientId;
-            redirect($destination);
-        }
-
+    $result = ms_patient_service()->registerPatient($values, $serverPatientNumber);
+    if ($result['ok']) {
+        unset($_SESSION[$patientNumberSessionKey]);
+        $patientId = (int) $result['patient_id'];
         ms_audit_log([
             'user_id' => (int) $user['user_id'],
             'user_role' => (string) $user['role'],
             'action' => 'PATIENT_REGISTERED',
             'module' => 'patients',
-            'status' => 'FAILED',
+            'affected_record_id' => (string) $patientId,
+            'status' => 'SUCCESS',
         ]);
-        $errors = $result['errors'];
+        $destination = (string) $user['role'] === 'receptionist'
+            ? '/reception/intake.php?patient_id=' . $patientId
+            : '/patient_profile.php?patient_id=' . $patientId;
+        redirect($destination);
     }
+
+    ms_audit_log([
+        'user_id' => (int) $user['user_id'],
+        'user_role' => (string) $user['role'],
+        'action' => 'PATIENT_REGISTERED',
+        'module' => 'patients',
+        'status' => 'FAILED',
+    ]);
+    $errors = $result['errors'];
 }
 
 $patientUsers = (string) $user['role'] === 'admin'

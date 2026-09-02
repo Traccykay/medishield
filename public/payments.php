@@ -10,38 +10,39 @@ require_once __DIR__ . '/../includes/guard.php';
 require_once __DIR__ . '/../includes/layout.php';
 
 $user = require_nav('payments');
+$isPost = request_post_guard('billing');
 $isStaff = in_array($user['role'], [Rbac::ROLE_ADMIN, Rbac::ROLE_RECEPTIONIST], true);
-$visitId = (int) ($_GET['visit_id'] ?? $_POST['visit_id'] ?? 0);
+$visitId = request_positive_int(
+    $isPost ? ($_POST['visit_id'] ?? null) : ($_GET['visit_id'] ?? null)
+);
 $errors = [];
 $success = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
-        $errors[] = 'Your session has expired. Please try again.';
-    } elseif (!$isStaff) {
+if ($isPost) {
+    if (!$isStaff) {
         $errors[] = 'You are not authorized to change billing records.';
     } elseif ($visitId < 1) {
         $errors[] = 'Billing record was not found.';
-    } elseif ((string) ($_POST['action'] ?? '') === 'add_charge') {
+    } elseif (request_string($_POST['action'] ?? null) === 'add_charge') {
         $result = ms_billing_service()->addCatalogCharge(
             $visitId,
             $user,
-            (string) ($_POST['charge_type'] ?? ''),
-            (string) ($_POST['catalogue_item'] ?? ''),
+            request_string($_POST['charge_type'] ?? null),
+            request_string($_POST['catalogue_item'] ?? null),
             $_POST['quantity'] ?? null
         );
         $errors = $result['errors'];
         if ($result['ok']) {
             $success = 'Charge added.';
         }
-    } elseif ((string) ($_POST['action'] ?? '') === 'record_payment') {
+    } elseif (request_string($_POST['action'] ?? null) === 'record_payment') {
         $result = ms_billing_service()->recordPayment(
             $visitId,
             $user,
-            (string) ($_POST['payment_method'] ?? ''),
-            (string) ($_POST['payment_status'] ?? ''),
-            (string) ($_POST['payment_reference'] ?? ''),
-            (string) ($_POST['receipt_number'] ?? '')
+            request_string($_POST['payment_method'] ?? null),
+            request_string($_POST['payment_status'] ?? null),
+            request_string($_POST['payment_reference'] ?? null),
+            request_string($_POST['receipt_number'] ?? null)
         );
         $errors = $result['errors'];
         if ($result['ok']) {

@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { loginWithOtp } = require('./helpers');
+const { loginWithOtp, logout } = require('./helpers');
 
 test.describe.configure({ mode: 'serial' });
 
@@ -66,7 +66,7 @@ test('nurse can claim triage and record vitals', async ({ page }) => {
   });
   await page.getByRole('button', { name: 'Assign doctor' }).click();
 
-  await page.goto('/logout.php');
+  await logout(page);
   await loginWithOtp(page, 'ui.doctor@medishield.test');
   await expect(page.getByRole('heading', { name: 'Doctor dashboard' })).toBeVisible();
   await expect(page.getByText('UI Flow Patient')).toBeVisible();
@@ -86,8 +86,8 @@ test('doctor submits multiple encounter-linked lab tests and prescriptions', asy
       diagnosis: 'Forged clinical record'
     }
   });
-  expect(csrfResponse.status()).toBe(200);
-  await expect(csrfResponse.text()).resolves.toContain('Your session has expired. Please try again.');
+  expect(csrfResponse.status()).toBe(403);
+  await expect(csrfResponse.text()).resolves.toBe('Request could not be processed.');
   await openConsultation.click();
   await page.getByRole('link', { name: 'Add diagnosis' }).click();
   await page.getByLabel('Diagnosis').fill('Upper respiratory infection');
@@ -101,7 +101,7 @@ test('doctor submits multiple encounter-linked lab tests and prescriptions', asy
   await page.getByLabel('Dosage for Cetirizine 10 mg').fill('One tablet at night');
   await page.getByRole('button', { name: 'Save consultation and selected orders' }).click();
 
-  await page.goto('/logout.php');
+  await logout(page);
   await loginWithOtp(page, 'ui.lab@medishield.test');
   await expect(page.getByRole('heading', { name: 'Laboratory dashboard' })).toBeVisible();
   await page.getByRole('link', { name: 'Open pending queue' }).click();
@@ -120,7 +120,7 @@ test('doctor submits multiple encounter-linked lab tests and prescriptions', asy
   await expect(page.getByText('Blood glucose')).toBeVisible();
   await expect(page.getByText('Urinalysis')).toBeVisible();
 
-  await page.goto('/logout.php');
+  await logout(page);
   await loginWithOtp(page, 'ui.pharmacist@medishield.test');
   await expect(page.getByRole('heading', { name: 'Pharmacy dashboard' })).toBeVisible();
   await page.getByRole('link', { name: 'Open prescription queue' }).click();
@@ -145,7 +145,7 @@ test('doctor submits multiple encounter-linked lab tests and prescriptions', asy
   await page.getByRole('link', { name: 'View dispensed history' }).click();
   await expect(page.getByText('Cetirizine 10 mg')).toBeVisible();
 
-  await page.goto('/logout.php');
+  await logout(page);
   await loginWithOtp(page, 'ui.doctor@medishield.test');
   await expect(page.getByRole('heading', { name: 'Doctor dashboard' })).toBeVisible();
   await expect(page.getByText('UI Flow Patient')).toBeVisible();

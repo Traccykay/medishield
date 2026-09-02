@@ -23,7 +23,8 @@ use PDO;
  *
  * Returned rows are associative arrays mirroring the `users` columns:
  *   user_id, full_name, email, password_hash, role, status,
- *   failed_login_count, locked_until, must_change_password, created_at, updated_at
+ *   failed_login_count, locked_until, must_change_password, auth_version,
+ *   created_at, updated_at
  */
 final class UserRepository
 {
@@ -43,9 +44,13 @@ final class UserRepository
     }
 
     /** Find a user by primary key, or null if none. */
-    public function findById(int $userId): ?array
+    public function findById(int $userId, bool $lockForUpdate = false): ?array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM users WHERE user_id = :id LIMIT 1');
+        $sql = 'SELECT * FROM users WHERE user_id = :id LIMIT 1';
+        if ($lockForUpdate && $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
+            $sql .= ' FOR UPDATE';
+        }
+        $stmt = $this->pdo->prepare($sql);
         $stmt->execute([':id' => $userId]);
         $row = $stmt->fetch();
         return $row === false ? null : $row;
@@ -56,6 +61,22 @@ final class UserRepository
     {
         $stmt = $this->pdo->prepare('SELECT 1 FROM users WHERE email = :email LIMIT 1');
         $stmt->execute([':email' => $email]);
+        return $stmt->fetchColumn() !== false;
+    }
+
+    /**
+     * Check whether a role already exists. Initial-admin provisioning requests a
+     * locking read so concurrent MySQL bootstrap attempts cannot both pass.
+     */
+    public function roleExists(string $role, bool $lockForUpdate = false): bool
+    {
+        $sql = 'SELECT 1 FROM users WHERE role = :role LIMIT 1';
+        if ($lockForUpdate && $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
+            $sql .= ' FOR UPDATE';
+        }
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([':role' => $role]);
         return $stmt->fetchColumn() !== false;
     }
 
@@ -108,39 +129,54 @@ final class UserRepository
      */
     public function activatePendingAccount(int $userId, string $passwordHash): bool
     {
-        $stmt = $this->pdo->prepare(
-            'UPDATE users
-                SET password_hash = :hash, status = :status,
-                    must_change_password = 0, updated_at = :now
-              WHERE user_id = :id AND status = :inactive_status
-                AND password_hash = :pending_password AND must_change_password = 0'
-        );
-        $stmt->execute([
-            ':hash'   => $passwordHash,
-            ':status' => 'active',
-            ':now'    => $this->clock->nowString(),
-            ':id'     => $userId,
-            ':inactive_status' => 'inactive',
-            ':pending_password' => UserService::PENDING_PASSWORD_SENTINEL,
-        ]);
-        return $stmt->rowCount() === 1;
+        return $this->transactional(function () use ($userId, $passwordHash): bool {
+            $stmt = $this->pdo->prepare(
+                'UPDATE users
+                    SET password_hash = :hash, status = :status,
+                        must_change_password = 0,
+                        auth_version = auth_version + 1,
+                        updated_at = :now
+                  WHERE user_id = :id AND status = :inactive_status
+                    AND password_hash = :pending_password AND must_change_password = 0'
+            );
+            $stmt->execute([
+                ':hash'   => $passwordHash,
+                ':status' => 'active',
+                ':now'    => $this->clock->nowString(),
+                ':id'     => $userId,
+                ':inactive_status' => 'inactive',
+                ':pending_password' => UserService::PENDING_PASSWORD_SENTINEL,
+            ]);
+            if ($stmt->rowCount() !== 1) {
+                return false;
+            }
+            $this->invalidateOutstandingOtps($userId);
+            return true;
+        });
     }
 
     /** Reset credentials only while the account remains active. */
     public function resetActiveAccountPassword(int $userId, string $passwordHash): bool
     {
-        $stmt = $this->pdo->prepare(
-            'UPDATE users
-               SET password_hash = :hash, must_change_password = 0, updated_at = :now
-              WHERE user_id = :id AND status = :active_status'
-        );
-        $stmt->execute([
-            ':hash' => $passwordHash,
-            ':now' => $this->clock->nowString(),
-            ':id' => $userId,
-            ':active_status' => 'active',
-        ]);
-        return $stmt->rowCount() === 1;
+        return $this->transactional(function () use ($userId, $passwordHash): bool {
+            $stmt = $this->pdo->prepare(
+                'UPDATE users
+                   SET password_hash = :hash, must_change_password = 0,
+                       auth_version = auth_version + 1, updated_at = :now
+                  WHERE user_id = :id AND status = :active_status'
+            );
+            $stmt->execute([
+                ':hash' => $passwordHash,
+                ':now' => $this->clock->nowString(),
+                ':id' => $userId,
+                ':active_status' => 'active',
+            ]);
+            if ($stmt->rowCount() !== 1) {
+                return false;
+            }
+            $this->invalidateOutstandingOtps($userId);
+            return true;
+        });
     }
 
     /** All users (for the admin user-list page), newest first. */
@@ -234,9 +270,12 @@ final class UserRepository
     /** Change account status: 'active' or 'inactive' (spec §25). */
     public function setStatus(int $userId, string $status): void
     {
-        if ($status === 'inactive') {
-            $this->pdo->beginTransaction();
-            try {
+        if (!in_array($status, ['active', 'inactive'], true)) {
+            throw new \InvalidArgumentException('Unsupported account status.');
+        }
+
+        $this->transactional(function () use ($userId, $status): void {
+            if ($status === 'inactive') {
                 $this->pdo->prepare(
                     'UPDATE account_activations SET used_at = :now
                        WHERE user_id = :user_id AND used_at IS NULL'
@@ -244,35 +283,46 @@ final class UserRepository
                     ':now' => $this->clock->nowString(),
                     ':user_id' => $userId,
                 ]);
-                $this->pdo->prepare(
-                    'UPDATE users
-                        SET status = :status, must_change_password = 1, updated_at = :now
-                      WHERE user_id = :id'
-                )->execute([
-                    ':status' => $status,
-                    ':now' => $this->clock->nowString(),
-                    ':id' => $userId,
-                ]);
-                $this->pdo->commit();
-                return;
-            } catch (\Throwable $e) {
-                $this->pdo->rollBack();
-                throw $e;
             }
-        }
 
-        $this->updateStatus($userId, $status);
+            $mustChangeSql = $status === 'inactive' ? ', must_change_password = 1' : '';
+            $this->pdo->prepare(
+                'UPDATE users
+                    SET status = :status' . $mustChangeSql . ',
+                        auth_version = auth_version + 1,
+                        updated_at = :now
+                  WHERE user_id = :id'
+            )->execute([
+                ':status' => $status,
+                ':now' => $this->clock->nowString(),
+                ':id' => $userId,
+            ]);
+            $this->invalidateOutstandingOtps($userId);
+        });
     }
 
-    private function updateStatus(int $userId, string $status): void
+    /**
+     * Change the authoritative role and revoke every pending or authenticated
+     * session created under the previous privilege set.
+     */
+    public function setRole(int $userId, string $role): void
     {
-        $this->pdo->prepare(
-            'UPDATE users SET status = :status, updated_at = :now WHERE user_id = :id'
-        )->execute([
-            ':status' => $status,
-            ':now'    => $this->clock->nowString(),
-            ':id'     => $userId,
-        ]);
+        if (!Rbac::isValidRole($role)) {
+            throw new \InvalidArgumentException('Unsupported account role.');
+        }
+
+        $this->transactional(function () use ($userId, $role): void {
+            $this->pdo->prepare(
+                'UPDATE users
+                    SET role = :role, auth_version = auth_version + 1, updated_at = :now
+                  WHERE user_id = :id'
+            )->execute([
+                ':role' => $role,
+                ':now' => $this->clock->nowString(),
+                ':id' => $userId,
+            ]);
+            $this->invalidateOutstandingOtps($userId);
+        });
     }
 
     /**
@@ -282,14 +332,50 @@ final class UserRepository
      */
     public function updatePassword(int $userId, string $passwordHash): void
     {
+        $this->transactional(function () use ($userId, $passwordHash): void {
+            $this->pdo->prepare(
+                'UPDATE users
+                    SET password_hash = :hash, must_change_password = 0,
+                        auth_version = auth_version + 1, updated_at = :now
+                  WHERE user_id = :id'
+            )->execute([
+                ':hash' => $passwordHash,
+                ':now'  => $this->clock->nowString(),
+                ':id'   => $userId,
+            ]);
+            $this->invalidateOutstandingOtps($userId);
+        });
+    }
+
+    private function invalidateOutstandingOtps(int $userId): void
+    {
         $this->pdo->prepare(
-            'UPDATE users
-                SET password_hash = :hash, must_change_password = 0, updated_at = :now
-              WHERE user_id = :id'
+            'UPDATE otp_codes
+                SET used_at = :now
+              WHERE user_id = :user_id AND used_at IS NULL'
         )->execute([
-            ':hash' => $passwordHash,
-            ':now'  => $this->clock->nowString(),
-            ':id'   => $userId,
+            ':now' => $this->clock->nowString(),
+            ':user_id' => $userId,
         ]);
+    }
+
+    private function transactional(callable $operation): mixed
+    {
+        $ownsTransaction = !$this->pdo->inTransaction();
+        if ($ownsTransaction) {
+            $this->pdo->beginTransaction();
+        }
+        try {
+            $result = $operation();
+            if ($ownsTransaction) {
+                $this->pdo->commit();
+            }
+            return $result;
+        } catch (\Throwable $error) {
+            if ($ownsTransaction && $this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $error;
+        }
     }
 }
