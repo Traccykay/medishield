@@ -12,6 +12,7 @@ skill.
 | Patient-number generation | Covered — prepopulated locked field and a tampered-number rejection | Exercise the rare database-collision retry with an end-to-end test double if one is introduced |
 | Doctor/lab/pharmacy history and pharmacy payment | Covered — an assigned doctor sees rendered vitals, diagnoses, lab results, prescription details, and dispensing outcome after the staff workflow; an unassigned doctor is denied without disclosure | Empty-history states |
 | Role denial | One receptionist-to-doctor denial covered | Full role and object-ownership matrix |
+| Direct include access | Covered — lowercase and mixed-case billing-partial URLs are denied without PHP diagnostics or fragment content | Repeat under Apache/XAMPP because the standard runner uses PHP's built-in server |
 | Account activation | Covered — administrator creates a pending user; activation validates mismatch and password policy failures, consumes the emailed token, and signs in through OTP | Expired-token path |
 | Change password | Covered — forced and voluntary changes, mismatch, incorrect-current-password, weak-password, unchanged-password, and replacement-password login | CSRF failure path |
 | Administrator reset password | Covered — reset email token consumption and OTP login with the replacement password | Expired-token path |

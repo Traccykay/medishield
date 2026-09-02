@@ -18,8 +18,9 @@ runtime configuration so every engineer / agent gets an identical environment:
   * Ensures extension_dir points at the install's ext/ folder.
   * Enables every extension in $RequiredExtensions (idempotent: uncomments an
     existing line, or appends one if absent).
-  * Sets date.timezone = UTC and memory_limit = 256M.
-  * Verifies the result with `php -m` and fails if anything is still missing.
+  * Applies timezone, memory, and production-safe error disclosure settings.
+  * Writes a final managed override when PHP scans additional INI directories.
+  * Verifies extensions and INI values with the configured PHP executable.
 
 Re-running the script is safe; it never duplicates lines.
 
@@ -61,8 +62,14 @@ $RequiredExtensions = @(
     'zip'
 )
 $IniSettings = [ordered]@{
-    'date.timezone' = 'UTC'
-    'memory_limit'  = '256M'
+    'date.timezone'          = 'UTC'
+    'memory_limit'           = '256M'
+    'display_errors'         = 'Off'
+    'display_startup_errors' = 'Off'
+    'log_errors'             = 'On'
+    'error_reporting'        = 'E_ALL'
+    'expose_php'             = 'Off'
+    'zend.exception_ignore_args' = 'On'
 }
 
 function Resolve-PhpExe {
@@ -93,6 +100,26 @@ function Get-LoadedIniPath {
         }
     }
     return $null
+}
+
+function Get-LastScannedIniDirectory {
+    param([string]$Php)
+
+    $scanLine = (& $Php --ini) | Where-Object { $_ -match 'Scan for additional .ini files in' }
+    if (-not $scanLine -or $scanLine -notmatch ':\s*"?(.+?)"?\s*$') {
+        return $null
+    }
+
+    $value = $Matches[1].Trim()
+    if (-not $value -or $value -eq '(none)') {
+        return $null
+    }
+
+    $directories = @($value.Split([IO.Path]::PathSeparator) | Where-Object { $_.Trim() -ne '' })
+    if ($directories.Count -eq 0) {
+        return $null
+    }
+    return $directories[-1].Trim()
 }
 
 try {
@@ -162,24 +189,48 @@ try {
         }
     }
 
-    # 4. Apply scalar INI settings (replace existing, else append).
+    # 4. Apply scalar INI settings and remove later duplicates that could win.
     foreach ($key in $IniSettings.Keys) {
         $value = $IniSettings[$key]
         $set = $false
-        for ($i = 0; $i -lt $lines.Count; $i++) {
-            if ($lines[$i] -match "^\s*;?\s*$([regex]::Escape($key))\s*=") {
-                $lines[$i] = "$key = $value"
-                $set = $true
-                break
+        $updatedLines = @()
+        foreach ($line in $lines) {
+            if ($line -match "^\s*;?\s*$([regex]::Escape($key))\s*=") {
+                if (-not $set) {
+                    $updatedLines += "$key = $value"
+                    $set = $true
+                }
+                continue
             }
+            $updatedLines += $line
         }
         if (-not $set) {
-            $lines += "$key = $value"
+            $updatedLines += "$key = $value"
         }
+        $lines = $updatedLines
     }
 
     Set-Content -LiteralPath $iniPath -Value $lines -Encoding UTF8
     Write-Host 'php.ini updated.' -ForegroundColor Green
+
+    # Additional INI files are parsed after php.ini. A final named override in
+    # the last scan directory prevents a platform package from weakening the
+    # canonical settings later in the load order.
+    $scanDirectory = Get-LastScannedIniDirectory -Php $php
+    if ($scanDirectory) {
+        if (-not (Test-Path -LiteralPath $scanDirectory)) {
+            New-Item -ItemType Directory -Path $scanDirectory -Force | Out-Null
+        }
+        $overridePath = Join-Path $scanDirectory '99-medishield-hardening.ini'
+        $overrideLines = @(
+            '; Managed by MediShield scripts\configure-php-ini.ps1.'
+            foreach ($key in $IniSettings.Keys) {
+                "$key = $($IniSettings[$key])"
+            }
+        )
+        Set-Content -LiteralPath $overridePath -Value $overrideLines -Encoding ascii
+        Write-Host "Managed final INI override: $overridePath"
+    }
 
     # 5. Verify every required extension is now actually loaded.
     Write-Host 'Verifying loaded extensions...'
@@ -197,6 +248,27 @@ try {
 
     if ($missing.Count -gt 0) {
         throw "These extensions could not be loaded: $($missing -join ', '). Confirm the matching .dll files exist in $extDir."
+    }
+
+    # 6. Verify runtime interpretation, not just the text written to php.ini.
+    $expectedErrorReporting = ((& $php -r 'echo E_ALL;') | Out-String).Trim()
+    $runtimeExpectations = [ordered]@{
+        'display_errors'         = @('', '0', 'Off')
+        'display_startup_errors' = @('', '0', 'Off')
+        'log_errors'             = @('1', 'On')
+        'error_reporting'        = @($expectedErrorReporting)
+        'expose_php'             = @('', '0', 'Off')
+        'zend.exception_ignore_args' = @('1', 'On')
+    }
+    $invalidSettings = @()
+    foreach ($key in $runtimeExpectations.Keys) {
+        $actual = ((& $php -r "echo ini_get('$key');") | Out-String).Trim()
+        if ($actual -notin $runtimeExpectations[$key]) {
+            $invalidSettings += "$key=$actual"
+        }
+    }
+    if ($invalidSettings.Count -gt 0) {
+        throw "PHP INI verification failed: $($invalidSettings -join ', ')"
     }
 
     Write-Host ''

@@ -14,6 +14,8 @@ temporary mail-dump directory to verify the local delivery adapter:
 | `LogMailerTest.php` | `Mail/LogMailer` — safe local mail-dump creation and message writing. |
 | `DisposableDatabaseTest.php` | `Support/DisposableDatabase` — UI seed scripts accept only named disposable databases. |
 | `DeploymentBoundaryTest.php` | Checked-in Apache rules and CLI-only maintenance-script entry guards. |
+| `ApacheConfiguratorTest.php` | PowerShell 5.1/7 native-command compatibility, generated vhost/listener boundaries, denied-response inspection, and rollback command routing. |
+| `ErrorBoundaryTest.php` | Subprocess failures prove early bootstrap/configuration diagnostics are logged but never rendered, while scalar secret arguments are omitted from exception traces. |
 
 These tests need no `config.php` and no running database. Run the whole suite
 with `composer test`, or just this group with `composer test:unit`.

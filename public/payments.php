@@ -70,7 +70,7 @@ if (!$isStaff) {
                 <p><strong>Payment method:</strong> <?= e((string) $bill['payment_method']) ?><?php if ($bill['insurer'] !== null) { ?> · <?= e((string) $bill['insurer']) ?><?php } ?></p>
                 <?php if ($bill['payment_reference'] !== null) { ?><p><strong>Payment reference:</strong> <?= e((string) $bill['payment_reference']) ?></p><?php } ?>
                 <?php if ($bill['receipt_number'] !== null) { ?><p><strong>Receipt number:</strong> <?= e((string) $bill['receipt_number']) ?></p><?php } ?>
-                <?php require __DIR__ . '/partials/bill_charges.php'; ?>
+                <?php require __DIR__ . '/../includes/partials/bill_charges.php'; ?>
             </section>
         <?php } ?>
     </section>
@@ -117,7 +117,7 @@ $visits = ms_billing_service()->visitsForStaff($user);
                 <p><strong>Payment status:</strong> <?= e((string) $bill['payment_status']) ?></p>
                 <?php if ($bill['payment_reference'] !== null) { ?><p><strong>Payment reference:</strong> <?= e((string) $bill['payment_reference']) ?></p><?php } ?>
                 <?php if ($bill['receipt_number'] !== null) { ?><p><strong>Receipt number:</strong> <?= e((string) $bill['receipt_number']) ?></p><?php } ?>
-                <?php require __DIR__ . '/partials/bill_charges.php'; ?>
+                <?php require __DIR__ . '/../includes/partials/bill_charges.php'; ?>
             <?php } else { ?>
                 <p class="ms-muted">No charges have been added to this visit.</p>
             <?php } ?>

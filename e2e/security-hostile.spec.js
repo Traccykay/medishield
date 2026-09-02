@@ -5,6 +5,22 @@ const { loginWithOtp } = require('./helpers');
 
 test.describe.configure({ mode: 'serial' });
 
+test('denies direct access to include-only billing partials without leaking errors', async ({ page }) => {
+  for (const partialPath of [
+    '/partials/bill_charges.php',
+    '/Partials/bill_charges.php',
+    '/PARTIALS/bill_charges.php'
+  ]) {
+    const response = await page.request.get(partialPath);
+    const body = await response.text();
+
+    expect([403, 404]).toContain(response.status());
+    expect(body).not.toContain('description_snapshot');
+    expect(body).not.toContain('Stack trace');
+    expect(body).not.toContain('C:\\');
+  }
+});
+
 async function registerPatient(page, fullName) {
   await page.goto('/register_patient.php');
   const patientNumber = await page.getByLabel('Patient number').inputValue();

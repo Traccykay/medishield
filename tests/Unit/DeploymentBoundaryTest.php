@@ -75,4 +75,63 @@ final class DeploymentBoundaryTest extends TestCase
         );
         self::assertStringContainsString('$DbName -notin $AllowedDatabases', $contents);
     }
+
+    public function testBillingPartial_LivesOutsidePublicDocumentRoot(): void
+    {
+        self::assertFileDoesNotExist(
+            $this->root . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'partials'
+                . DIRECTORY_SEPARATOR . 'bill_charges.php'
+        );
+        self::assertFileExists(
+            $this->root . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'partials'
+                . DIRECTORY_SEPARATOR . 'bill_charges.php'
+        );
+    }
+
+    public function testPhpConfigurator_EnforcesProductionSafeDiagnostics(): void
+    {
+        $contents = (string) file_get_contents(
+            $this->root . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'configure-php-ini.ps1'
+        );
+
+        foreach ([
+            "'display_errors'         = 'Off'",
+            "'display_startup_errors' = 'Off'",
+            "'log_errors'             = 'On'",
+            "'error_reporting'        = 'E_ALL'",
+            "'expose_php'             = 'Off'",
+            "'zend.exception_ignore_args' = 'On'",
+        ] as $setting) {
+            self::assertStringContainsString($setting, $contents);
+        }
+        self::assertStringContainsString(
+            "'zend.exception_ignore_args' = @('1', 'On')",
+            $contents
+        );
+        self::assertStringContainsString('PHP INI verification failed', $contents);
+    }
+
+    public function testApacheConfigurator_HardensAndValidatesXamppConfiguration(): void
+    {
+        $contents = (string) file_get_contents(
+            $this->root . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'configure-xampp-apache.ps1'
+        );
+
+        foreach ([
+            'ServerTokens Prod',
+            'ServerSignature Off',
+            'LoadModule rewrite_module modules/mod_rewrite.so',
+            'AllowOverride All',
+            'httpd.exe -t',
+            'medishield.local',
+            'configure-php-ini.ps1',
+        ] as $requirement) {
+            self::assertStringContainsString($requirement, $contents);
+        }
+        self::assertStringContainsString('Test-ApacheRunning', $contents);
+        self::assertStringContainsString(
+            'Runtime verification failed; Apache, hosts, and process state were restored.',
+            $contents
+        );
+    }
 }

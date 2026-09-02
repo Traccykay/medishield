@@ -2,20 +2,22 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/error_boundary.php';
+
 /**
  * bootstrap.php
  * -------------
  * Single entry point that every public page includes FIRST. It wires the whole
  * application together so individual pages stay thin and consistent:
  *
- *   1. Loads the Composer autoloader (PSR-4 "MediShield\\" => src/).
- *   2. Loads the generated configuration (config/config.php).
- *   3. Forces UTC and installs an error handler that logs to logs/app_errors.log
- *      instead of leaking stack traces to the browser.
- *   4. Hardens and starts the PHP session (HttpOnly, SameSite=Strict, Secure on
+ *   1. Installs the dependency-free error boundary before failure-prone work.
+ *   2. Loads the Composer autoloader (PSR-4 "MediShield\\" => src/).
+ *   3. Loads the generated configuration (config/config.php).
+ *   4. Forces UTC and routes diagnostics to logs/app_errors.log.
+ *   5. Hardens and starts the PHP session (HttpOnly, SameSite=Strict, Secure on
  *      HTTPS) BEFORE any output — this must happen before session_start().
- *   5. Sends the security headers (see headers.php).
- *   6. Exposes a tiny lazy "service container" (ms_db, ms_auth, ms_user_service,
+ *   6. Sends the security headers (see headers.php).
+ *   7. Exposes a tiny lazy "service container" (ms_db, ms_auth, ms_user_service,
  *      ms_audit, ms_crypto, ...) plus view helpers (e(), redirect(), ms_audit_log()).
  *
  * Pages should never instantiate repositories/services directly; they ask the
@@ -88,32 +90,12 @@ if (!function_exists('ms_config')) {
 }
 
 /* ---------------------------------------------------------------------------
- * 2. Timezone + error handling (no stack traces to the browser)
+ * 2. Timezone + configured diagnostic destination
  * ------------------------------------------------------------------------- */
 
 date_default_timezone_set('UTC');
-
-(static function (): void {
-    $logFile = ms_config()['error_log'] ?? (__DIR__ . '/../logs/app_errors.log');
-    $logDir  = dirname($logFile);
-    if (!is_dir($logDir)) {
-        @mkdir($logDir, 0775, true);
-    }
-
-    ini_set('display_errors', '0');
-    ini_set('log_errors', '1');
-    ini_set('error_log', $logFile);
-
-    set_exception_handler(static function (\Throwable $e) use ($logFile): void {
-        error_log('[uncaught] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
-        http_response_code(500);
-        if (!headers_sent()) {
-            header('Content-Type: text/html; charset=utf-8');
-        }
-        echo '<!doctype html><meta charset="utf-8"><title>Error</title>'
-           . '<p>An unexpected error occurred. The incident has been logged.</p>';
-    });
-})();
+$configuredErrorLog = ms_config()['error_log'] ?? (__DIR__ . '/../logs/app_errors.log');
+ms_error_boundary_set_log_file((string) $configuredErrorLog);
 
 /* ---------------------------------------------------------------------------
  * 3. Session hardening + start (must precede any output)

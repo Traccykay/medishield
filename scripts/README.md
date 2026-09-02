@@ -11,7 +11,8 @@ Run them from the repository root in this order:
 |---|--------|-----------|--------------|
 | 1 | `install-dependencies.ps1` | **Administrator** | Bootstraps every prerequisite with a check-then-install pattern: installs **Chocolatey** if missing, then XAMPP 8.1 + Composer (via Chocolatey) if missing, then calls `configure-php-ini.ps1`, then runs `composer install`. Safe to re-run — already-installed tools are detected and skipped. |
 | 2 | `configure-php-ini.ps1` | not required | Configures the target PHP's `php.ini` to the canonical MediShield baseline (extensions + settings). Called automatically by script #1, but can be run standalone. |
-| 3 | `setup-db.ps1` | not required | Creates the `medishield_db` database, loads `sql/schema.sql` + `sql/seed.sql`, applies every idempotent migration in `sql/migrations/`, provisions the non-root web and audit-maintenance identities, verifies audit-table least privilege, and generates `config/config.php` with unique secrets. |
+| 3 | `configure-xampp-apache.ps1` | **Administrator** | Preserves XAMPP's default localhost site, configures `medishield.local` with `public/` as its separate document root, enables overrides and `mod_rewrite`, suppresses Apache version details, validates syntax, restarts Apache, and probes public/denied paths. |
+| 4 | `setup-db.ps1` | not required | Creates the `medishield_db` database, loads `sql/schema.sql` + `sql/seed.sql`, applies every idempotent migration in `sql/migrations/`, provisions the non-root web and audit-maintenance identities, verifies audit-table least privilege, and generates `config/config.php` with unique secrets. |
 
 ### Maintenance scripts (run on a schedule, not part of setup)
 
@@ -81,7 +82,9 @@ It is **idempotent** (safe to re-run) and:
 2. Finds the loaded `php.ini`, or creates one from `php.ini-production` if none.
 3. Points `extension_dir` at the install's `ext/` folder.
 4. Enables every required extension and applies the baseline settings.
-5. Verifies the result with `php -m` and fails loudly if anything is missing.
+5. Writes `99-medishield-hardening.ini` into the last additional scan directory
+   when the PHP package has later-loading overrides.
+6. Verifies effective extensions and INI values and fails loudly on drift.
 
 ### Canonical configuration it enforces
 
@@ -98,7 +101,12 @@ It is **idempotent** (safe to re-run) and:
 | `fileinfo` | MIME detection for lab-result uploads (later deliverables) |
 | `zip` | required by Composer to extract packages |
 
-**INI settings:** `date.timezone = UTC`, `memory_limit = 256M`.
+**INI settings:** `date.timezone = UTC`, `memory_limit = 256M`,
+`display_errors = Off`, `display_startup_errors = Off`, `log_errors = On`,
+`error_reporting = E_ALL`, `expose_php = Off`, and
+`zend.exception_ignore_args = On`. The final setting keeps scalar function
+arguments such as passwords, encryption keys, HMAC keys, OTPs, and other
+credentials out of exception stack traces written to server logs.
 
 ### Usage
 
@@ -113,6 +121,33 @@ powershell -ExecutionPolicy Bypass -File scripts\configure-php-ini.ps1 -PhpExe C
 > **Adding a new PHP dependency?** Update the `$RequiredExtensions` list at the top
 > of `configure-php-ini.ps1` (and the table above). That list is the one place the
 > whole team relies on for a consistent environment.
+
+---
+
+## `configure-xampp-apache.ps1` - XAMPP web boundary
+
+Run this script from an elevated PowerShell prompt after installing XAMPP. It
+backs up every file it changes and creates two managed virtual hosts on the
+selected port. The first/default `localhost` host reuses the `DocumentRoot`
+already configured in XAMPP's main `httpd.conf`, so the XAMPP dashboard,
+phpMyAdmin aliases, and unmatched `Host` requests retain their normal behavior.
+The second host maps only `medishield.local` to the repository's `public/`
+directory. The script updates the Windows hosts file, applies
+`ServerTokens Prod` and `ServerSignature Off`, and validates Apache before a
+restart. It then proves the running MediShield boundary with positive and
+negative HTTP requests; static configuration checks alone are not treated as
+runtime proof.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\configure-xampp-apache.ps1
+```
+
+Use `-XamppRoot C:\tools\xampp` for a nonstandard installation. The
+`-SkipRestart -SkipHttpProbe` combination is available for controlled
+configuration-only maintenance, but leaves HTTP behavior unverified. Passing a
+non-default port, such as `-Port 8080`, adds a managed `Listen 8080` directive
+when Apache does not already listen there and configures both virtual hosts on
+that port.
 
 ---
 

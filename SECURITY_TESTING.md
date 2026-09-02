@@ -33,17 +33,43 @@ run the command again. Do not manually alter the disposable test database.
 
 The automated browser and ZAP runners use PHP's built-in server with `public`
 as its document root. They therefore do not prove that an XAMPP/Apache
-installation applies the repository `.htaccess` boundary.
+installation applies the repository `.htaccess` boundary. From an elevated
+PowerShell prompt, the supported setup and runtime verification is:
 
-The supported Apache configuration sets `DocumentRoot` to the repository's
-`public` directory and grants overrides only there:
+```powershell
+.\scripts\configure-xampp-apache.ps1
+```
+
+The script backs up changed configuration, enables `mod_rewrite`, preserves a
+first/default `localhost` virtual host using XAMPP's existing main
+`DocumentRoot`, and creates a separate `medishield.local` virtual host. This
+keeps the XAMPP dashboard, phpMyAdmin aliases, and unmatched `Host` requests on
+the normal XAMPP site instead of routing them into MediShield. It also applies
+`ServerTokens Prod` and `ServerSignature Off`, validates Apache syntax,
+restarts Apache, and executes the exposure matrix. A non-default `-Port` adds
+the corresponding `Listen` directive when needed. A configuration-only run
+using `-SkipRestart -SkipHttpProbe` is not runtime verification.
+
+The supported Apache configuration keeps the existing XAMPP document root as
+the default host and grants MediShield overrides only in the repository's
+`public` directory:
 
 ```apache
-DocumentRoot "C:/xampp/htdocs/medishield/public"
-<Directory "C:/xampp/htdocs/medishield/public">
-    AllowOverride All
-    Require all granted
-</Directory>
+ServerTokens Prod
+ServerSignature Off
+<VirtualHost *:80>
+    ServerName localhost
+    DocumentRoot "C:/xampp/htdocs"
+</VirtualHost>
+
+<VirtualHost *:80>
+    ServerName medishield.local
+    DocumentRoot "C:/personal/Capstone/medishield/public"
+    <Directory "C:/personal/Capstone/medishield/public">
+        AllowOverride All
+        Require all granted
+    </Directory>
+</VirtualHost>
 ```
 
 For the protected legacy URL layout
@@ -53,21 +79,21 @@ fallback rule is evaluated. Confirm that `mod_rewrite` is loaded, restart
 Apache, and request each path below:
 
 ```text
-/medishield/public/login.php                 expected 200
-/medishield/public/assets/css/style.css      expected 200
-/medishield/scripts/seed-ui-test-users.php   expected 403 or 404
-/medishield/logs/app_errors.log              expected 403 or 404
-/medishield/sql/schema.sql                   expected 403 or 404
-/medishield/src/Auth/AuthService.php         expected 403 or 404
-/medishield/tests/README.md                   expected 403 or 404
-/medishield/config/config.php                expected 403 or 404
-/medishield/composer.lock                    expected 403 or 404
-/medishield/package-lock.json                expected 403 or 404
-/medishield/.git/config                      expected 403 or 404
-/medishield/public/partials/bill_charges.php expected 403 or 404
-/medishield/public/Partials/bill_charges.php expected 403 or 404
-/medishield/public/PARTIALS/bill_charges.php expected 403 or 404
-/medishield/public/README.md                 expected 403 or 404
+/login.php                          expected 200
+/assets/css/style.css               expected 200
+/scripts/seed-ui-test-users.php     expected 403 or 404
+/logs/app_errors.log                expected 403 or 404
+/sql/schema.sql                     expected 403 or 404
+/src/Auth/AuthService.php           expected 403 or 404
+/tests/README.md                    expected 403 or 404
+/config/config.php                  expected 403 or 404
+/composer.lock                      expected 403 or 404
+/package-lock.json                  expected 403 or 404
+/.git/config                        expected 403 or 404
+/partials/bill_charges.php          expected 403 or 404
+/Partials/bill_charges.php          expected 403 or 404
+/PARTIALS/bill_charges.php          expected 403 or 404
+/README.md                          expected 403 or 404
 ```
 
 The denied response must not contain PHP exceptions, filesystem paths, database
