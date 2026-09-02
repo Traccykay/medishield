@@ -1,5 +1,12 @@
 Options -Indexes
 
+RewriteEngine On
+RewriteRule ^partials(?:/|$) - [F,L,NC]
+
+<FilesMatch "(?i)(^\.|^README(?:\..*)?$|^router\.php$|\.(?:bak|conf|dist|ini|log|map|md|old|orig|save|sql|swp|tmp|ya?ml)$|~$)">
+    Require all denied
+</FilesMatch>
+
 <IfModule mod_headers.c>
     Header always set X-Frame-Options "DENY"
     Header always set X-Content-Type-Options "nosniff"

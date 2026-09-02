@@ -107,6 +107,10 @@ unverifiable sentinel hash both block a pending account.
 
 ## 4. Role-based redirects (where you land, what you see)
 
+- MediShield has seven roles: patient, receptionist, nurse, doctor, lab,
+  pharmacist, and administrator. Receptionists manage demographic intake,
+  payment choice, arrivals, and triage handoff; they do not receive clinical
+  access.
 - After full login, `landing_path_for($role)` (in `guard.php`) sends **admins** to
   `/admin/dashboard.php` and every other role to `/dashboard.php`.
 - The **sidebar** (in `includes/layout.php`) is built from
@@ -147,6 +151,9 @@ Doctor/Nurse/Patient ─> require_login()/require_area()
 
 The point to defend: records are never reached without a guard, never queried with
 string-concatenated SQL, sensitive fields are encrypted, and every access is logged.
+For doctor routes, the object check requires both a current active
+`patient_assignments` row and ownership of the active visit. An old visit cannot
+preserve access after an administrator revokes the assignment.
 
 ---
 

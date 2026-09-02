@@ -21,8 +21,8 @@ The two PHPUnit suites cover the same production classes from different
 angles:
 
 - **Unit** checks isolated controls such as encryption integrity, password
-  rules, CSRF verification, RBAC decisions, audit hashes, and local mail
-  delivery.
+  rules, CSRF verification, RBAC decisions, audit hashes, local mail delivery,
+  disposable-database allowlisting, and checked-in Apache/CLI boundaries.
 - **Integration** checks stateful services and SQL with a clean SQLite
   database: account activation and OTP, login lockout, IP-scoped request
   throttling, session revocation, audit logging and retention, user/patient

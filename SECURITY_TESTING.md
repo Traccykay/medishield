@@ -24,9 +24,55 @@ Run it directly when diagnosing a test environment:
 ```
 
 `setup-ui-test-db.ps1` recreates **only** `medishield_ui_test`; it does not
-modify the normal `medishield_db` data. If startup fails, read the actionable
+modify the normal `medishield_db` data. It rejects every database name except
+`medishield_ui_test` and `medishield_ui_account_test`. If startup fails, read the actionable
 error, inspect the relevant database log, fix the database installation, and
 run the command again. Do not manually alter the disposable test database.
+
+## Apache/XAMPP exposure verification
+
+The automated browser and ZAP runners use PHP's built-in server with `public`
+as its document root. They therefore do not prove that an XAMPP/Apache
+installation applies the repository `.htaccess` boundary.
+
+The supported Apache configuration sets `DocumentRoot` to the repository's
+`public` directory and grants overrides only there:
+
+```apache
+DocumentRoot "C:/xampp/htdocs/medishield/public"
+<Directory "C:/xampp/htdocs/medishield/public">
+    AllowOverride All
+    Require all granted
+</Directory>
+```
+
+For the protected legacy URL layout
+`http://localhost/medishield/public/`, the parent
+`C:\xampp\htdocs` directory must also permit `.htaccess` overrides so the root
+fallback rule is evaluated. Confirm that `mod_rewrite` is loaded, restart
+Apache, and request each path below:
+
+```text
+/medishield/public/login.php                 expected 200
+/medishield/public/assets/css/style.css      expected 200
+/medishield/scripts/seed-ui-test-users.php   expected 403 or 404
+/medishield/logs/app_errors.log              expected 403 or 404
+/medishield/sql/schema.sql                   expected 403 or 404
+/medishield/src/Auth/AuthService.php         expected 403 or 404
+/medishield/tests/README.md                   expected 403 or 404
+/medishield/config/config.php                expected 403 or 404
+/medishield/composer.lock                    expected 403 or 404
+/medishield/package-lock.json                expected 403 or 404
+/medishield/.git/config                      expected 403 or 404
+/medishield/public/partials/bill_charges.php expected 403 or 404
+/medishield/public/Partials/bill_charges.php expected 403 or 404
+/medishield/public/PARTIALS/bill_charges.php expected 403 or 404
+/medishield/public/README.md                 expected 403 or 404
+```
+
+The denied response must not contain PHP exceptions, filesystem paths, database
+details, or file contents. Record the observed Apache results separately from
+the static PHPUnit configuration-contract tests.
 
 ## OWASP ZAP passive baseline
 

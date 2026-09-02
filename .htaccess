@@ -1,0 +1,8 @@
+# Fail-closed fallback for XAMPP installations that place the whole repository
+# below htdocs. The preferred deployment points Apache's DocumentRoot directly
+# at public/, so this file is defense in depth rather than the primary boundary.
+Options -Indexes
+
+RewriteEngine On
+RewriteRule ^public(?:/|$) - [L]
+RewriteRule ^ - [F,L]

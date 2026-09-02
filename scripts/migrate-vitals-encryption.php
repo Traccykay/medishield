@@ -6,6 +6,11 @@ use MediShield\Database\Connection;
 use MediShield\Database\VitalEncryptionMigration;
 use MediShield\Security\Crypto;
 
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit;
+}
+
 require_once __DIR__ . '/../vendor/autoload.php';
 
 $configPath = __DIR__ . '/../config/config.php';

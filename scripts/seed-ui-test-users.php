@@ -3,15 +3,21 @@
 declare(strict_types=1);
 
 use MediShield\Database\Connection;
+use MediShield\Support\DisposableDatabase;
+
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit;
+}
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
 $configPath = __DIR__ . '/../config/config.php';
 $config = require (is_file($configPath) ? $configPath : __DIR__ . '/../config/config.sample.php');
-$database = getenv('MEDISHIELD_DB_NAME');
-if (is_string($database) && $database !== '') {
-    $config['db']['name'] = $database;
-}
+$database = DisposableDatabase::requireUiTestName(
+    (string) (getenv('MEDISHIELD_DB_NAME') ?: 'medishield_ui_test')
+);
+$config['db']['name'] = $database;
 
 $pdo = Connection::fromConfig($config);
 $accounts = [

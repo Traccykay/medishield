@@ -17,14 +17,19 @@ use MediShield\Patient\PatientRepository;
 use MediShield\Patient\PatientService;
 use MediShield\Security\Crypto;
 use MediShield\Support\Clock;
+use MediShield\Support\DisposableDatabase;
 use MediShield\Visit\VisitRepository;
+
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit;
+}
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-$database = getenv('MEDISHIELD_DB_NAME') ?: 'medishield_ui_test';
-if (!in_array($database, ['medishield_ui_test', 'medishield_ui_account_test'], true)) {
-    throw new RuntimeException('Dashboard UI data may only be seeded into an isolated UI test database.');
-}
+$database = DisposableDatabase::requireUiTestName(
+    (string) (getenv('MEDISHIELD_DB_NAME') ?: 'medishield_ui_test')
+);
 
 $configPath = __DIR__ . '/../config/config.php';
 $config = require (is_file($configPath) ? $configPath : __DIR__ . '/../config/config.sample.php');

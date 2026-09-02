@@ -7,8 +7,9 @@ param(
     [string]$DbName = 'medishield_ui_test'
 )
 
-if ($DbName -notmatch '^[A-Za-z0-9_]+$') {
-    throw 'The UI test database name may contain only letters, numbers, and underscores.'
+$AllowedDatabases = @('medishield_ui_test', 'medishield_ui_account_test')
+if ($DbName -notin $AllowedDatabases) {
+    throw "UI test setup may only rebuild a named disposable database: $($AllowedDatabases -join ', ')."
 }
 
 $mysql = (Get-Command mysql.exe -ErrorAction Stop).Source

@@ -55,7 +55,7 @@ final class Rbac
         'pharmacy' => [self::ROLE_PHARMACIST],
     ];
 
-    /** True if $role is one of the six recognised roles. */
+    /** True if $role is one of the seven recognised roles. */
     public static function isValidRole(string $role): bool
     {
         return in_array($role, self::ROLES, true);

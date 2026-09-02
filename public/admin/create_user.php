@@ -7,7 +7,7 @@ declare(strict_types=1);
  * ---------------------
  * The administrator "registration" form (spec §9.2). MediShield has NO public
  * self-registration: only an admin (e.g. the seeded superadmin) creates accounts
- * and assigns one of the six roles.
+ * and assigns one of the seven roles.
  *
  * Account-activation-link flow: the admin does NOT set a password. The account is
  * created PENDING (status 'inactive', no usable password) and an activation token

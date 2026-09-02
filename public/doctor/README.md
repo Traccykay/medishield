@@ -1,6 +1,8 @@
 # public/doctor/
 
-Doctor-only workflow pages. Doctors see assigned patients, review vitals,
+Doctor-only workflow pages. Doctors see assigned patients only while they also
+own the active visit; neither assignment nor visit ownership is sufficient by
+itself. They review vitals,
 create an encrypted encounter-bound diagnosis/treatment record, select and
 submit multiple catalog lab tests and medications in the same consultation,
 and view completed lab results for assigned patients. When pharmacy refuses a

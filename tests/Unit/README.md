@@ -12,6 +12,8 @@ temporary mail-dump directory to verify the local delivery adapter:
 | `RbacTest.php` | `Auth/Rbac` — role validity, area access, dashboard routing, admin-only user management. |
 | `AuditChainTest.php` | `Security/AuditChain` — HMAC-SHA256 hash computation and chain linkage. |
 | `LogMailerTest.php` | `Mail/LogMailer` — safe local mail-dump creation and message writing. |
+| `DisposableDatabaseTest.php` | `Support/DisposableDatabase` — UI seed scripts accept only named disposable databases. |
+| `DeploymentBoundaryTest.php` | Checked-in Apache rules and CLI-only maintenance-script entry guards. |
 
 These tests need no `config.php` and no running database. Run the whole suite
 with `composer test`, or just this group with `composer test:unit`.

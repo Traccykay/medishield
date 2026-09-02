@@ -28,7 +28,7 @@ Cybersecurity is central to the project: authentication, role-based access contr
 
 ## Key Security Features
 
-- **Role-Based Access Control (RBAC):** server-side authorization for patient, nurse, doctor, lab, pharmacist, and admin roles.
+- **Role-Based Access Control (RBAC):** server-side authorization for patient, receptionist, nurse, doctor, lab, pharmacist, and admin roles.
 - **Object-level authorization:** assigned-patient checks for nurses/doctors and queue-based access for lab/pharmacy workflows.
 - **Password hashing:** passwords are stored with PHP `password_hash()` and verified with `password_verify()`.
 - **AES-256-GCM encryption:** sensitive clinical fields are encrypted at rest using authenticated encryption.
@@ -150,6 +150,24 @@ Leave that window open; it is the local web server. Open
 <http://127.0.0.1:8000/> in a browser. To stop the server later, return to that
 window and press `Ctrl+C`.
 
+#### Apache/XAMPP document root
+
+For Apache, the intended deployment points `DocumentRoot` directly at this
+repository's `public\` directory. Do not use the repository root as a document
+root: it also contains configuration, source, logs, SQL, tests, and maintenance
+scripts that are not web resources.
+
+If the repository is temporarily copied to `C:\xampp\htdocs\medishield`, the
+checked-in root `.htaccess` denies every request except the `/public` subtree,
+and `public\.htaccess` additionally denies include-only partials, documentation,
+dotfiles, backups, and development-only files. This fallback requires Apache's
+`mod_rewrite` module and `AllowOverride All`. A dedicated virtual host targeting
+`C:\xampp\htdocs\medishield\public` remains the recommended arrangement.
+
+After changing Apache configuration, restart Apache and perform the exposure
+checks in [`SECURITY_TESTING.md`](SECURITY_TESTING.md). Passing tests against
+PHP's built-in server does not prove that Apache applies these restrictions.
+
 ### 5. Sign in for the first time
 
 | Field | Value |
@@ -242,7 +260,7 @@ Deliverable 1 includes:
 
 - Login and logout with secure sessions (id regeneration, idle + absolute timeout)
 - Seeded superadmin account (forced password change at first login)
-- Admin "registration" flow: create users and assign one of the six roles
+- Admin "registration" flow: create users and assign one of the seven roles
 - Admin user management: list users, activate/deactivate accounts
 - Admin dashboard with security monitoring: recent audit events, failed-login /
   anomaly counts, and audit-chain integrity status

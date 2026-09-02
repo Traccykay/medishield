@@ -5,6 +5,12 @@ directly. The web server (XAMPP/Apache, or `php -S ... -t public`) must point it
 document root **here**, so that `src/`, `includes/`, `config/`, `sql/` and
 `vendor/` stay outside the web root and can never be requested over HTTP.
 
+The repository-root `.htaccess` is defense in depth for an existing XAMPP
+`htdocs\medishield\public` subfolder arrangement. It denies every sibling of
+`public`; this directory's own `.htaccess` denies documentation, the development
+router, and include-only partials. That fallback must be verified under Apache
+with `mod_rewrite` and overrides enabled.
+
 Every page is intentionally **thin glue**: it includes `../includes/guard.php`
 (authentication, session timeout, role checks) and, when it renders HTML,
 `../includes/layout.php`. All real logic lives in `src/` so it can be unit-tested
@@ -40,9 +46,9 @@ without a web server.
   before any state change; failures are audited as `CSRF_REJECTED`.
 - **Escape every output** with `e()` (HTML-escaping) — defence against XSS.
 - **Build internal links/redirects with `ms_url('/path')`** (and let `redirect()`
-  handle base paths) — never hardcode `/login.php`. This makes the app work both
-  at the web root and under a sub-folder like `http://localhost/medishield/public/`,
-  so CSS and links don't 404 when copied into XAMPP's `htdocs`.
+  handle base paths) — never hardcode `/login.php`. This keeps the intended
+  `public` document root working while retaining the protected
+  `http://localhost/medishield/public/` development fallback.
 - **Audit security events** with `ms_audit_log([...])`; it never crashes the page.
 - **No secrets or stack traces** are sent to the browser (see `bootstrap.php`).
 
@@ -56,3 +62,4 @@ php -S 127.0.0.1:8000 -t public public/router.php
 
 `router.php` is only for PHP's development server. It applies the same security
 headers to local static assets that `.htaccess` applies under XAMPP/Apache.
+Apache denies direct requests for `router.php`.

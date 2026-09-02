@@ -18,6 +18,14 @@ Run them from the repository root in this order:
 | Script | When | What it does |
 |--------|------|--------------|
 | `purge-audit-pii.php` | cron / Task Scheduler (e.g. daily) | Scrubs PII (`attempted_identifier`, the email typed on a failed login) from `audit_logs` rows older than `audit.pii_retention_days`. Never deletes rows and never touches the hash chain, so `verifyChain()` stays ok. Uses the isolated maintenance identity, which has column-level update permission only. See `src/Audit/README.md`. |
+| `migrate-vitals-encryption.php` | called by `setup-db.ps1` | Encrypts legacy plaintext vitals during the controlled schema upgrade. |
+| `seed-ui-test-users.php` | Playwright global setup | Seeds role accounts only in `medishield_ui_test` or `medishield_ui_account_test`. |
+| `seed-ui-dashboard-data.php` | selected Playwright scenarios | Seeds workflow data only in the same two disposable databases. |
+
+Every PHP file in this directory rejects non-CLI execution before loading
+Composer or application configuration. Both UI seed scripts and
+`setup-ui-test-db.ps1` use the same exact disposable-database allowlist; they
+cannot target `medishield_db` or an arbitrary database name.
 
 | `setup-ui-test-db.ps1` | before Playwright UI tests | Rebuilds the disposable `medishield_ui_test` database. Playwright calls this automatically and never modifies development data. |
 | `run-ui-tests.ps1` | before submitting UI-affecting or security-sensitive changes | Checks required runtimes, installs pinned Playwright dependencies/Chromium when absent, then runs the full isolated browser workflow and hostile-path security suites. Pass `-Demo` for a visible, slowed, recorded supervisor walkthrough. |
