@@ -14,6 +14,9 @@ require_once __DIR__ . '/../includes/layout.php';
 
 $user = require_nav('reports');
 $role = (string) $user['role'];
+$doctorVisits = $role === 'doctor'
+    ? ms_visit_service()->doctorVisits((int) $user['user_id'])
+    : [];
 $report = match ($role) {
     'admin' => [
         'title' => 'Administrative report',
@@ -38,9 +41,11 @@ $report = match ($role) {
         'title' => 'Clinical report',
         'summary' => 'Your active consultations and outstanding orders.',
         'metrics' => [
-            'Current consultations' => count(ms_visit_service()->doctorVisits((int) $user['user_id'])),
-            'Pending lab requests' => count(ms_clinical_repo()->labRequests('pending', (int) $user['user_id'])),
-            'Pending prescriptions' => count(ms_clinical_repo()->prescriptions('pending', (int) $user['user_id'])),
+            'Current consultations' => count($doctorVisits),
+            'Pending lab requests' => ms_clinical_repo()->countLabRequestsByDoctor((int) $user['user_id']),
+            'Pending prescriptions' => ms_clinical_repo()->countPrescriptionsByDoctor(
+                (int) $user['user_id']
+            ),
         ],
     ],
     'lab' => [

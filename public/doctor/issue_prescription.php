@@ -9,29 +9,56 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('doctor');
-$patientId = (int) ($_GET['patient_id'] ?? $_POST['patient_id'] ?? 0);
-$recordId = (int) ($_GET['record_id'] ?? $_POST['record_id'] ?? 0);
-$visitId = (int) ($_GET['visit_id'] ?? $_POST['visit_id'] ?? 0);
-$visit = $visitId > 0 ? ms_visit_repo()->findById($visitId) : null;
-if ($patientId <= 0 || $visit === null || (int) $visit['patient_id'] !== $patientId || (int) $visit['doctor_id'] !== (int) $user['user_id'] || (string) $visit['status'] !== 'with_doctor') {
-    deny_access($user, 'doctor:issue_prescription');
-}
+$patientId = request_positive_int($_GET['patient_id'] ?? $_POST['patient_id'] ?? null);
+$recordId = request_positive_int($_GET['record_id'] ?? $_POST['record_id'] ?? null);
+$visitId = request_positive_int($_GET['visit_id'] ?? $_POST['visit_id'] ?? null);
+require_doctor_patient_access($user, $patientId, $visitId, 'doctor:issue_prescription');
 $errors = [];
 $medication = $dosage = $instructions = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $medication = (string) ($_POST['medication'] ?? '');
-    $dosage = (string) ($_POST['dosage'] ?? '');
-    $instructions = (string) ($_POST['instructions'] ?? '');
+    $medication = request_string($_POST['medication'] ?? null);
+    $dosage = request_string($_POST['dosage'] ?? null);
+    $instructions = request_string($_POST['instructions'] ?? null);
     if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
         $errors[] = 'Your session has expired. Please try again.';
     } else {
         $result = ms_clinical_service()->issuePrescription($patientId, (int) $user['user_id'], $visitId, $recordId, $medication, $dosage, $instructions);
         if ($result['ok']) {
-            ms_visit_service()->routeFromDoctor($visitId, (int) $user['user_id'], 'pharmacy');
-            ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'doctor', 'action' => 'PRESCRIPTION_ISSUED', 'module' => 'doctor', 'affected_record_id' => (string) $result['prescription_id'], 'status' => 'SUCCESS']);
-            redirect('/doctor/history.php?patient_id=' . $patientId);
+            ms_audit_log([
+                'user_id' => (int) $user['user_id'],
+                'user_role' => 'doctor',
+                'action' => 'PRESCRIPTION_ISSUED',
+                'module' => 'doctor',
+                'affected_record_id' => (string) $result['prescription_id'],
+                'status' => 'SUCCESS',
+                'anomaly_flag' => 'NORMAL',
+            ]);
+            $routing = ms_visit_service()->routeFromDoctor(
+                $visitId,
+                $patientId,
+                (int) $user['user_id'],
+                'pharmacy'
+            );
+            if (!$routing['ok']) {
+                $errors = [
+                    'The prescription was saved, but the visit could not be routed. '
+                    . 'Please refresh the patient record before continuing.',
+                ];
+                ms_audit_log([
+                    'user_id' => (int) $user['user_id'],
+                    'user_role' => 'doctor',
+                    'action' => 'UNAUTHORIZED_ACCESS',
+                    'module' => 'doctor',
+                    'affected_record_id' => (string) $patientId,
+                    'status' => 'BLOCKED',
+                    'anomaly_flag' => 'HIGH_RISK',
+                ]);
+            } else {
+                redirect('/doctor/dashboard.php');
+            }
+        } else {
+            $errors = $result['errors'];
         }
-        $errors = $result['errors'];
     }
 }
 $token = Csrf::token($_SESSION);

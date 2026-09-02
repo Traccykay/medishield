@@ -6,10 +6,18 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('doctor');
-$patientId = (int) ($_GET['patient_id'] ?? 0);
-if ($patientId <= 0 || !ms_patient_repo()->isAssigned($patientId, (int) $user['user_id'])) {
-    deny_access($user, 'doctor:history');
-}
+$patientId = request_positive_int($_GET['patient_id'] ?? null);
+$visitId = request_positive_int($_GET['visit_id'] ?? null);
+require_doctor_patient_access($user, $patientId, $visitId, 'doctor:history');
+ms_audit_log([
+    'user_id' => (int) $user['user_id'],
+    'user_role' => 'doctor',
+    'action' => 'PATIENT_VIEW',
+    'module' => 'doctor',
+    'affected_record_id' => (string) $patientId,
+    'status' => 'SUCCESS',
+    'anomaly_flag' => 'NORMAL',
+]);
 
 $patient = ms_patient_repo()->findById($patientId);
 $vitals = ms_clinical_service()->decryptVitals(ms_clinical_repo()->vitalsForPatient($patientId));

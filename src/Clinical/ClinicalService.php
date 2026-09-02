@@ -4,22 +4,24 @@ declare(strict_types=1);
 
 namespace MediShield\Clinical;
 
+use MediShield\Auth\DoctorPatientAuthorizer;
 use MediShield\Patient\PatientRepository;
 use MediShield\Security\Crypto;
-use MediShield\Visit\VisitRepository;
 
 /**
- * Application workflow for clinical modules. It validates typed vitals, enforces
- * assigned-patient checks for nurse/doctor actions, encrypts clinical payloads,
- * and delegates queue transitions to repository transactions.
+ * Application workflow for clinical modules. It validates typed vitals, applies
+ * nurse assignment and complete doctor encounter authorization, encrypts clinical
+ * payloads, and delegates atomic writes to repository transactions.
  */
 final class ClinicalService
 {
+    private const DOCTOR_AUTHORIZATION_ERROR = 'You are not authorized for this active consultation.';
+
     public function __construct(
         private ClinicalRepository $clinical,
         private PatientRepository $patients,
         private Crypto $crypto,
-        private VisitRepository $visits
+        private DoctorPatientAuthorizer $doctorAuthorizer
     ) {
     }
 
@@ -57,9 +59,12 @@ final class ClinicalService
 
     public function addDiagnosis(int $patientId, int $doctorId, int $visitId, string $diagnosis, ?string $treatment): array
     {
-        $encounterErrors = $this->validateEncounter($patientId, $doctorId, $visitId, false);
-        if ($encounterErrors !== []) {
-            return ['ok' => false, 'errors' => $encounterErrors, 'record_id' => null];
+        if (!$this->doctorAuthorizer->canAccess($doctorId, $patientId, $visitId)) {
+            return [
+                'ok' => false,
+                'errors' => [self::DOCTOR_AUTHORIZATION_ERROR],
+                'record_id' => null,
+            ];
         }
 
         $diagnosis = trim($diagnosis);
@@ -75,13 +80,32 @@ final class ClinicalService
             return ['ok' => false, 'errors' => $errors, 'record_id' => null];
         }
 
-        $recordId = $this->clinical->createMedicalRecord(
-            $visitId,
+        $recordId = $this->clinical->transactional(function () use (
             $patientId,
             $doctorId,
-            $this->crypto->encrypt($diagnosis),
-            $treatment !== null ? $this->crypto->encrypt($treatment) : null
-        );
+            $visitId,
+            $diagnosis,
+            $treatment
+        ): ?int {
+            if (!$this->doctorAuthorizer->canAccess($doctorId, $patientId, $visitId, true)) {
+                return null;
+            }
+
+            return $this->clinical->createMedicalRecord(
+                $visitId,
+                $patientId,
+                $doctorId,
+                $this->crypto->encrypt($diagnosis),
+                $treatment !== null ? $this->crypto->encrypt($treatment) : null
+            );
+        });
+        if ($recordId === null) {
+            return [
+                'ok' => false,
+                'errors' => [self::DOCTOR_AUTHORIZATION_ERROR],
+                'record_id' => null,
+            ];
+        }
 
         return ['ok' => true, 'errors' => [], 'record_id' => $recordId];
     }
@@ -104,7 +128,17 @@ final class ClinicalService
         array $labTests,
         array $medications
     ): array {
-        $errors = $this->validateEncounter($patientId, $doctorId, $visitId);
+        if (!$this->doctorAuthorizer->canAccess($doctorId, $patientId, $visitId)) {
+            return [
+                'ok' => false,
+                'errors' => [self::DOCTOR_AUTHORIZATION_ERROR],
+                'record_id' => null,
+                'lab_request_ids' => [],
+                'prescription_ids' => [],
+            ];
+        }
+
+        $errors = [];
         $diagnosis = trim($diagnosis);
         $treatment = $this->trimOrNull($treatment);
         if ($diagnosis === '') {
@@ -126,33 +160,64 @@ final class ClinicalService
             ];
         }
 
-        $encryptedPrescriptions = array_map(function (array $prescription): array {
-            return [
-                ...$prescription,
-                'medication' => $this->crypto->encrypt($prescription['medication']),
-                'dosage' => $this->crypto->encrypt($prescription['dosage']),
-                'instructions' => $prescription['instructions'] === null
-                    ? null
-                    : $this->crypto->encrypt($prescription['instructions']),
-            ];
-        }, $prescriptions);
-
-        $created = $this->clinical->createConsultation(
-            $visitId,
+        $created = $this->clinical->transactional(function () use (
             $patientId,
             $doctorId,
-            $this->crypto->encrypt($diagnosis),
-            $treatment !== null ? $this->crypto->encrypt($treatment) : null,
+            $visitId,
+            $diagnosis,
+            $treatment,
             $labs,
-            $encryptedPrescriptions
-        );
+            $prescriptions
+        ): ?array {
+            if (!$this->doctorAuthorizer->canAccess($doctorId, $patientId, $visitId, true)) {
+                return null;
+            }
+
+            $encryptedPrescriptions = array_map(function (array $prescription): array {
+                return [
+                    ...$prescription,
+                    'medication' => $this->crypto->encrypt($prescription['medication']),
+                    'dosage' => $this->crypto->encrypt($prescription['dosage']),
+                    'instructions' => $prescription['instructions'] === null
+                        ? null
+                        : $this->crypto->encrypt($prescription['instructions']),
+                ];
+            }, $prescriptions);
+
+            return $this->clinical->createConsultation(
+                $visitId,
+                $patientId,
+                $doctorId,
+                $this->crypto->encrypt($diagnosis),
+                $treatment !== null ? $this->crypto->encrypt($treatment) : null,
+                $labs,
+                $encryptedPrescriptions
+            );
+        });
+        if ($created === null) {
+            return [
+                'ok' => false,
+                'errors' => [self::DOCTOR_AUTHORIZATION_ERROR],
+                'record_id' => null,
+                'lab_request_ids' => [],
+                'prescription_ids' => [],
+            ];
+        }
 
         return ['ok' => true, 'errors' => [], ...$created];
     }
 
     public function requestLab(int $patientId, int $doctorId, int $visitId, int $recordId, string $testName, ?string $reason): array
     {
-        $errors = $this->validateDoctorRecord($patientId, $doctorId, $visitId, $recordId);
+        if (!$this->doctorAuthorizer->canAccess($doctorId, $patientId, $visitId)) {
+            return [
+                'ok' => false,
+                'errors' => [self::DOCTOR_AUTHORIZATION_ERROR],
+                'lab_request_id' => null,
+            ];
+        }
+
+        $errors = [];
         $testName = trim($testName);
         $reason = $this->trimOrNull($reason);
         if ($testName === '') {
@@ -171,8 +236,45 @@ final class ClinicalService
             return ['ok' => false, 'errors' => $errors, 'lab_request_id' => null];
         }
 
-        $id = $this->clinical->createLabRequest($visitId, $patientId, $recordId, $doctorId, $testName, $reason, $catalogPriceKes);
-        return ['ok' => true, 'errors' => [], 'lab_request_id' => $id];
+        $created = $this->clinical->transactional(function () use (
+            $patientId,
+            $doctorId,
+            $visitId,
+            $recordId,
+            $testName,
+            $reason,
+            $catalogPriceKes
+        ): array {
+            if (!$this->doctorAuthorizer->canAccess($doctorId, $patientId, $visitId, true)) {
+                return ['error' => self::DOCTOR_AUTHORIZATION_ERROR, 'id' => null];
+            }
+            $record = $this->clinical->findRecord($recordId, true);
+            if (
+                $record === null
+                || (int) $record['patient_id'] !== $patientId
+                || (int) $record['doctor_id'] !== $doctorId
+                || (int) $record['visit_id'] !== $visitId
+            ) {
+                return ['error' => 'Diagnosis record not found for this patient.', 'id' => null];
+            }
+
+            return [
+                'error' => null,
+                'id' => $this->clinical->createLabRequest(
+                    $visitId,
+                    $patientId,
+                    $recordId,
+                    $doctorId,
+                    $testName,
+                    $reason,
+                    $catalogPriceKes
+                ),
+            ];
+        });
+        if ($created['error'] !== null) {
+            return ['ok' => false, 'errors' => [$created['error']], 'lab_request_id' => null];
+        }
+        return ['ok' => true, 'errors' => [], 'lab_request_id' => $created['id']];
     }
 
     public function issuePrescription(
@@ -184,7 +286,15 @@ final class ClinicalService
         string $dosage,
         ?string $instructions
     ): array {
-        $errors = $this->validateDoctorRecord($patientId, $doctorId, $visitId, $recordId);
+        if (!$this->doctorAuthorizer->canAccess($doctorId, $patientId, $visitId)) {
+            return [
+                'ok' => false,
+                'errors' => [self::DOCTOR_AUTHORIZATION_ERROR],
+                'prescription_id' => null,
+            ];
+        }
+
+        $errors = [];
         $medication = trim($medication);
         $dosage = trim($dosage);
         $instructions = $this->trimOrNull($instructions);
@@ -205,18 +315,48 @@ final class ClinicalService
             return ['ok' => false, 'errors' => $errors, 'prescription_id' => null];
         }
 
-        $id = $this->clinical->createPrescription(
-            $visitId,
+        $created = $this->clinical->transactional(function () use (
             $patientId,
-            $recordId,
             $doctorId,
-            $this->crypto->encrypt($medication),
-            $this->crypto->encrypt($dosage),
-            $instructions !== null ? $this->crypto->encrypt($instructions) : null,
+            $visitId,
+            $recordId,
+            $medication,
+            $dosage,
+            $instructions,
             $catalogPriceKes
-        );
+        ): array {
+            if (!$this->doctorAuthorizer->canAccess($doctorId, $patientId, $visitId, true)) {
+                return ['error' => self::DOCTOR_AUTHORIZATION_ERROR, 'id' => null];
+            }
+            $record = $this->clinical->findRecord($recordId, true);
+            if (
+                $record === null
+                || (int) $record['patient_id'] !== $patientId
+                || (int) $record['doctor_id'] !== $doctorId
+                || (int) $record['visit_id'] !== $visitId
+            ) {
+                return ['error' => 'Diagnosis record not found for this patient.', 'id' => null];
+            }
 
-        return ['ok' => true, 'errors' => [], 'prescription_id' => $id];
+            return [
+                'error' => null,
+                'id' => $this->clinical->createPrescription(
+                    $visitId,
+                    $patientId,
+                    $recordId,
+                    $doctorId,
+                    $this->crypto->encrypt($medication),
+                    $this->crypto->encrypt($dosage),
+                    $instructions !== null ? $this->crypto->encrypt($instructions) : null,
+                    $catalogPriceKes
+                ),
+            ];
+        });
+        if ($created['error'] !== null) {
+            return ['ok' => false, 'errors' => [$created['error']], 'prescription_id' => null];
+        }
+
+        return ['ok' => true, 'errors' => [], 'prescription_id' => $created['id']];
     }
 
     public function uploadLabResult(int $labRequestId, int $labTechId, string $result): array
@@ -295,33 +435,6 @@ final class ClinicalService
         return $vitals;
     }
 
-    private function validateDoctorRecord(int $patientId, int $doctorId, int $visitId, int $recordId): array
-    {
-        $errors = $this->validateEncounter($patientId, $doctorId, $visitId, false);
-        $record = $this->clinical->findRecord($recordId);
-        if ($record === null || (int) $record['patient_id'] !== $patientId || (int) $record['doctor_id'] !== $doctorId || (int) $record['visit_id'] !== $visitId) {
-            $errors[] = 'Diagnosis record not found for this patient.';
-        }
-        return $errors;
-    }
-
-    private function validateEncounter(int $patientId, int $doctorId, int $visitId, bool $mustBeActive = true): array
-    {
-        if (!$this->patients->isAssigned($patientId, $doctorId)) {
-            return ['You are not assigned to this patient.'];
-        }
-        $visit = $visitId > 0 ? $this->visits->findById($visitId) : null;
-        if (
-            $visit === null
-            || (int) $visit['patient_id'] !== $patientId
-            || (int) $visit['doctor_id'] !== $doctorId
-            || ($mustBeActive && (string) $visit['status'] !== 'with_doctor')
-        ) {
-            return ['Consultation not found.'];
-        }
-        return [];
-    }
-
     /**
      * @param array<int,mixed> $labTests
      * @param string[] $errors
@@ -363,9 +476,20 @@ final class ClinicalService
                 $errors[] = 'Medication selection is invalid.';
                 continue;
             }
-            $name = trim((string) ($medication['medication'] ?? ''));
-            $dosage = trim((string) ($medication['dosage'] ?? ''));
-            $instructions = $this->trimOrNull(isset($medication['instructions']) ? (string) $medication['instructions'] : null);
+            $nameValue = $medication['medication'] ?? null;
+            $dosageValue = $medication['dosage'] ?? null;
+            $instructionsValue = $medication['instructions'] ?? null;
+            if (
+                !is_string($nameValue)
+                || !is_string($dosageValue)
+                || ($instructionsValue !== null && !is_string($instructionsValue))
+            ) {
+                $errors[] = 'Medication selection is invalid.';
+                continue;
+            }
+            $name = trim($nameValue);
+            $dosage = trim($dosageValue);
+            $instructions = $this->trimOrNull($instructionsValue);
             $catalogPriceKes = ClinicalCatalog::priceForMedication($name);
             if ($catalogPriceKes === null) {
                 $errors[] = 'Select only catalog medications.';

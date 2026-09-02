@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MediShield\Tests\Integration;
 
+use MediShield\Auth\DoctorPatientAuthorizer;
 use MediShield\Auth\UserRepository;
 use MediShield\Clinical\ClinicalRepository;
 use MediShield\Clinical\ClinicalService;
@@ -25,6 +26,7 @@ final class ClinicalWorkflowTest extends TestCase
     private PatientRepository $patientRepo;
     private ClinicalRepository $clinicalRepo;
     private ClinicalService $clinical;
+    private DoctorPatientAuthorizer $doctorAuthorizer;
 
     protected function setUp(): void
     {
@@ -32,6 +34,7 @@ final class ClinicalWorkflowTest extends TestCase
         $clock = new Clock(static fn () => new \DateTimeImmutable('2026-01-01 12:00:00', new \DateTimeZone('UTC')));
         $this->users = new UserRepository($this->pdo, $clock);
         $this->patientRepo = new PatientRepository($this->pdo, $clock);
+        $this->doctorAuthorizer = new DoctorPatientAuthorizer($this->pdo);
         $this->patients = new PatientService($this->patientRepo, $this->users);
         $this->clinicalRepo = new ClinicalRepository($this->pdo, $clock);
         $crypto = new Crypto(str_repeat('a', 32));
@@ -39,7 +42,7 @@ final class ClinicalWorkflowTest extends TestCase
             $this->clinicalRepo,
             $this->patientRepo,
             $crypto,
-            new VisitRepository($this->pdo, $clock)
+            $this->doctorAuthorizer
         );
     }
 
@@ -257,7 +260,7 @@ final class ClinicalWorkflowTest extends TestCase
         );
 
         self::assertFalse($result['ok']);
-        self::assertContains('You are not assigned to this patient.', $result['errors']);
+        self::assertSame(['You are not authorized for this active consultation.'], $result['errors']);
         self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM medical_records')->fetchColumn());
         self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM lab_requests')->fetchColumn());
         self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM prescriptions')->fetchColumn());
@@ -279,6 +282,244 @@ final class ClinicalWorkflowTest extends TestCase
 
         self::assertFalse($result['ok']);
         self::assertContains('Select only catalog lab tests.', $result['errors']);
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM medical_records')->fetchColumn());
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM lab_requests')->fetchColumn());
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM prescriptions')->fetchColumn());
+    }
+
+    public function testDoctorMutations_AfterAssignmentRevocation_DoNotCreateClinicalData(): void
+    {
+        [$patientId, $doctorId, $visitId] = $this->doctorConsultation();
+        $recordId = (int) $this->clinical->addDiagnosis(
+            $patientId,
+            $doctorId,
+            $visitId,
+            'Authorized diagnosis',
+            null
+        )['record_id'];
+        $this->patients->unassignPatient($patientId, $doctorId);
+
+        $results = [
+            $this->clinical->addDiagnosis($patientId, $doctorId, $visitId, 'Revoked diagnosis', null),
+            $this->clinical->requestLab(
+                $patientId,
+                $doctorId,
+                $visitId,
+                $recordId,
+                'Blood glucose',
+                'Revoked request'
+            ),
+            $this->clinical->issuePrescription(
+                $patientId,
+                $doctorId,
+                $visitId,
+                $recordId,
+                'Paracetamol 500 mg',
+                'Revoked dosage',
+                null
+            ),
+            $this->clinical->submitConsultation(
+                $patientId,
+                $doctorId,
+                $visitId,
+                'Revoked consultation',
+                null,
+                ['Urinalysis'],
+                []
+            ),
+        ];
+
+        foreach ($results as $result) {
+            self::assertFalse($result['ok']);
+            self::assertSame(['You are not authorized for this active consultation.'], $result['errors']);
+        }
+        self::assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM medical_records')->fetchColumn());
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM lab_requests')->fetchColumn());
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM prescriptions')->fetchColumn());
+    }
+
+    public function testDoctorMutations_WhenVisitIsNotActive_DoNotCreateClinicalData(): void
+    {
+        [$patientId, $doctorId, $visitId] = $this->doctorConsultation();
+        $recordId = (int) $this->clinical->addDiagnosis(
+            $patientId,
+            $doctorId,
+            $visitId,
+            'Authorized diagnosis',
+            null
+        )['record_id'];
+        (new VisitRepository($this->pdo, new Clock(
+            static fn () => new \DateTimeImmutable('2026-01-01 12:00:00', new \DateTimeZone('UTC'))
+        )))->updateState($visitId, 'lab');
+
+        $results = [
+            $this->clinical->addDiagnosis($patientId, $doctorId, $visitId, 'Inactive diagnosis', null),
+            $this->clinical->requestLab(
+                $patientId,
+                $doctorId,
+                $visitId,
+                $recordId,
+                'Blood glucose',
+                'Inactive request'
+            ),
+            $this->clinical->issuePrescription(
+                $patientId,
+                $doctorId,
+                $visitId,
+                $recordId,
+                'Paracetamol 500 mg',
+                'Inactive dosage',
+                null
+            ),
+        ];
+
+        foreach ($results as $result) {
+            self::assertFalse($result['ok']);
+            self::assertSame(['You are not authorized for this active consultation.'], $result['errors']);
+        }
+        self::assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM medical_records')->fetchColumn());
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM lab_requests')->fetchColumn());
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM prescriptions')->fetchColumn());
+    }
+
+    public function testDoctorMutation_WhenRevoked_AuthorizesBeforeValidationAndRecordLookup(): void
+    {
+        [$patientId, $doctorId, $visitId] = $this->doctorConsultation();
+        $this->patients->unassignPatient($patientId, $doctorId);
+
+        $consultation = $this->clinical->submitConsultation(
+            $patientId,
+            $doctorId,
+            $visitId,
+            '',
+            str_repeat('x', 5000),
+            [['malformed']],
+            [['medication' => [], 'dosage' => [], 'instructions' => []]]
+        );
+        self::assertSame(['You are not authorized for this active consultation.'], $consultation['errors']);
+
+        $this->pdo->exec('DROP TABLE medical_records');
+        $request = $this->clinical->requestLab(
+            $patientId,
+            $doctorId,
+            $visitId,
+            999999,
+            'Blood glucose',
+            null
+        );
+        self::assertFalse($request['ok']);
+        self::assertSame(['You are not authorized for this active consultation.'], $request['errors']);
+    }
+
+    public function testDoctorOrderCounts_UseDoctorAndStatusWithoutActiveVisitIntersection(): void
+    {
+        [$patientId, $doctorId, $visitId] = $this->doctorConsultation();
+        $created = $this->clinical->submitConsultation(
+            $patientId,
+            $doctorId,
+            $visitId,
+            'Counted consultation',
+            null,
+            ['Blood glucose'],
+            [[
+                'medication' => 'Paracetamol 500 mg',
+                'dosage' => 'Daily',
+                'instructions' => null,
+            ]]
+        );
+        self::assertTrue($created['ok']);
+        self::assertSame(1, $this->clinicalRepo->countLabRequestsByDoctor($doctorId));
+        self::assertSame(1, $this->clinicalRepo->countPrescriptionsByDoctor($doctorId));
+
+        $this->patients->unassignPatient($patientId, $doctorId);
+        (new VisitRepository($this->pdo, new Clock(
+            static fn () => new \DateTimeImmutable('2026-01-01 12:00:00', new \DateTimeZone('UTC'))
+        )))->updateState($visitId, 'lab');
+
+        self::assertSame([], $this->doctorAuthorizer->authorizedVisits($doctorId));
+        self::assertSame(1, $this->clinicalRepo->countLabRequestsByDoctor($doctorId));
+        self::assertSame(1, $this->clinicalRepo->countPrescriptionsByDoctor($doctorId));
+
+        $otherDoctorId = $this->users->create('Other Count Doctor', 'count-other@example.com', 'hash', 'doctor');
+        $otherPatientId = $this->patientRepo->create([
+            'user_id' => null,
+            'patient_number' => 'MSH-CCCCCCCCCCCCCCCC',
+            'full_name' => 'Other Count Patient',
+            'date_of_birth' => '1990-01-01',
+            'gender' => 'female',
+            'phone' => null,
+            'address' => null,
+            'emergency_contact' => null,
+        ]);
+        $visitRepository = new VisitRepository($this->pdo, new Clock(
+            static fn () => new \DateTimeImmutable('2026-01-01 12:00:00', new \DateTimeZone('UTC'))
+        ));
+        $receptionistId = (int) $visitRepository->findById($visitId)['receptionist_id'];
+        $otherVisitId = $visitRepository->create($otherPatientId, $receptionistId, 'cash', null);
+        $otherRecordId = $this->clinicalRepo->createMedicalRecord(
+            $otherVisitId,
+            $otherPatientId,
+            $otherDoctorId,
+            'encrypted',
+            null
+        );
+        $this->clinicalRepo->createLabRequest(
+            $otherVisitId,
+            $otherPatientId,
+            $otherRecordId,
+            $otherDoctorId,
+            'Blood glucose',
+            null,
+            400
+        );
+        $this->clinicalRepo->createPrescription(
+            $otherVisitId,
+            $otherPatientId,
+            $otherRecordId,
+            $otherDoctorId,
+            'encrypted',
+            'encrypted',
+            null,
+            150
+        );
+
+        self::assertSame(1, $this->clinicalRepo->countLabRequestsByDoctor($doctorId));
+        self::assertSame(1, $this->clinicalRepo->countPrescriptionsByDoctor($doctorId));
+
+        $completeLabs = $this->pdo->prepare(
+            'UPDATE lab_requests SET status = :status WHERE doctor_id = :doctor_id'
+        );
+        $completeLabs->execute([':status' => 'completed', ':doctor_id' => $doctorId]);
+        $dispensePrescriptions = $this->pdo->prepare(
+            'UPDATE prescriptions SET status = :status WHERE doctor_id = :doctor_id'
+        );
+        $dispensePrescriptions->execute([':status' => 'dispensed', ':doctor_id' => $doctorId]);
+        self::assertSame(0, $this->clinicalRepo->countLabRequestsByDoctor($doctorId));
+        self::assertSame(1, $this->clinicalRepo->countLabRequestsByDoctor($doctorId, 'completed'));
+        self::assertSame(0, $this->clinicalRepo->countPrescriptionsByDoctor($doctorId));
+        self::assertSame(1, $this->clinicalRepo->countPrescriptionsByDoctor($doctorId, 'dispensed'));
+    }
+
+    public function testDoctorSubmitConsultation_WithMalformedOrderArrays_DoesNotWrite(): void
+    {
+        [$patientId, $doctorId, $visitId] = $this->doctorConsultation();
+
+        $result = $this->clinical->submitConsultation(
+            $patientId,
+            $doctorId,
+            $visitId,
+            'Valid diagnosis',
+            null,
+            ['Blood glucose'],
+            [[
+                'medication' => ['Paracetamol 500 mg'],
+                'dosage' => ['Daily'],
+                'instructions' => [],
+            ]]
+        );
+
+        self::assertFalse($result['ok']);
+        self::assertContains('Medication selection is invalid.', $result['errors']);
         self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM medical_records')->fetchColumn());
         self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM lab_requests')->fetchColumn());
         self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM prescriptions')->fetchColumn());
@@ -499,9 +740,14 @@ final class ClinicalWorkflowTest extends TestCase
             'date_of_birth' => '1990-01-01',
             'gender' => 'female',
         ])['patient_id'];
-        $visits = new VisitService(new VisitRepository($this->pdo, new Clock(
-            static fn () => new \DateTimeImmutable('2026-01-01 12:00:00', new \DateTimeZone('UTC'))
-        )), $this->patientRepo, $this->users);
+        $visits = new VisitService(
+            new VisitRepository($this->pdo, new Clock(
+                static fn () => new \DateTimeImmutable('2026-01-01 12:00:00', new \DateTimeZone('UTC'))
+            )),
+            $this->patientRepo,
+            $this->users,
+            $this->doctorAuthorizer
+        );
         $visit = $visits->createVisit($patientId, $receptionistId, 'cash', null);
         $visits->moveToNurse((int) $visit['visit_id'], $nurseId);
         $visits->assignDoctor((int) $visit['visit_id'], $nurseId, $doctorId);
@@ -511,7 +757,13 @@ final class ClinicalWorkflowTest extends TestCase
 
     private function routeVisitToPharmacy(int $visitId, int $doctorId): void
     {
-        $result = $this->visitService()->routeFromDoctor($visitId, $doctorId, 'pharmacy');
+        $visit = $this->visit($visitId);
+        $result = $this->visitService()->routeFromDoctor(
+            $visitId,
+            (int) $visit['patient_id'],
+            $doctorId,
+            'pharmacy'
+        );
         self::assertTrue($result['ok']);
     }
 
@@ -522,7 +774,8 @@ final class ClinicalWorkflowTest extends TestCase
                 static fn () => new \DateTimeImmutable('2026-01-01 12:00:00', new \DateTimeZone('UTC'))
             )),
             $this->patientRepo,
-            $this->users
+            $this->users,
+            $this->doctorAuthorizer
         );
     }
 

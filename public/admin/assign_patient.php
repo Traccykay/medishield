@@ -37,7 +37,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ]);
         $errors[] = 'Your session has expired. Please try again.';
     } elseif ($action === 'unassign') {
-        $result = ms_patient_service()->unassignPatient($selectedPatientId, $staffUserId);
+        $staff = ms_user_repo()->findById($staffUserId);
+        $result = $staff !== null && (string) $staff['role'] === 'doctor'
+            ? ms_visit_service()->revokeDoctorAssignment($selectedPatientId, $staffUserId)
+            : ms_patient_service()->unassignPatient($selectedPatientId, $staffUserId);
         if ($result['ok']) {
             ms_audit_log([
                 'user_id' => (int) $admin['user_id'],

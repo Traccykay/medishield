@@ -271,20 +271,23 @@ final class PatientServiceTest extends TestCase
         self::assertCount(1, $this->patients->search('0722'));
     }
 
-    public function testAccessRulesRespectOwnerAssignmentAndAdminDemographics(): void
+    public function testAccessRulesRespectOwnerNurseAssignmentAndAdminDemographics(): void
     {
         $patientUserId = $this->users->create('Owner', 'owner@example.com', password_hash('Str0ng!Pass1', PASSWORD_DEFAULT), 'patient');
         $patientId = $this->registerFixturePatient('MSH-0007', 'Owner Patient', null, $patientUserId);
         $otherPatientId = $this->registerFixturePatient('MSH-0008', 'Other Patient');
-        $doctorId = $this->users->create('Dora Doctor', 'dora3@example.com', password_hash('Str0ng!Pass1', PASSWORD_DEFAULT), 'doctor');
+        $nurseId = $this->users->create('Nora Nurse', 'nora3@example.com', password_hash('Str0ng!Pass1', PASSWORD_DEFAULT), 'nurse');
         $adminId = $this->users->create('Ada Admin', 'ada3@example.com', password_hash('Str0ng!Pass1', PASSWORD_DEFAULT), 'admin');
-        $this->service->assignPatient($patientId, $doctorId, $adminId);
+        $this->service->assignPatient($patientId, $nurseId, $adminId);
 
         self::assertTrue($this->service->canViewPatient(['user_id' => $patientUserId, 'role' => 'patient'], $patientId));
         self::assertFalse($this->service->canViewPatient(['user_id' => $patientUserId, 'role' => 'patient'], $otherPatientId));
-        self::assertTrue($this->service->canViewPatient(['user_id' => $doctorId, 'role' => 'doctor'], $patientId));
-        self::assertFalse($this->service->canViewPatient(['user_id' => $doctorId, 'role' => 'doctor'], $otherPatientId));
+        self::assertTrue($this->service->canViewPatient(['user_id' => $nurseId, 'role' => 'nurse'], $patientId));
+        self::assertFalse($this->service->canViewPatient(['user_id' => $nurseId, 'role' => 'nurse'], $otherPatientId));
         self::assertTrue($this->service->canViewPatient(['user_id' => $adminId, 'role' => 'admin'], $otherPatientId));
+
+        $this->service->unassignPatient($patientId, $nurseId);
+        self::assertFalse($this->service->canViewPatient(['user_id' => $nurseId, 'role' => 'nurse'], $patientId));
     }
 
     private function registerFixturePatient(

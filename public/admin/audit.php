@@ -75,6 +75,7 @@ layout_app_header('Forensic Auditing', $user, 'audit');
                         <th>Module</th>
                         <th>Status</th>
                         <th>Anomaly</th>
+                        <th>Affected record</th>
                         <th>Attempted email</th>
                         <th>IP</th>
                     </tr>
@@ -95,6 +96,7 @@ layout_app_header('Forensic Auditing', $user, 'audit');
                             <td><?= e((string) ($row['module'] ?? '')) ?></td>
                             <td><?= e($status) ?></td>
                             <td><?= e($anomaly) ?></td>
+                            <td><?= e((string) ($row['affected_record_id'] ?? '—')) ?></td>
                             <td><?= e((string) ($row['attempted_identifier'] ?? '—')) ?></td>
                             <td><?= e((string) ($row['ip_address'] ?? '')) ?></td>
                         </tr>

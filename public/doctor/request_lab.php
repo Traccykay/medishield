@@ -9,29 +9,56 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('doctor');
-$patientId = (int) ($_GET['patient_id'] ?? $_POST['patient_id'] ?? 0);
-$recordId = (int) ($_GET['record_id'] ?? $_POST['record_id'] ?? 0);
-$visitId = (int) ($_GET['visit_id'] ?? $_POST['visit_id'] ?? 0);
-$visit = $visitId > 0 ? ms_visit_repo()->findById($visitId) : null;
-if ($patientId <= 0 || $visit === null || (int) $visit['patient_id'] !== $patientId || (int) $visit['doctor_id'] !== (int) $user['user_id'] || (string) $visit['status'] !== 'with_doctor') {
-    deny_access($user, 'doctor:request_lab');
-}
+$patientId = request_positive_int($_GET['patient_id'] ?? $_POST['patient_id'] ?? null);
+$recordId = request_positive_int($_GET['record_id'] ?? $_POST['record_id'] ?? null);
+$visitId = request_positive_int($_GET['visit_id'] ?? $_POST['visit_id'] ?? null);
+require_doctor_patient_access($user, $patientId, $visitId, 'doctor:request_lab');
 $errors = [];
 $testName = '';
 $reason = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $testName = (string) ($_POST['test_name'] ?? '');
-    $reason = (string) ($_POST['reason'] ?? '');
+    $testName = request_string($_POST['test_name'] ?? null);
+    $reason = request_string($_POST['reason'] ?? null);
     if (!Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
         $errors[] = 'Your session has expired. Please try again.';
     } else {
         $result = ms_clinical_service()->requestLab($patientId, (int) $user['user_id'], $visitId, $recordId, $testName, $reason);
         if ($result['ok']) {
-            ms_visit_service()->routeFromDoctor($visitId, (int) $user['user_id'], 'lab');
-            ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'doctor', 'action' => 'LAB_REQUESTED', 'module' => 'doctor', 'affected_record_id' => (string) $result['lab_request_id'], 'status' => 'SUCCESS']);
-            redirect('/doctor/dashboard.php');
+            ms_audit_log([
+                'user_id' => (int) $user['user_id'],
+                'user_role' => 'doctor',
+                'action' => 'LAB_REQUESTED',
+                'module' => 'doctor',
+                'affected_record_id' => (string) $result['lab_request_id'],
+                'status' => 'SUCCESS',
+                'anomaly_flag' => 'NORMAL',
+            ]);
+            $routing = ms_visit_service()->routeFromDoctor(
+                $visitId,
+                $patientId,
+                (int) $user['user_id'],
+                'lab'
+            );
+            if (!$routing['ok']) {
+                $errors = [
+                    'The lab request was saved, but the visit could not be routed. '
+                    . 'Please refresh the patient record before continuing.',
+                ];
+                ms_audit_log([
+                    'user_id' => (int) $user['user_id'],
+                    'user_role' => 'doctor',
+                    'action' => 'UNAUTHORIZED_ACCESS',
+                    'module' => 'doctor',
+                    'affected_record_id' => (string) $patientId,
+                    'status' => 'BLOCKED',
+                    'anomaly_flag' => 'HIGH_RISK',
+                ]);
+            } else {
+                redirect('/doctor/dashboard.php');
+            }
+        } else {
+            $errors = $result['errors'];
         }
-        $errors = $result['errors'];
     }
 }
 $token = Csrf::token($_SESSION);

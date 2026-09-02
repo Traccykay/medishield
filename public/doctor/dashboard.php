@@ -7,8 +7,8 @@ require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('doctor');
 $patients = ms_visit_service()->doctorVisits((int) $user['user_id']);
-$pendingLabs = ms_clinical_repo()->labRequests('pending', (int) $user['user_id']);
-$pendingRx = ms_clinical_repo()->prescriptions('pending', (int) $user['user_id']);
+$pendingLabs = ms_clinical_repo()->countLabRequestsByDoctor((int) $user['user_id']);
+$pendingRx = ms_clinical_repo()->countPrescriptionsByDoctor((int) $user['user_id']);
 
 layout_app_header('Doctor dashboard', $user, 'dashboard');
 ?>
@@ -32,7 +32,7 @@ layout_app_header('Doctor dashboard', $user, 'dashboard');
 </section>
 <section class="ms-grid">
     <div class="ms-card ms-stat"><div class="ms-stat-num" data-testid="doctor-consultations-count"><?= e((string) count($patients)) ?></div><div class="ms-stat-label">Current consultations</div></div>
-    <div class="ms-card ms-stat"><div class="ms-stat-num" data-testid="doctor-pending-labs-count"><?= e((string) count($pendingLabs)) ?></div><div class="ms-stat-label">Pending lab requests</div></div>
-    <div class="ms-card ms-stat"><div class="ms-stat-num" data-testid="doctor-pending-prescriptions-count"><?= e((string) count($pendingRx)) ?></div><div class="ms-stat-label">Pending prescriptions</div></div>
+    <div class="ms-card ms-stat"><div class="ms-stat-num" data-testid="doctor-pending-labs-count"><?= e((string) $pendingLabs) ?></div><div class="ms-stat-label">Pending lab requests</div></div>
+    <div class="ms-card ms-stat"><div class="ms-stat-num" data-testid="doctor-pending-prescriptions-count"><?= e((string) $pendingRx) ?></div><div class="ms-stat-label">Pending prescriptions</div></div>
 </section>
 <?php layout_app_footer(); ?>

@@ -6,9 +6,10 @@ declare(strict_types=1);
  * patients.php
  * ------------
  * Shared patient workspace entry point. Admins can search all patient
- * demographics; nurses and doctors see only assigned patients; patient users are
- * sent to their own profile. Every actual profile view is rechecked by
- * PatientService so URL manipulation cannot expose another patient's data.
+ * demographics; nurses see assigned patients, while doctors see only assigned
+ * patients whose current active visit they own. Patient users are sent to their
+ * own profile. Every actual profile view is rechecked so URL manipulation cannot
+ * expose another patient's data.
  */
 
 require_once __DIR__ . '/../includes/guard.php';
@@ -29,7 +30,19 @@ $patients = [];
 
 if (in_array($role, ['admin', 'receptionist'], true)) {
     $patients = ms_patient_repo()->search($query);
-} elseif (in_array($role, ['nurse', 'doctor'], true)) {
+} elseif ($role === 'doctor') {
+    $patients = ms_visit_service()->doctorVisits((int) $user['user_id']);
+    if ($query !== '') {
+        $needle = mb_strtolower($query);
+        $patients = array_values(array_filter(
+            $patients,
+            static fn (array $p): bool =>
+                str_contains(mb_strtolower((string) $p['full_name']), $needle)
+                || str_contains(mb_strtolower((string) $p['patient_number']), $needle)
+                || str_contains(mb_strtolower((string) ($p['phone'] ?? '')), $needle)
+        ));
+    }
+} elseif ($role === 'nurse') {
     $patients = ms_patient_repo()->assignedPatientsForStaff((int) $user['user_id']);
     if ($query !== '') {
         $needle = mb_strtolower($query);
@@ -68,7 +81,9 @@ layout_app_header('Patients', $user, 'patients');
             <a class="ms-btn" href="<?= e(ms_url('/patients.php')) ?>">Clear</a>
         </form>
     <?php } elseif (in_array($role, ['nurse', 'doctor'], true)) { ?>
-        <p class="ms-muted">This list is limited to patients actively assigned to you.</p>
+        <p class="ms-muted"><?= e($role === 'doctor'
+            ? 'This list is limited to your authorized current consultations.'
+            : 'This list is limited to patients actively assigned to you.') ?></p>
     <?php } ?>
 </section>
 
@@ -88,6 +103,8 @@ layout_app_header('Patients', $user, 'patients');
                 </thead>
                 <tbody>
                     <?php foreach ($patients as $patient) { ?>
+                        <?php $profileUrl = '/patient_profile.php?patient_id=' . (int) $patient['patient_id']
+                            . ($role === 'doctor' ? '&visit_id=' . (int) $patient['visit_id'] : ''); ?>
                         <tr>
                             <td><?= e((string) $patient['patient_number']) ?></td>
                             <td><?= e((string) $patient['full_name']) ?></td>
@@ -95,7 +112,7 @@ layout_app_header('Patients', $user, 'patients');
                             <td><?= e((string) $patient['gender']) ?></td>
                             <td><?= e((string) ($patient['phone'] ?? '')) ?></td>
                             <td>
-                                <a class="ms-btn ms-btn-sm" href="<?= e(ms_url('/patient_profile.php?patient_id=' . (int) $patient['patient_id'])) ?>">View</a>
+                                <a class="ms-btn ms-btn-sm" href="<?= e(ms_url($profileUrl)) ?>">View</a>
                                 <?php if ($role === 'admin') { ?>
                                     <a class="ms-btn ms-btn-sm" href="<?= e(ms_url('/admin/assign_patient.php?patient_id=' . (int) $patient['patient_id'])) ?>">Assign</a>
                                 <?php } ?>

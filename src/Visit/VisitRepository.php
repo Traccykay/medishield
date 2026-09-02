@@ -89,24 +89,125 @@ final class VisitRepository
         ]);
     }
 
-    /** Atomically reserve a doctor; the unique active_doctor_id key prevents races. */
-    public function assignAvailableDoctor(int $visitId, int $nurseId, int $doctorId): bool
+    /**
+     * Conditionally reserve an eligible visit for an available doctor.
+     *
+     * The caller owns the transaction and writes the corresponding patient
+     * assignment after this visit-first lock/update. The unique active-doctor
+     * key remains the final guard against concurrent reservations.
+     */
+    public function reserveAvailableDoctor(int $visitId, int $nurseId, int $doctorId): ?int
     {
-        $stmt = $this->pdo->prepare(
+        if (!$this->pdo->inTransaction()) {
+            throw new \LogicException('Doctor reservation requires an active transaction.');
+        }
+
+        $lock = $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
+        $visitStmt = $this->pdo->prepare(
+            'SELECT patient_id, nurse_id, status
+               FROM visits
+              WHERE visit_id = :visit_id' . $lock
+        );
+        $visitStmt->execute([':visit_id' => $visitId]);
+        $visit = $visitStmt->fetch();
+        if (
+            $visit === false
+            || (string) $visit['status'] !== 'with_nurse'
+            || (int) $visit['nurse_id'] !== $nurseId
+        ) {
+            return null;
+        }
+
+        $updateVisit = $this->pdo->prepare(
             'UPDATE visits
-                SET status = :status, doctor_id = :assigned_doctor_id, active_doctor_id = :active_doctor_id, updated_at = :updated_at
+                SET status = :status, doctor_id = :doctor_id,
+                    active_doctor_id = :active_doctor_id, updated_at = :updated_at
               WHERE visit_id = :visit_id AND nurse_id = :nurse_id AND status = :waiting_status'
         );
-        $stmt->execute([
+        $updateVisit->execute([
             ':status' => 'with_doctor',
-            ':assigned_doctor_id' => $doctorId,
+            ':doctor_id' => $doctorId,
             ':active_doctor_id' => $doctorId,
             ':updated_at' => $this->clock->nowString(),
             ':visit_id' => $visitId,
             ':nurse_id' => $nurseId,
             ':waiting_status' => 'with_nurse',
         ]);
-        return $stmt->rowCount() === 1;
+
+        return $updateVisit->rowCount() === 1 ? (int) $visit['patient_id'] : null;
+    }
+
+    /**
+     * Return the doctor's current patient visit to its existing nurse.
+     *
+     * The caller owns the transaction and deactivates the corresponding
+     * assignment only after this visit-first lock/update succeeds.
+     */
+    public function returnDoctorVisitToNurseQueue(int $patientId, int $doctorId): bool
+    {
+        if (!$this->pdo->inTransaction()) {
+            throw new \LogicException('Doctor revocation requires an active transaction.');
+        }
+
+        $lock = $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
+        $visitStmt = $this->pdo->prepare(
+            'SELECT visit_id
+               FROM visits
+              WHERE patient_id = :patient_id
+                AND status = :doctor_status
+                AND active_doctor_id = :doctor_id
+              ORDER BY visit_id DESC
+              LIMIT 1' . $lock
+        );
+        $visitStmt->execute([
+            ':patient_id' => $patientId,
+            ':doctor_status' => 'with_doctor',
+            ':doctor_id' => $doctorId,
+        ]);
+        $visitId = $visitStmt->fetchColumn();
+        if ($visitId === false) {
+            return false;
+        }
+
+        $updateVisit = $this->pdo->prepare(
+            'UPDATE visits
+                SET status = :nurse_status,
+                    active_doctor_id = NULL,
+                    updated_at = :updated_at
+              WHERE visit_id = :visit_id
+                AND patient_id = :patient_id
+                AND status = :doctor_status
+                AND active_doctor_id = :doctor_id'
+        );
+        $updateVisit->execute([
+            ':nurse_status' => 'with_nurse',
+            ':updated_at' => $this->clock->nowString(),
+            ':visit_id' => $visitId,
+            ':patient_id' => $patientId,
+            ':doctor_status' => 'with_doctor',
+            ':doctor_id' => $doctorId,
+        ]);
+
+        return $updateVisit->rowCount() === 1;
+    }
+
+    public function transactional(callable $operation): mixed
+    {
+        if ($this->pdo->inTransaction()) {
+            return $operation();
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $result = $operation();
+            $this->pdo->commit();
+            return $result;
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
+        }
     }
 
     /** @return array<int,array<string,mixed>> */

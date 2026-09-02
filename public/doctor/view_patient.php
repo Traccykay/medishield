@@ -6,12 +6,18 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('doctor');
-$patientId = (int) ($_GET['patient_id'] ?? 0);
-$visitId = (int) ($_GET['visit_id'] ?? 0);
-$visit = $visitId > 0 ? ms_visit_repo()->findById($visitId) : null;
-if ($patientId <= 0 || $visit === null || (int) $visit['patient_id'] !== $patientId || (int) $visit['doctor_id'] !== (int) $user['user_id'] || (string) $visit['status'] !== 'with_doctor') {
-    deny_access($user, 'doctor:view_patient');
-}
+$patientId = request_positive_int($_GET['patient_id'] ?? null);
+$visitId = request_positive_int($_GET['visit_id'] ?? null);
+require_doctor_patient_access($user, $patientId, $visitId, 'doctor:view_patient');
+ms_audit_log([
+    'user_id' => (int) $user['user_id'],
+    'user_role' => 'doctor',
+    'action' => 'PATIENT_VIEW',
+    'module' => 'doctor',
+    'affected_record_id' => (string) $patientId,
+    'status' => 'SUCCESS',
+    'anomaly_flag' => 'NORMAL',
+]);
 $patient = ms_patient_repo()->findById($patientId);
 $vitals = ms_clinical_service()->decryptVitals(ms_clinical_repo()->vitalsForPatient($patientId));
 $records = ms_clinical_repo()->recordsForPatient($patientId);
@@ -26,7 +32,8 @@ layout_app_header('Doctor patient view', $user, 'patients');
         <a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/doctor/add_diagnosis.php?patient_id=' . $patientId . '&visit_id=' . $visitId)) ?>">Add diagnosis</a>
     </div>
     <div class="ms-actions">
-        <a class="ms-btn" href="<?= e(ms_url('/patient_profile.php?patient_id=' . $patientId)) ?>">Profile</a>
+        <a class="ms-btn" href="<?= e(ms_url('/patient_profile.php?patient_id=' . $patientId . '&visit_id=' . $visitId)) ?>">Profile</a>
+        <a class="ms-btn" href="<?= e(ms_url('/doctor/history.php?patient_id=' . $patientId . '&visit_id=' . $visitId)) ?>">History</a>
     </div>
 </section>
 <section class="ms-card">

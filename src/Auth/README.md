@@ -6,6 +6,7 @@ that the login and admin pages call into.
 | Class | Responsibility | Spec |
 |-------|----------------|------|
 | `Rbac` | Role definitions, "can role X enter area Y?", "can manage users?", sidebar nav visibility (`canAccessNav`/`navFor`), post-login dashboard routing. | §6, §7, §15 |
+| `DoctorPatientAuthorizer` | Executes one joined doctor policy: an active patient assignment **and** exact ownership of the current active `with_doctor` visit. Provides point checks with optional MySQL row locking and a non-clinical list form for dashboards/routes. | §6.4, §7, §15 |
 | `UserRepository` | The single gateway to the `users` table. All queries are PDO prepared statements; SQL is portable (MySQL **and** SQLite). Includes `activate()` (set password + status) and a `$status` arg on `create()`. | §16 |
 | `AuthService` | Runs a login attempt + brute-force lockout policy (3 = SUSPICIOUS, 5 = lock 15 min). Anti-enumeration via dummy hash + generic errors. Password stage only — OTP is layered after it. | §9.1 |
 | `UserService` | Admin "registration": `createUser()` (with password) and `createPendingUser()` (no password, status `inactive`, for the activation-link flow). Validates input, password policy, unique email. | §9.2 |
@@ -21,11 +22,14 @@ admin/create_user.php -> UserService->createPendingUser() -> UserRepository
                       -> ActivationService->issueFor()    -> ActivationRepository (+ Mailer)
 activate.php     ->  ActivationService->activate() -> UserRepository->activate()
 guard.php (page guard) -> Rbac::canAccessArea() / Rbac::canAccessNav()
+                       -> DoctorPatientAuthorizer (doctor object access)
 ```
 
 ## Testability
 - `UserRepository` receives an injected `PDO` and `Clock`, so tests run it against
   in-memory SQLite with a fixed clock.
+- `DoctorPatientAuthorizer` receives the shared `PDO`; MySQL-only `FOR UPDATE`
+  is enabled only for transactional mutation rechecks and omitted on SQLite.
 - `AuthService`, `UserService`, `OtpService` and `ActivationService` receive their
   repositories (and a `Clock`), so their policy logic — including OTP expiry and
   activation single-use — is verified end-to-end without a real database server.

@@ -30,6 +30,7 @@ use MediShield\Billing\BillingService;
 use MediShield\Auth\ActivationRepository;
 use MediShield\Auth\ActivationService;
 use MediShield\Auth\AuthService;
+use MediShield\Auth\DoctorPatientAuthorizer;
 use MediShield\Auth\OtpRepository;
 use MediShield\Auth\OtpService;
 use MediShield\Auth\Rbac;
@@ -323,6 +324,14 @@ if (!function_exists('ms_patient_service')) {
     }
 }
 
+if (!function_exists('ms_doctor_authorizer')) {
+    function ms_doctor_authorizer(): DoctorPatientAuthorizer
+    {
+        static $authorizer = null;
+        return $authorizer ??= new DoctorPatientAuthorizer(ms_db());
+    }
+}
+
 if (!function_exists('ms_clinical_repo')) {
     function ms_clinical_repo(): ClinicalRepository
     {
@@ -335,7 +344,12 @@ if (!function_exists('ms_clinical_service')) {
     function ms_clinical_service(): ClinicalService
     {
         static $svc = null;
-        return $svc ??= new ClinicalService(ms_clinical_repo(), ms_patient_repo(), ms_crypto(), ms_visit_repo());
+        return $svc ??= new ClinicalService(
+            ms_clinical_repo(),
+            ms_patient_repo(),
+            ms_crypto(),
+            ms_doctor_authorizer()
+        );
     }
 }
 
@@ -351,7 +365,12 @@ if (!function_exists('ms_visit_service')) {
     function ms_visit_service(): VisitService
     {
         static $svc = null;
-        return $svc ??= new VisitService(ms_visit_repo(), ms_patient_repo(), ms_user_repo());
+        return $svc ??= new VisitService(
+            ms_visit_repo(),
+            ms_patient_repo(),
+            ms_user_repo(),
+            ms_doctor_authorizer()
+        );
     }
 }
 

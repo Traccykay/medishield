@@ -237,6 +237,54 @@ if (!function_exists('require_nav')) {
     }
 }
 
+if (!function_exists('request_positive_int')) {
+    /**
+     * Parse an untrusted request identifier without coercing arrays or partial
+     * numeric strings into valid object IDs.
+     */
+    function request_positive_int(mixed $value): int
+    {
+        if (!is_int($value) && !is_string($value)) {
+            return 0;
+        }
+
+        $filtered = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        return $filtered === false ? 0 : (int) $filtered;
+    }
+}
+
+if (!function_exists('request_string')) {
+    /** Return a form scalar as text; arrays and objects are invalid input. */
+    function request_string(mixed $value): string
+    {
+        return is_string($value) || is_int($value) || is_float($value)
+            ? (string) $value
+            : '';
+    }
+}
+
+if (!function_exists('require_doctor_patient_access')) {
+    /**
+     * Enforce the complete doctor object-level policy before any patient or
+     * clinical record is retrieved by a route.
+     *
+     * @param array<string,mixed> $user
+     */
+    function require_doctor_patient_access(
+        array $user,
+        int $patientId,
+        int $visitId,
+        string $target
+    ): void {
+        if (
+            (string) ($user['role'] ?? '') !== Rbac::ROLE_DOCTOR
+            || !ms_doctor_authorizer()->canAccess((int) $user['user_id'], $patientId, $visitId)
+        ) {
+            deny_access($user, $target, $patientId);
+        }
+    }
+}
+
 if (!function_exists('deny_access')) {
     /**
      * Record an UNAUTHORIZED_ACCESS audit event (status BLOCKED) and render the
@@ -244,15 +292,31 @@ if (!function_exists('deny_access')) {
      *
      * @param array<string,mixed> $user The authenticated user who was denied.
      */
-    function deny_access(array $user, string $target): never
+    function deny_access(array $user, string $target, ?int $patientId = null): never
     {
+        $targetModule = explode(':', $target, 2)[0];
+        $module = in_array($targetModule, [
+            'admin',
+            'auth',
+            'billing',
+            'doctor',
+            'lab',
+            'nurse',
+            'patients',
+            'pharmacy',
+            'reception',
+        ], true) ? $targetModule : 'auth';
+
         ms_audit_log([
             'user_id'      => (int) $user['user_id'],
             'user_role'    => (string) $user['role'],
             'action'       => 'UNAUTHORIZED_ACCESS',
-            'module'       => 'auth',
+            'module'       => $module,
+            'affected_record_id' => $patientId !== null && $patientId > 0
+                ? (string) $patientId
+                : null,
             'status'       => 'BLOCKED',
-            'anomaly_flag' => 'SUSPICIOUS',
+            'anomaly_flag' => 'HIGH_RISK',
         ]);
 
         http_response_code(403);

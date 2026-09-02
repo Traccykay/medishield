@@ -7,10 +7,14 @@ section 9.3 backbone that later clinical modules depend on:
   registration requires a distinct emergency-contact Kenyan mobile number after
   normalizing `0`, `254`, and `+254` representations
 - optional linkage between a patient record and a patient login account
-- nurse/doctor assignment management through `patient_assignments`
-- object-level access decisions for patient profile views
+- nurse/doctor assignment management through `patient_assignments`; ordinary
+  nurse unassignment remains assignment-only, while active doctor revocation is
+  orchestrated transactionally by `VisitService`
+- object-level access decisions for patient and nurse profile views
 
-Pages should call `PatientService` for validation and authorization decisions and
+Doctor routes and clinical/visit services use `Auth\DoctorPatientAuthorizer`
+directly as the single conjunctive assignment-plus-active-visit policy. Other
+pages call `PatientService` for validation and authorization decisions and
 `PatientRepository` for read/write persistence. All SQL uses PDO prepared
 statements so user-controlled search/profile identifiers are never concatenated
 into queries.

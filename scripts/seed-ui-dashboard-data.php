@@ -9,6 +9,7 @@ declare(strict_types=1);
  * remain valid. It refuses to run outside the isolated UI database.
  */
 
+use MediShield\Auth\DoctorPatientAuthorizer;
 use MediShield\Auth\UserRepository;
 use MediShield\Clinical\ClinicalRepository;
 use MediShield\Clinical\ClinicalService;
@@ -19,6 +20,7 @@ use MediShield\Security\Crypto;
 use MediShield\Support\Clock;
 use MediShield\Support\DisposableDatabase;
 use MediShield\Visit\VisitRepository;
+use MediShield\Visit\VisitService;
 
 if (PHP_SAPI !== 'cli') {
     http_response_code(403);
@@ -39,14 +41,16 @@ $pdo = Connection::fromConfig($config);
 $clock = new Clock();
 $users = new UserRepository($pdo, $clock);
 $patients = new PatientRepository($pdo, $clock);
+$doctorAuthorizer = new DoctorPatientAuthorizer($pdo);
 $patientService = new PatientService($patients, $users);
 $visits = new VisitRepository($pdo, $clock);
+$visitService = new VisitService($visits, $patients, $users, $doctorAuthorizer);
 $clinicalRepository = new ClinicalRepository($pdo, $clock);
 $clinical = new ClinicalService(
     $clinicalRepository,
     $patients,
     Crypto::fromHexKey($config['encryption_key_hex']),
-    $visits
+    $doctorAuthorizer
 );
 
 /** @return array<string,mixed> */
@@ -117,7 +121,7 @@ foreach ([$dashboardPatient, $doctorPatient, $labPatient, $pharmacyPatient] as $
 
 $receptionVisit = $visits->create($receptionPatient, (int) $receptionist['user_id'], 'cash', null);
 $dashboardVisit = $visits->create($dashboardPatient, (int) $receptionist['user_id'], 'cash', null);
-$visits->updateState($dashboardVisit, 'completed', null, (int) $doctor['user_id']);
+$visits->updateState($dashboardVisit, 'with_doctor', null, (int) $doctor['user_id']);
 
 if (getenv('MEDISHIELD_DASHBOARD_PATIENT_ONLY') === '1') {
     $requireOk($clinical->recordVitals($dashboardPatient, (int) $nurse['user_id'], [
@@ -169,29 +173,6 @@ if (getenv('MEDISHIELD_DASHBOARD_PATIENT_ONLY') === '1') {
     exit;
 }
 
-$nurseVisit = $visits->create($nursePatient, (int) $receptionist['user_id'], 'cash', null);
-$visits->updateState($nurseVisit, 'with_nurse', (int) $nurse['user_id']);
-
-$labVisit = $visits->create($labPatient, (int) $receptionist['user_id'], 'cash', null);
-$visits->updateState($labVisit, 'with_nurse', (int) $nurse['user_id']);
-if (!$visits->assignAvailableDoctor($labVisit, (int) $nurse['user_id'], (int) $doctor['user_id'])) {
-    throw new RuntimeException('Unable to assign lab queue patient to doctor.');
-}
-$visits->updateState($labVisit, 'lab');
-
-$pharmacyVisit = $visits->create($pharmacyPatient, (int) $receptionist['user_id'], 'insurance', 'AAR Insurance');
-$visits->updateState($pharmacyVisit, 'with_nurse', (int) $nurse['user_id']);
-if (!$visits->assignAvailableDoctor($pharmacyVisit, (int) $nurse['user_id'], (int) $doctor['user_id'])) {
-    throw new RuntimeException('Unable to assign pharmacy queue patient to doctor.');
-}
-$visits->updateState($pharmacyVisit, 'pharmacy');
-
-$doctorVisit = $visits->create($doctorPatient, (int) $receptionist['user_id'], 'cash', null);
-$visits->updateState($doctorVisit, 'with_nurse', (int) $nurse['user_id']);
-if (!$visits->assignAvailableDoctor($doctorVisit, (int) $nurse['user_id'], (int) $doctor['user_id'])) {
-    throw new RuntimeException('Unable to assign current consultation to doctor.');
-}
-
 $requireOk($clinical->recordVitals($dashboardPatient, (int) $nurse['user_id'], [
     'temperature_c' => '36.8',
     'systolic_mmhg' => '118',
@@ -241,6 +222,19 @@ $requireOk(
     'Prescription dispensing'
 );
 
+$nurseVisit = $visits->create($nursePatient, (int) $receptionist['user_id'], 'cash', null);
+$visits->updateState($nurseVisit, 'with_nurse', (int) $nurse['user_id']);
+
+$labVisit = $visits->create($labPatient, (int) $receptionist['user_id'], 'cash', null);
+$visits->updateState($labVisit, 'with_nurse', (int) $nurse['user_id']);
+$labAssignment = $visitService->assignDoctor(
+    $labVisit,
+    (int) $nurse['user_id'],
+    (int) $doctor['user_id']
+);
+if (!$labAssignment['ok']) {
+    throw new RuntimeException('Unable to assign lab queue patient to doctor.');
+}
 $labRecord = $clinical->addDiagnosis($labPatient, (int) $doctor['user_id'], $labVisit, 'Lab review', null);
 $requireOk($labRecord, 'Lab diagnosis');
 $pendingLab = $clinical->requestLab(
@@ -252,7 +246,18 @@ $pendingLab = $clinical->requestLab(
     'Investigate symptoms'
 );
 $requireOk($pendingLab, 'Pending lab request');
+$visits->updateState($labVisit, 'lab');
 
+$pharmacyVisit = $visits->create($pharmacyPatient, (int) $receptionist['user_id'], 'insurance', 'AAR Insurance');
+$visits->updateState($pharmacyVisit, 'with_nurse', (int) $nurse['user_id']);
+$pharmacyAssignment = $visitService->assignDoctor(
+    $pharmacyVisit,
+    (int) $nurse['user_id'],
+    (int) $doctor['user_id']
+);
+if (!$pharmacyAssignment['ok']) {
+    throw new RuntimeException('Unable to assign pharmacy queue patient to doctor.');
+}
 $pharmacyRecord = $clinical->addDiagnosis($pharmacyPatient, (int) $doctor['user_id'], $pharmacyVisit, 'Pharmacy review', null);
 $requireOk($pharmacyRecord, 'Pharmacy diagnosis');
 $pendingPrescription = $clinical->issuePrescription(
@@ -265,5 +270,25 @@ $pendingPrescription = $clinical->issuePrescription(
     'Take after meals'
 );
 $requireOk($pendingPrescription, 'Pending prescription');
+$visits->updateState($pharmacyVisit, 'pharmacy');
+
+$doctorVisit = $visits->create($doctorPatient, (int) $receptionist['user_id'], 'cash', null);
+$visits->updateState($doctorVisit, 'with_nurse', (int) $nurse['user_id']);
+$doctorAssignment = $visitService->assignDoctor(
+    $doctorVisit,
+    (int) $nurse['user_id'],
+    (int) $doctor['user_id']
+);
+if (!$doctorAssignment['ok']) {
+    throw new RuntimeException('Unable to assign current consultation to doctor.');
+}
+$doctorAuditRecord = $clinical->addDiagnosis(
+    $doctorPatient,
+    (int) $doctor['user_id'],
+    $doctorVisit,
+    'Doctor audit privacy sentinel',
+    'Doctor audit treatment sentinel'
+);
+$requireOk($doctorAuditRecord, 'Doctor audit diagnosis');
 
 echo "Dashboard UI data seeded for visit {$receptionVisit}.\n";

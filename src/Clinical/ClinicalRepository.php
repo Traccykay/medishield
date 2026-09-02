@@ -19,6 +19,25 @@ final class ClinicalRepository
     {
     }
 
+    public function transactional(callable $operation): mixed
+    {
+        if ($this->pdo->inTransaction()) {
+            return $operation();
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $result = $operation();
+            $this->pdo->commit();
+            return $result;
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
+
     public function createVitals(array $data): int
     {
         $stmt = $this->pdo->prepare(
@@ -106,9 +125,14 @@ final class ClinicalRepository
         return $stmt->fetchAll();
     }
 
-    public function findRecord(int $recordId): ?array
+    public function findRecord(int $recordId, bool $forUpdate = false): ?array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM medical_records WHERE record_id = :id LIMIT 1');
+        $lock = $forUpdate && $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql'
+            ? ' FOR UPDATE'
+            : '';
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM medical_records WHERE record_id = :id LIMIT 1' . $lock
+        );
         $stmt->execute([':id' => $recordId]);
         $row = $stmt->fetch();
         return $row === false ? null : $row;
@@ -167,6 +191,11 @@ final class ClinicalRepository
         );
         $stmt->execute($params);
         return $stmt->fetchAll();
+    }
+
+    public function countLabRequestsByDoctor(int $doctorId, string $status = 'pending'): int
+    {
+        return $this->countOrdersByDoctor('lab_requests', $doctorId, $status);
     }
 
     public function findLabRequest(int $labRequestId): ?array
@@ -287,8 +316,15 @@ final class ClinicalRepository
         array $labs,
         array $prescriptions
     ): array {
-        $this->pdo->beginTransaction();
-        try {
+        return $this->transactional(function () use (
+            $visitId,
+            $patientId,
+            $doctorId,
+            $diagnosis,
+            $treatment,
+            $labs,
+            $prescriptions
+        ): array {
             $recordId = $this->createMedicalRecord($visitId, $patientId, $doctorId, $diagnosis, $treatment);
             $labRequestIds = [];
             foreach ($labs as $lab) {
@@ -315,19 +351,12 @@ final class ClinicalRepository
                     $prescription['catalog_price_kes']
                 );
             }
-            $this->pdo->commit();
-
             return [
                 'record_id' => $recordId,
                 'lab_request_ids' => $labRequestIds,
                 'prescription_ids' => $prescriptionIds,
             ];
-        } catch (\Throwable $e) {
-            if ($this->pdo->inTransaction()) {
-                $this->pdo->rollBack();
-            }
-            throw $e;
-        }
+        });
     }
 
     public function prescriptions(string $status = 'pending', ?int $doctorId = null, ?int $patientId = null): array
@@ -353,6 +382,11 @@ final class ClinicalRepository
         );
         $stmt->execute($params);
         return $stmt->fetchAll();
+    }
+
+    public function countPrescriptionsByDoctor(int $doctorId, string $status = 'pending'): int
+    {
+        return $this->countOrdersByDoctor('prescriptions', $doctorId, $status);
     }
 
     /**
@@ -568,5 +602,27 @@ final class ClinicalRepository
         );
         $stmt->execute([':visit_id' => $visitId]);
         return $stmt->fetchAll();
+    }
+
+    private function countOrdersByDoctor(string $table, int $doctorId, string $status): int
+    {
+        if (!in_array($table, ['lab_requests', 'prescriptions'], true)) {
+            throw new \LogicException('Unsupported clinical order table.');
+        }
+
+        if ($doctorId < 1) {
+            return 0;
+        }
+
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM ' . $table . '
+              WHERE doctor_id = :doctor_id
+                AND status = :status'
+        );
+        $stmt->execute([
+            ':doctor_id' => $doctorId,
+            ':status' => $status,
+        ]);
+        return (int) $stmt->fetchColumn();
     }
 }

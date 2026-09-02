@@ -29,7 +29,9 @@ Cybersecurity is central to the project: authentication, role-based access contr
 ## Key Security Features
 
 - **Role-Based Access Control (RBAC):** server-side authorization for patient, receptionist, nurse, doctor, lab, pharmacist, and admin roles.
-- **Object-level authorization:** assigned-patient checks for nurses/doctors and queue-based access for lab/pharmacy workflows.
+- **Object-level authorization:** nurses require an active patient assignment;
+  doctors require both that assignment and ownership of the current active
+  `with_doctor` visit; lab/pharmacy access is queue-based.
 - **Password hashing:** passwords are stored with PHP `password_hash()` and verified with `password_verify()`.
 - **AES-256-GCM encryption:** sensitive clinical fields are encrypted at rest using authenticated encryption.
 - **HMAC hash-chained audit logs:** forensic audit entries are append-only and tamper-evident using HMAC-SHA256 with a server-side key.
@@ -206,7 +208,7 @@ composer install
 | PHPUnit integration | Services and repositories with a fresh in-memory SQLite database: authentication, activation/OTP, session revocation, audit retention, user/patient access, and clinical workflows. | `composer test:integration` |
 | All PHP tests | Runs both PHPUnit suites. It does not need MySQL or change local application data. | `composer test` |
 | Playwright workflow | Exercises the real browser-based hospital workflow using disposable role-specific accounts. | `.\scripts\run-ui-tests.ps1` |
-| Playwright security harness | Exercises hostile browser requests: role/object-reference denial, forged-CSRF no-mutation, stored-XSS encoding, security headers, and generic authentication failures. The standard UI runner executes it with the workflow tests. | `.\scripts\run-ui-tests.ps1` |
+| Playwright security harness | Exercises hostile browser requests: role/object-reference denial, live doctor-assignment revocation with nurse-queue recovery and released doctor capacity, forged-CSRF no-mutation, stored-XSS encoding, security headers, and generic authentication failures. The standard UI runner executes it with the workflow tests. | `.\scripts\run-ui-tests.ps1` |
 | OWASP ZAP passive baseline | Scans the disposable local application for passive OWASP-style HTTP findings and writes HTML, JSON, and XML reports. Requires Docker Desktop. | `.\scripts\run-zap-baseline.ps1` |
 
 The browser and ZAP runners both call `scripts\ensure-mysql.ps1`: it checks a

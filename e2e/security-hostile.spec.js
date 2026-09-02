@@ -57,6 +57,132 @@ test('blocks role and object-reference attacks without disclosing patient data',
   await expect(page.getByText('Audit logs')).not.toBeVisible();
 });
 
+test('revoked doctor assignment immediately blocks reads, IDOR, and mutation', async ({ page }) => {
+  const patientName = 'Revocation Protected Patient';
+  const authorizedDiagnosis = 'Authorized revocation baseline';
+  const forgedDiagnosis = 'Forged after revocation';
+  const authorizedDoctorEmail = 'ui.other-doctor@medishield.test';
+  const wrongDoctorEmail = 'ui.doctor@medishield.test';
+
+  await loginWithOtp(page, 'ui.receptionist@medishield.test');
+  await registerPatient(page, patientName);
+  const patientId = new URL(page.url()).searchParams.get('patient_id');
+  expect(patientId).not.toBeNull();
+  await page.getByLabel('Payment method').selectOption('cash');
+  await page.getByRole('button', { name: 'Add to triage queue' }).click();
+
+  await page.goto('/logout.php');
+  await loginWithOtp(page, 'ui.nurse@medishield.test');
+  await page.goto('/nurse/triage.php');
+  const triageRow = page.getByRole('row').filter({ hasText: patientName });
+  await triageRow.getByRole('button', { name: 'Start triage' }).click();
+  await page.getByLabel('Temperature C').fill('37.4');
+  await page.getByLabel('Systolic mmHg').fill('121');
+  await page.getByLabel('Diastolic mmHg').fill('81');
+  await page.getByLabel('Pulse bpm').fill('73');
+  await page.getByLabel('Weight kg').fill('66');
+  await page.getByLabel('Symptoms / observations').fill('Revocation protected symptoms');
+  await page.getByRole('button', { name: 'Save vitals' }).click();
+  await page.goto('/nurse/dashboard.php');
+  const nurseRow = page.getByRole('row').filter({ hasText: patientName });
+  await nurseRow.getByRole('link', { name: 'Assign doctor' }).click();
+  await page.getByLabel('Doctor').selectOption({
+    label: 'UI Other Doctor (ui.other-doctor@medishield.test)'
+  });
+  await page.getByRole('button', { name: 'Assign doctor' }).click();
+
+  await page.goto('/logout.php');
+  await loginWithOtp(page, authorizedDoctorEmail);
+  const consultationRow = page.getByRole('row').filter({ hasText: patientName });
+  const consultationHref = await consultationRow.getByRole('link', { name: 'Open' }).getAttribute('href');
+  const consultationUrl = new URL(consultationHref, page.url());
+  const visitId = consultationUrl.searchParams.get('visit_id');
+  expect(visitId).not.toBeNull();
+  await consultationRow.getByRole('link', { name: 'Open' }).click();
+  await page.getByRole('link', { name: 'Add diagnosis' }).click();
+  await page.getByLabel('Diagnosis').fill(authorizedDiagnosis);
+  await page.getByRole('button', { name: 'Save consultation and selected orders' }).click();
+  await expect(page.getByText(authorizedDiagnosis)).toBeVisible();
+
+  await page.goto('/logout.php');
+  await loginWithOtp(page, 'ui.admin@medishield.test');
+  await page.goto(`/admin/assign_patient.php?patient_id=${patientId}`);
+  const doctorAssignment = page.getByRole('row').filter({ hasText: authorizedDoctorEmail });
+  await doctorAssignment.getByRole('button', { name: 'Unassign' }).click();
+  await expect(page.getByText('Assignment removed.')).toBeVisible();
+
+  await page.goto('/logout.php');
+  await loginWithOtp(page, 'ui.nurse@medishield.test');
+  const recoveredNurseRow = page.getByRole('row')
+    .filter({ hasText: patientName })
+    .filter({ has: page.getByRole('link', { name: 'Assign doctor' }) });
+  await expect(recoveredNurseRow).toBeVisible();
+  await recoveredNurseRow.getByRole('link', { name: 'Assign doctor' }).click();
+  await expect(page.getByLabel('Doctor').locator(`option:has-text("${authorizedDoctorEmail}")`)).toHaveCount(1);
+
+  await page.goto('/logout.php');
+  await loginWithOtp(page, authorizedDoctorEmail);
+  await expect(page.getByText(patientName)).toHaveCount(0);
+  for (const url of [
+    `/doctor/view_patient.php?patient_id=${patientId}&visit_id=${visitId}`,
+    `/doctor/history.php?patient_id=${patientId}&visit_id=${visitId}`,
+    `/patient_profile.php?patient_id=${patientId}&visit_id=${visitId}`
+  ]) {
+    await page.goto(url);
+    await expect(page.getByRole('heading', { name: 'Access denied' })).toBeVisible();
+    await expect(page.getByText(patientName)).toHaveCount(0);
+    await expect(page.getByText('Revocation protected symptoms')).toHaveCount(0);
+    await expect(page.getByText(authorizedDiagnosis)).toHaveCount(0);
+  }
+
+  await page.goto('/change_password.php');
+  const csrfToken = await page.locator('input[name="csrf_token"]').inputValue();
+  const deniedMutation = await page.request.post('/doctor/add_diagnosis.php', {
+    form: {
+      csrf_token: csrfToken,
+      patient_id: patientId,
+      visit_id: visitId,
+      diagnosis: forgedDiagnosis
+    }
+  });
+  expect(deniedMutation.status()).toBe(403);
+
+  await page.goto('/logout.php');
+  await loginWithOtp(page, 'ui.admin@medishield.test');
+  await page.goto('/admin/audit.php');
+  const denialRow = page.getByRole('row')
+    .filter({ hasText: 'UNAUTHORIZED_ACCESS' })
+    .filter({ hasText: patientId })
+    .first();
+  await expect(denialRow).toContainText('doctor');
+  await expect(denialRow).toContainText('BLOCKED');
+  await expect(denialRow).toContainText('HIGH_RISK');
+
+  await page.goto('/logout.php');
+  await loginWithOtp(page, 'ui.nurse@medishield.test');
+  const rerouteRow = page.getByRole('row')
+    .filter({ hasText: patientName })
+    .filter({ has: page.getByRole('link', { name: 'Assign doctor' }) });
+  await rerouteRow.getByRole('link', { name: 'Assign doctor' }).click();
+  await page.getByLabel('Doctor').selectOption({
+    label: 'UI Other Doctor (ui.other-doctor@medishield.test)'
+  });
+  await page.getByRole('button', { name: 'Assign doctor' }).click();
+
+  await page.goto('/logout.php');
+  await loginWithOtp(page, authorizedDoctorEmail);
+  await page.goto(`/doctor/view_patient.php?patient_id=${patientId}&visit_id=${visitId}`);
+  await expect(page.getByText(authorizedDiagnosis)).toBeVisible();
+  await expect(page.getByText(forgedDiagnosis)).toHaveCount(0);
+
+  await page.goto('/logout.php');
+  await loginWithOtp(page, wrongDoctorEmail);
+  await page.goto(`/doctor/view_patient.php?patient_id=${patientId}&visit_id=${visitId}`);
+  await expect(page.getByRole('heading', { name: 'Access denied' })).toBeVisible();
+  await expect(page.getByText(patientName)).toHaveCount(0);
+  await expect(page.getByText(authorizedDiagnosis)).toHaveCount(0);
+});
+
 test('rejects a forged CSRF form POST without creating a patient', async ({ page }) => {
   await loginWithOtp(page, 'ui.receptionist@medishield.test');
 

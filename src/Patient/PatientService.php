@@ -11,9 +11,11 @@ use PDOException;
 /**
  * Validation and authorization layer for patient demographics and assignments.
  *
- * This is the object-level access backbone required by the spec: patients can
- * see only their own linked record, nurses/doctors can see assigned patients, and
- * admins can manage demographics/assignments without gaining clinical privileges.
+ * This is the object-level access backbone required by the spec: patients see
+ * only their own linked record, nurses require assignment, and admins can
+ * manage demographics/assignments without gaining clinical privileges. Doctor
+ * access is enforced by the central encounter authorizer at doctor routes and
+ * clinical/visit services.
  */
 final class PatientService
 {
@@ -192,13 +194,17 @@ final class PatientService
      */
     public function canViewPatient(array $user, int $patientId): bool
     {
-        $patient = $this->patients->findById($patientId);
-        if ($patient === null) {
+        if ($patientId < 1) {
             return false;
         }
 
         $role = (string) $user['role'];
         $userId = (int) $user['user_id'];
+
+        $patient = $this->patients->findById($patientId);
+        if ($patient === null) {
+            return false;
+        }
 
         if (in_array($role, [Rbac::ROLE_ADMIN, Rbac::ROLE_RECEPTIONIST], true)) {
             return true;
@@ -208,7 +214,7 @@ final class PatientService
             return isset($patient['user_id']) && $patient['user_id'] !== null && (int) $patient['user_id'] === $userId;
         }
 
-        if (in_array($role, [Rbac::ROLE_NURSE, Rbac::ROLE_DOCTOR], true)) {
+        if ($role === Rbac::ROLE_NURSE) {
             return $this->patients->isAssigned($patientId, $userId);
         }
 

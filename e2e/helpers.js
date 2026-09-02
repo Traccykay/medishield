@@ -1,9 +1,31 @@
+const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
 const password = 'UiTest!2026';
 const mailDirectory = process.env.MEDISHIELD_MAIL_DUMP_DIR
   || path.join(__dirname, '..', 'test-results', 'mail');
+const root = path.resolve(__dirname, '..');
+
+function resetUiDatabase() {
+  execFileSync('powershell.exe', [
+    '-NoProfile', '-ExecutionPolicy', 'Bypass',
+    '-File', path.join(root, 'scripts', 'setup-ui-test-db.ps1')
+  ], { cwd: root, stdio: 'inherit' });
+  execFileSync('php', [path.join(root, 'scripts', 'seed-ui-test-users.php')], {
+    cwd: root,
+    stdio: 'inherit',
+    env: { ...process.env, MEDISHIELD_DB_NAME: 'medishield_ui_test' }
+  });
+}
+
+function seedDashboardData() {
+  execFileSync('php', [path.join(root, 'scripts', 'seed-ui-dashboard-data.php')], {
+    cwd: root,
+    stdio: 'inherit',
+    env: { ...process.env, MEDISHIELD_DB_NAME: 'medishield_ui_test' }
+  });
+}
 
 async function waitForMail(directory, count) {
   const deadline = Date.now() + 10_000;
@@ -39,4 +61,9 @@ async function loginWithOtp(page, email, accountPassword = password) {
   await page.getByRole('button', { name: 'Verify' }).click();
 }
 
-module.exports = { loginWithOtp, readNewMail };
+module.exports = {
+  loginWithOtp,
+  readNewMail,
+  resetUiDatabase,
+  seedDashboardData
+};

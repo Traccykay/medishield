@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MediShield\Visit;
 
+use MediShield\Auth\DoctorPatientAuthorizer;
 use MediShield\Auth\Rbac;
 use MediShield\Auth\UserRepository;
 use MediShield\Patient\PatientRepository;
@@ -20,7 +21,8 @@ final class VisitService
     public function __construct(
         private VisitRepository $visits,
         private PatientRepository $patients,
-        private UserRepository $users
+        private UserRepository $users,
+        private DoctorPatientAuthorizer $doctorAuthorizer
     ) {
     }
 
@@ -87,27 +89,76 @@ final class VisitService
             return ['ok' => false, 'errors' => ['Selected doctor is not available.']];
         }
         try {
-            if (!$this->visits->assignAvailableDoctor($visitId, $nurseId, $doctorId)) {
+            $assigned = $this->visits->transactional(function () use ($visitId, $nurseId, $doctorId): bool {
+                $patientId = $this->visits->reserveAvailableDoctor($visitId, $nurseId, $doctorId);
+                if ($patientId === null) {
+                    return false;
+                }
+
+                $this->patients->assign($patientId, $doctorId, $nurseId);
+                return true;
+            });
+            if (!$assigned) {
                 return ['ok' => false, 'errors' => ['Visit is no longer waiting for doctor routing.']];
             }
         } catch (PDOException) {
             return ['ok' => false, 'errors' => ['Selected doctor is not available.']];
         }
-        $this->patients->assign((int) $visit['patient_id'], $doctorId, $nurseId);
+        return ['ok' => true, 'errors' => []];
+    }
+
+    /**
+     * Revoke doctor access and recover an active consultation in one transaction.
+     *
+     * @return array{ok:bool,errors:string[]}
+     */
+    public function revokeDoctorAssignment(int $patientId, int $doctorId): array
+    {
+        if ($this->patients->findById($patientId) === null) {
+            return ['ok' => false, 'errors' => ['Patient not found.']];
+        }
+
+        $doctor = $this->users->findById($doctorId);
+        if ($doctor === null || (string) $doctor['role'] !== Rbac::ROLE_DOCTOR) {
+            return ['ok' => false, 'errors' => ['Assigned doctor not found.']];
+        }
+
+        try {
+            $this->visits->transactional(function () use ($patientId, $doctorId): void {
+                $this->visits->returnDoctorVisitToNurseQueue($patientId, $doctorId);
+                $this->patients->unassign($patientId, $doctorId);
+            });
+        } catch (PDOException) {
+            return ['ok' => false, 'errors' => ['Unable to remove assignment. Please try again.']];
+        }
+
         return ['ok' => true, 'errors' => []];
     }
 
     /** @return array{ok:bool,errors:string[]} */
-    public function routeFromDoctor(int $visitId, int $doctorId, string $destination): array
+    public function routeFromDoctor(int $visitId, int $patientId, int $doctorId, string $destination): array
     {
-        $visit = $this->visits->findById($visitId);
-        if ($visit === null || (string) $visit['status'] !== 'with_doctor' || (int) $visit['doctor_id'] !== $doctorId) {
+        if (!$this->doctorAuthorizer->canAccess($doctorId, $patientId, $visitId)) {
             return ['ok' => false, 'errors' => ['Visit is not assigned to you for routing.']];
         }
         if (!in_array($destination, ['lab', 'pharmacy'], true)) {
             return ['ok' => false, 'errors' => ['Invalid visit destination.']];
         }
-        $this->visits->updateState($visitId, $destination);
+        $updated = $this->visits->transactional(function () use (
+            $visitId,
+            $patientId,
+            $doctorId,
+            $destination
+        ): bool {
+            if (!$this->doctorAuthorizer->canAccess($doctorId, $patientId, $visitId, true)) {
+                return false;
+            }
+            $this->visits->updateState($visitId, $destination);
+            return true;
+        });
+        if (!$updated) {
+            return ['ok' => false, 'errors' => ['Visit is not assigned to you for routing.']];
+        }
         return ['ok' => true, 'errors' => []];
     }
 
@@ -153,7 +204,7 @@ final class VisitService
     /** @return array<int,array<string,mixed>> */
     public function doctorVisits(int $doctorId): array
     {
-        return $this->visits->visitsByStatus('with_doctor', $doctorId, 'doctor_id');
+        return $this->doctorAuthorizer->authorizedVisits($doctorId);
     }
 
     /** @return array<int,array<string,mixed>> */

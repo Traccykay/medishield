@@ -79,10 +79,24 @@ asserts the safe result:
 | Hostile path | What the test proves |
 | --- | --- |
 | Low-privilege role requests an admin page or another patient's record | The server denies access and does not render protected patient data. |
+| Administrator revokes a doctor assignment while its visit remains active; the revoked or another doctor retries direct reads and a valid-CSRF mutation | The encounter returns to the existing nurse queue, the revoked doctor becomes selectable again, dashboard/list/detail/history/profile access disappears immediately, protected values remain undisclosed, no forged diagnosis is written, and the denial audit is `BLOCKED` / `HIGH_RISK` with the patient identifier. |
 | Authenticated form POST has no CSRF token | The request is rejected and no patient is created. |
 | Stored patient value contains HTML markup | The value is rendered as text, not executable DOM. |
 | Login request and invalid credentials | Required security headers are sent, `X-Powered-By` is absent, and errors do not reveal whether an account exists. |
 | Repeated password-reset submissions from one address | The server throttles the request storm and does not send more reset mail after blocking it. |
+
+`dashboard-kpis.spec.js` also proves that doctor detail/history navigation emits
+exactly one safe `PATIENT_VIEW` event per authorized page load, without placing
+clinical contents in the audit view, and that doctor dashboard/report pending
+order counts remain scoped to the authenticated doctor after queue routing.
+
+`doctor-routing-failure.spec.js` uses a trigger only in the disposable test
+database to revoke a doctor assignment immediately after a standalone or
+consultation-linked lab/prescription insert. It proves the committed clinical
+write remains, routing does not occur, the user sees a message that distinguishes
+the saved consultation/orders from the failed routing step, and exactly one
+patient-scoped `BLOCKED` / `HIGH_RISK` denial is stored without submitted
+clinical values.
 
 Run every browser test, including the harness, with:
 

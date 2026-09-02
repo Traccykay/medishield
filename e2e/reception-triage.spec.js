@@ -4,6 +4,7 @@ const { loginWithOtp } = require('./helpers');
 test.describe.configure({ mode: 'serial' });
 
 let workflowPatientId;
+let workflowVisitId;
 let workflowRefusedPrescriptionId;
 
 test('receptionist can search and start a patient triage visit', async ({ page }) => {
@@ -76,6 +77,8 @@ test('doctor submits multiple encounter-linked lab tests and prescriptions', asy
   const openConsultation = page.getByRole('link', { name: 'Open' });
   const consultationUrl = await openConsultation.getAttribute('href');
   const consultation = new URL(consultationUrl, page.url());
+  workflowVisitId = consultation.searchParams.get('visit_id');
+  expect(workflowVisitId).not.toBeNull();
   const csrfResponse = await page.request.post('/doctor/add_diagnosis.php', {
     form: {
       patient_id: consultation.searchParams.get('patient_id'),
@@ -150,7 +153,7 @@ test('doctor submits multiple encounter-linked lab tests and prescriptions', asy
   await expect(page.getByRole('heading', { name: 'Pharmacy review' })).toBeVisible();
   await expect(page.getByText('Refused')).toBeVisible();
   await expect(page.getByText('Medication is unavailable; doctor review is required.')).toBeVisible();
-  await page.goto(`/doctor/history.php?patient_id=${workflowPatientId}`);
+  await page.goto(`/doctor/history.php?patient_id=${workflowPatientId}&visit_id=${workflowVisitId}`);
 
   await expect(page.getByRole('heading', { name: 'Vitals' })).toBeVisible();
   await expect(page.getByText('37.1')).toBeVisible();
@@ -182,6 +185,7 @@ test('doctor submits multiple encounter-linked lab tests and prescriptions', asy
 
 test('doctor cannot retry a refused pharmacy outcome', async ({ page }) => {
   expect(workflowPatientId).not.toBeNull();
+  expect(workflowVisitId).not.toBeNull();
   expect(workflowRefusedPrescriptionId).not.toBeNull();
 
   await page.waitForTimeout(1100);
@@ -196,7 +200,7 @@ test('doctor cannot retry a refused pharmacy outcome', async ({ page }) => {
 
   expect(response.status()).toBe(403);
   await expect(response.text()).resolves.toContain('Access denied');
-  await page.goto(`/doctor/history.php?patient_id=${workflowPatientId}`);
+  await page.goto(`/doctor/history.php?patient_id=${workflowPatientId}&visit_id=${workflowVisitId}`);
   const dispensingHistory = page.locator('section').filter({
    has: page.getByRole('heading', { name: 'Dispensing history' })
   });
@@ -206,9 +210,10 @@ test('doctor cannot retry a refused pharmacy outcome', async ({ page }) => {
 
 test('wrong doctor cannot view another doctor’s completed patient history', async ({ page }) => {
   expect(workflowPatientId).not.toBeNull();
+  expect(workflowVisitId).not.toBeNull();
 
   await loginWithOtp(page, 'ui.other-doctor@medishield.test');
-  await page.goto(`/doctor/history.php?patient_id=${workflowPatientId}`);
+  await page.goto(`/doctor/history.php?patient_id=${workflowPatientId}&visit_id=${workflowVisitId}`);
 
   await expect(page.getByRole('heading', { name: 'Access denied' })).toBeVisible();
   await expect(page.getByText('UI Flow Patient')).not.toBeVisible();

@@ -14,19 +14,13 @@ require_once __DIR__ . '/../includes/guard.php';
 require_once __DIR__ . '/../includes/layout.php';
 
 $user = require_nav('patients');
-$patientId = (int) ($_GET['patient_id'] ?? 0);
+$patientId = request_positive_int($_GET['patient_id'] ?? null);
+$visitId = request_positive_int($_GET['visit_id'] ?? null);
 
-if ($patientId <= 0 || !ms_patient_service()->canViewPatient($user, $patientId)) {
-    ms_audit_log([
-        'user_id' => (int) $user['user_id'],
-        'user_role' => (string) $user['role'],
-        'action' => 'UNAUTHORIZED_ACCESS',
-        'module' => 'patients',
-        'affected_record_id' => $patientId > 0 ? (string) $patientId : null,
-        'status' => 'BLOCKED',
-        'anomaly_flag' => 'HIGH_RISK',
-    ]);
-    redirect('/unauthorized.php');
+if ((string) $user['role'] === 'doctor') {
+    require_doctor_patient_access($user, $patientId, $visitId, 'patients:profile');
+} elseif ($patientId <= 0 || !ms_patient_service()->canViewPatient($user, $patientId)) {
+    deny_access($user, 'patients:profile', $patientId);
 }
 
 $patient = ms_patient_repo()->findById($patientId);
