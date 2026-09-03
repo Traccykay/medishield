@@ -213,6 +213,14 @@ final class BootstrapConfigurationTest extends TestCase
     {
         return [
             'environment' => 'production',
+            'encryption_key_hex' => str_repeat('11', 32),
+            'audit_hmac_key_hex' => str_repeat('22', 32),
+            'audit_key_id' => 'audit-primary-2026',
+            'audit_anchor_hmac_key_hex' => str_repeat('33', 32),
+            'audit_anchor_key_id' => 'anchor-primary-2026',
+            'audit_anchor_path' => $this->workingDirectory . DIRECTORY_SEPARATOR
+                . 'audit-chain-anchors.jsonl',
+            'request_throttle_hmac_key_hex' => str_repeat('44', 32),
             'session' => [
                 'cookie_name' => 'MEDISHIELD_PROBE_SID',
             ],

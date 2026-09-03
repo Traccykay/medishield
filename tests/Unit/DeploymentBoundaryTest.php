@@ -78,23 +78,37 @@ final class DeploymentBoundaryTest extends TestCase
         self::assertStringContainsString('& $scriptPath -DbName $DbName', $contents);
     }
 
-    public function testDatabaseSetup_PropagatesSelectedDatabaseToVitalsMigration(): void
+    public function testDatabaseSetup_UsesProcessScopedOverridesForEveryPhpHelper(): void
     {
         $contents = (string) file_get_contents(
             $this->root . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'setup-db.ps1'
         );
-        $databaseOverride = strpos($contents, '$env:MEDISHIELD_SETUP_DB_NAME = $DbName');
-        $migrationInvocation = strpos($contents, '& php $vitalsMigrationPath');
-        $databaseOverrideCleanup = strpos(
-            $contents,
-            'Remove-Item Env:MEDISHIELD_SETUP_DB_NAME'
+
+        self::assertStringContainsString(
+            'function Invoke-PhpSetupHelper',
+            $contents
+        );
+        self::assertStringContainsString(
+            '$env:MEDISHIELD_SETUP_DB_NAME = $DatabaseName',
+            $contents
+        );
+        self::assertStringContainsString('& php $ScriptPath', $contents);
+        self::assertStringContainsString(
+            'Remove-Item Env:MEDISHIELD_SETUP_DB_NAME',
+            $contents
         );
 
-        self::assertNotFalse($databaseOverride);
-        self::assertNotFalse($migrationInvocation);
-        self::assertNotFalse($databaseOverrideCleanup);
-        self::assertLessThan($migrationInvocation, $databaseOverride);
-        self::assertGreaterThan($migrationInvocation, $databaseOverrideCleanup);
+        foreach ([
+            '$auditInitializerPath',
+            '$grantVerifierPath',
+            '$vitalsMigrationPath',
+        ] as $helperPath) {
+            self::assertStringContainsString(
+                "Invoke-PhpSetupHelper -ScriptPath {$helperPath}",
+                $contents,
+                "{$helperPath} must receive the selected database through process-scoped overrides."
+            );
+        }
     }
 
     #[DataProvider('disposablePhpHelpers')]

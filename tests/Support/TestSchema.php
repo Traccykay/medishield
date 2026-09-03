@@ -47,6 +47,10 @@ final class TestSchema
     private const AUDIT_LOGS_DDL = <<<SQL
         CREATE TABLE audit_logs (
             log_id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            seq                INTEGER NOT NULL UNIQUE CHECK (seq >= 1),
+            event_id           TEXT    NOT NULL UNIQUE,
+            key_id             TEXT    NOT NULL,
+            format_version     INTEGER NOT NULL,
             user_id            INTEGER NULL,
             user_role          TEXT    NOT NULL,
             action             TEXT    NOT NULL,
@@ -59,7 +63,23 @@ final class TestSchema
             attempted_identifier TEXT  NULL,
             previous_hash      TEXT    NOT NULL,
             current_hash       TEXT    NOT NULL,
-            created_at         TEXT    NOT NULL
+            created_at         TEXT    NOT NULL,
+            UNIQUE (previous_hash)
+        );
+    SQL;
+
+    /** Singleton keyed commitment to the current audit-chain tip. */
+    private const AUDIT_CHAIN_HEAD_DDL = <<<SQL
+        CREATE TABLE audit_chain_head (
+            singleton_id  INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+            last_seq      INTEGER NOT NULL,
+            last_log_id   INTEGER NULL,
+            head_hash     TEXT    NOT NULL,
+            key_id        TEXT    NOT NULL,
+            format_version INTEGER NOT NULL,
+            key_check     TEXT    NOT NULL,
+            head_mac      TEXT    NOT NULL,
+            updated_at    TEXT    NOT NULL
         );
     SQL;
 
@@ -266,10 +286,26 @@ final class TestSchema
     public static function pdo(): PDO
     {
         $pdo = new PDO('sqlite::memory:');
+        self::initialize($pdo);
+        return $pdo;
+    }
+
+    public static function filePdo(string $path): PDO
+    {
+        $pdo = new PDO('sqlite:' . $path);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo->exec('PRAGMA journal_mode = WAL');
+        self::initialize($pdo);
+        return $pdo;
+    }
+
+    private static function initialize(PDO $pdo): void
+    {
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
         $pdo->exec(self::USERS_DDL);
         $pdo->exec(self::AUDIT_LOGS_DDL);
+        $pdo->exec(self::AUDIT_CHAIN_HEAD_DDL);
         $pdo->exec(self::OTP_CODES_DDL);
         $pdo->exec(self::REQUEST_THROTTLES_DDL);
         $pdo->exec(self::ACCOUNT_ACTIVATIONS_DDL);
@@ -284,6 +320,5 @@ final class TestSchema
         $pdo->exec(self::LAB_RESULTS_DDL);
         $pdo->exec(self::PRESCRIPTIONS_DDL);
         $pdo->exec(self::DISPENSING_RECORDS_DDL);
-        return $pdo;
     }
 }

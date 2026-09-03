@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { loginWithOtp } = require('./helpers');
+const { auditEventsAfter, latestAuditId, loginWithOtp } = require('./helpers');
 
 test.describe.configure({ mode: 'serial' });
 
@@ -7,6 +7,7 @@ let otherVisitUrl;
 
 test('receptionist creates immutable visit charges and records a cash receipt', async ({ page }) => {
   await loginWithOtp(page, 'ui.receptionist@medishield.test');
+  const billingAuditStart = latestAuditId();
   await page.goto('/payments.php');
 
   await expect(page.getByRole('heading', { name: 'Billing and payments' })).toBeVisible();
@@ -44,6 +45,13 @@ test('receptionist creates immutable visit charges and records a cash receipt', 
   await expect(page.getByText('Payment recorded.')).toBeVisible();
   await expect(page.getByText('Payment status: pending_insurance')).toBeVisible();
   await expect(page.getByText('CLAIM-UI-001')).toBeVisible();
+
+  const billingEvents = auditEventsAfter(billingAuditStart);
+  expect(billingEvents.some((event) => event.action === 'BILLING_VIEWED')).toBe(true);
+  expect(billingEvents.filter((event) => event.action === 'BILLING_CHARGE_ADDED')).toHaveLength(2);
+  expect(billingEvents.filter((event) => event.action === 'PAYMENT_RECORDED')).toHaveLength(2);
+  expect(JSON.stringify(billingEvents)).not.toContain('CASH-UI-001');
+  expect(JSON.stringify(billingEvents)).not.toContain('CLAIM-UI-001');
 });
 
 test('patient sees only their paid bill and forged mutation does not change it', async ({ page }) => {

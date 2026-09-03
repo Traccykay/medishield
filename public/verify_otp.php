@@ -121,6 +121,20 @@ if ($isPost) {
             unset($_SESSION['pending_login']);
             login_user($user);
 
+            // LOGIN_SUCCESS is true only after MFA and session regeneration. If
+            // this critical append fails, revoke the new session and require a
+            // fresh sign-in; access remains fail closed.
+            if (!ms_audit_log([
+                'user_id' => $userId,
+                'user_role' => (string) $user['role'],
+                'action' => 'LOGIN_SUCCESS',
+                'module' => 'auth',
+                'status' => 'SUCCESS',
+            ])) {
+                logout_user();
+                redirect('/login.php?otp=audit_unavailable');
+            }
+
             $mustChange = (bool) ($user['must_change_password'] ?? false);
             redirect($mustChange ? '/change_password.php' : landing_path_for((string) $user['role']));
         }

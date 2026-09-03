@@ -73,21 +73,24 @@ if ($isPost) {
         if ($result['status'] === 'success') {
             $user = $result['user'];
 
-            // Password was correct, but login is NOT complete yet: MediShield uses
+            if (($result['account_unlocked'] ?? false) === true) {
+                ms_audit_log([
+                    'user_id' => (int) $user['user_id'],
+                    'user_role' => (string) $user['role'],
+                    'action' => 'ACCOUNT_UNLOCKED',
+                    'module' => 'auth',
+                    'status' => 'SUCCESS',
+                ]);
+            }
+
+            // Password was correct, but LOGIN_SUCCESS is intentionally not emitted:
+            // login is NOT complete yet because MediShield uses
             // email OTP as a second factor (2FA). We issue a one-time code, email it,
             // and stash a *pending* login in the session — distinct from the real
             // $_SESSION['auth'], so the user is NOT yet authenticated. They must pass
             // verify_otp.php before login_user() runs. (Lockout/failed-login tracking
             // already happened above in AuthService and is untouched by this stage.)
             $code = ms_otp_service()->issue((int) $user['user_id']);
-
-            ms_audit_log([
-                'user_id'   => (int) $user['user_id'],
-                'user_role' => (string) $user['role'],
-                'action'    => 'OTP_SENT',
-                'module'    => 'auth',
-                'status'    => 'SUCCESS',
-            ]);
 
             ms_mailer()->send(
                 (string) $user['email'],
@@ -98,6 +101,14 @@ if ($isPost) {
                 . "It expires in " . (int) (ms_config()['otp']['ttl_minutes'] ?? 10)
                 . " minutes. If you did not try to sign in, please tell an administrator.\n"
             );
+
+            ms_audit_log([
+                'user_id'   => (int) $user['user_id'],
+                'user_role' => (string) $user['role'],
+                'action'    => 'OTP_SENT',
+                'module'    => 'auth',
+                'status'    => 'SUCCESS',
+            ]);
 
             // Only non-sensitive routing data lives in the pending record.
             $_SESSION['pending_login'] = ms_session_validator()->createPendingLogin($user);

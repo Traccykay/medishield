@@ -6,6 +6,7 @@ security-sensitive changes; no one layer proves the whole security posture.
 | Layer | Command | What it verifies |
 | --- | --- | --- |
 | PHP unit + integration | `composer test` | Crypto, CSRF, RBAC, audit-chain integrity, throttling, authentication, OTP, and data-access behavior. Does not need MySQL. |
+| Real MariaDB forensic test | `$env:MEDISHIELD_MARIADB_AUDIT_TEST='1'; vendor\bin\phpunit tests\Integration\MariaDbAuditConcurrencyTest.php` | Applies the v2 migration twice, preserves v1 HMACs, checks `ascii_bin`/unique constraints, and drives two concurrent append processes against the allowlisted disposable database. |
 | Browser workflows + hostile paths | `.\scripts\run-ui-tests.ps1` | The real rendered application, role/ownership denial, CSRF no-write behavior, stored-XSS encoding, headers, generic authentication failures, reset-link revocation, and reset-storm throttling. |
 | OWASP ZAP passive baseline | `.\scripts\run-zap-baseline.ps1` | Spidered unauthenticated HTTP responses, passive OWASP-style findings, and ZAP HTML/JSON/XML reports. Requires Docker Desktop. |
 
@@ -148,3 +149,24 @@ code fixes plus hostile-path regression coverage.
 - ZAP stores all reports under `test-results\zap\`.
 - Application-side detail is logged to `logs\app_errors.log`; users see generic
   errors by design.
+
+## Forensic verification and anchor checks
+
+```powershell
+# Verify exact grants and rolled-back forbidden mutations (normally run by setup):
+$env:MEDISHIELD_SETUP_DB_USER = 'root'
+$env:MEDISHIELD_SETUP_DB_PASS = ''
+php scripts\verify-audit-grants.php
+
+# After a valid local chain is established, append the current head externally:
+php scripts\anchor-audit-chain.php
+
+# Retention preview and bounded live run:
+php scripts\purge-audit-pii.php --dry-run
+php scripts\purge-audit-pii.php --days 90 --batch-size 250
+```
+
+Expected integrity states are `PASS`, `FAIL`, and `UNKNOWN`; absence of the
+external anchor, a wrong key, or a verification exception must never be
+reported as `PASS`. Preserve the anchor file separately before destructive
+rollback tests.

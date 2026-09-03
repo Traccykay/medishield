@@ -23,7 +23,7 @@ if ($isPost) {
     if ($patientId > 0) {
         $result = ms_visit_service()->createVisit($patientId, (int) $user['user_id'], $paymentMethod, $insurer);
         if ($result['ok']) {
-            ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'receptionist', 'action' => 'PATIENT_REGISTERED', 'module' => 'reception', 'affected_record_id' => (string) $result['visit_id'], 'status' => 'SUCCESS']);
+            ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'receptionist', 'action' => 'VISIT_REGISTERED', 'module' => 'reception', 'affected_record_id' => (string) $result['visit_id'], 'status' => 'SUCCESS']);
             redirect('/reception/dashboard.php');
         }
         $errors = $result['errors'];

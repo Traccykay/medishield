@@ -20,6 +20,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+$setupConfigFunctionsPath = Join-Path $PSScriptRoot 'setup-config.ps1'
+if (-not (Test-Path -LiteralPath $setupConfigFunctionsPath)) {
+    throw "Setup configuration helpers were not found at '$setupConfigFunctionsPath'."
+}
+. $setupConfigFunctionsPath
+
 function Get-XamppMysqlPath {
     $candidates = @(
         'C:\xampp\mysql\bin\mysql.exe',
@@ -107,40 +113,94 @@ function Invoke-MySqlScriptFile {
     }
 }
 
-function New-SetupSecret {
-    $bytes = New-Object byte[] 32
-    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-    try {
-        $rng.GetBytes($bytes)
-    } finally {
-        $rng.Dispose()
-    }
-    return ([BitConverter]::ToString($bytes).Replace('-', '')).ToLowerInvariant()
-}
-
-function Write-ApplicationConfig {
+function Revoke-DatabasePrivileges {
     param(
-        [Parameter(Mandatory = $true)][string]$SamplePath,
-        [Parameter(Mandatory = $true)][string]$DestinationPath,
+        [Parameter(Mandatory = $true)][string]$MySqlPath,
+        [Parameter(Mandatory = $true)][string[]]$BaseArguments,
         [Parameter(Mandatory = $true)][string]$DatabaseName,
-        [Parameter(Mandatory = $true)][string]$DatabasePassword,
-        [Parameter(Mandatory = $true)][string]$AuditMaintenanceDatabasePassword,
-        [Parameter(Mandatory = $true)][string]$EncryptionKey,
-        [Parameter(Mandatory = $true)][string]$AuditKey
+        [Parameter(Mandatory = $true)][string]$AccountName
     )
 
-    $config = Get-Content -LiteralPath $SamplePath -Raw
-    $config = $config.Replace("'name'    => 'medishield_db'", "'name'    => '$DatabaseName'")
-    $config = $config.Replace('__DB_PASSWORD__', $DatabasePassword)
-    $config = $config.Replace('__AUDIT_MAINTENANCE_DB_PASSWORD__', $AuditMaintenanceDatabasePassword)
-    $config = $config.Replace('__ENCRYPTION_KEY__', $EncryptionKey)
-    $config = $config.Replace('__AUDIT_HMAC_KEY__', $AuditKey)
-    Set-Content -LiteralPath $DestinationPath -Value $config -NoNewline
+    $grantee = "'''$AccountName''@''127.0.0.1'''"
+    $queries = @(
+        "SELECT CONCAT('REVOKE ', GROUP_CONCAT(privilege_type ORDER BY privilege_type SEPARATOR ', '), ' ON ``$DatabaseName``.* FROM ''$AccountName''@''127.0.0.1'';') FROM information_schema.schema_privileges WHERE grantee = $grantee AND table_schema = '$DatabaseName' GROUP BY table_schema;",
+        "SELECT CONCAT('REVOKE ', GROUP_CONCAT(privilege_type ORDER BY privilege_type SEPARATOR ', '), ' ON ``$DatabaseName``.``', table_name, '`` FROM ''$AccountName''@''127.0.0.1'';') FROM information_schema.table_privileges WHERE grantee = $grantee AND table_schema = '$DatabaseName' GROUP BY table_name;",
+        "SELECT CONCAT('REVOKE ', privilege_type, ' (', GROUP_CONCAT(CONCAT('``', column_name, '``') ORDER BY column_name SEPARATOR ', '), ') ON ``$DatabaseName``.``', table_name, '`` FROM ''$AccountName''@''127.0.0.1'';') FROM information_schema.column_privileges WHERE grantee = $grantee AND table_schema = '$DatabaseName' GROUP BY table_name, privilege_type;"
+    )
+
+    foreach ($query in $queries) {
+        $statements = & $MySqlPath @BaseArguments '--batch' '--skip-column-names' "--execute=$query"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not enumerate existing grants for $AccountName."
+        }
+        foreach ($statement in $statements) {
+            if (-not [string]::IsNullOrWhiteSpace($statement)) {
+                Invoke-MySqlCommand -MySqlPath $MySqlPath -Arguments ($BaseArguments + @("--execute=$statement")) -Description "Privilege reset for $AccountName"
+            }
+        }
+    }
+}
+
+function Invoke-PhpSetupHelper {
+    param(
+        [Parameter(Mandatory = $true)][string]$ScriptPath,
+        [Parameter(Mandatory = $true)][string]$Description,
+        [Parameter(Mandatory = $true)][string]$DatabaseName,
+        [Parameter(Mandatory = $true)][string]$SetupUser,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$SetupPassword
+    )
+
+    if (-not (Test-Path -LiteralPath $ScriptPath)) {
+        throw "$Description helper not found at '$ScriptPath'."
+    }
+
+    $previousSetupDatabase = [Environment]::GetEnvironmentVariable(
+        'MEDISHIELD_SETUP_DB_NAME',
+        'Process'
+    )
+    $previousSetupUser = [Environment]::GetEnvironmentVariable(
+        'MEDISHIELD_SETUP_DB_USER',
+        'Process'
+    )
+    $previousSetupPass = [Environment]::GetEnvironmentVariable(
+        'MEDISHIELD_SETUP_DB_PASS',
+        'Process'
+    )
+    try {
+        $env:MEDISHIELD_SETUP_DB_NAME = $DatabaseName
+        $env:MEDISHIELD_SETUP_DB_USER = $SetupUser
+        $env:MEDISHIELD_SETUP_DB_PASS = $SetupPassword
+        & php $ScriptPath
+        $exitCode = $LASTEXITCODE
+    } finally {
+        if ($null -eq $previousSetupDatabase) {
+            Remove-Item Env:MEDISHIELD_SETUP_DB_NAME -ErrorAction SilentlyContinue
+        } else {
+            $env:MEDISHIELD_SETUP_DB_NAME = $previousSetupDatabase
+        }
+        if ($null -eq $previousSetupUser) {
+            Remove-Item Env:MEDISHIELD_SETUP_DB_USER -ErrorAction SilentlyContinue
+        } else {
+            $env:MEDISHIELD_SETUP_DB_USER = $previousSetupUser
+        }
+        if ($null -eq $previousSetupPass) {
+            Remove-Item Env:MEDISHIELD_SETUP_DB_PASS -ErrorAction SilentlyContinue
+        } else {
+            $env:MEDISHIELD_SETUP_DB_PASS = $previousSetupPass
+        }
+    }
+
+    if ($exitCode -ne 0) {
+        throw "$Description failed with exit code $exitCode."
+    }
 }
 
 try {
     Write-Host 'MediShield database setup starting...' -ForegroundColor Cyan
 
+    Assert-MediShieldSetupDatabaseName -DatabaseName $DbName
+    $disposableUiDatabases = @('medishield_ui_test', 'medishield_ui_account_test')
+    $isDisposableUiSetup = $DbName -in $disposableUiDatabases
     $repoRoot = Split-Path -Parent $PSScriptRoot
     $mysql = Get-XamppMysqlPath
     $baseArgs = Get-MySqlBaseArgs -HostName $DbHost -UserName $DbUser -Password $DbPass
@@ -162,56 +222,18 @@ try {
         throw "Config sample not found at '$configSamplePath'. Ensure config\config.sample.php exists before running this script."
     }
 
-    $provisionApplicationUser = $false
-    $provisionAuditMaintenanceUser = $false
-    if (-not (Test-Path -LiteralPath $configPath)) {
-        $appPassword = New-SetupSecret
-        $auditMaintenancePassword = New-SetupSecret
-        $encryptionKey = New-SetupSecret
-        $auditKey = New-SetupSecret
-        Write-ApplicationConfig -SamplePath $configSamplePath -DestinationPath $configPath -DatabaseName $DbName -DatabasePassword $appPassword -AuditMaintenanceDatabasePassword $auditMaintenancePassword -EncryptionKey $encryptionKey -AuditKey $auditKey
-        Write-Host "Created generated application configuration: $configPath"
-        $provisionApplicationUser = $true
-        $provisionAuditMaintenanceUser = $true
-    } else {
-        $existingConfig = Get-Content -LiteralPath $configPath -Raw
-        if ($existingConfig -match "'user'\s*=>\s*'root'") {
-            $appPassword = New-SetupSecret
-            Copy-Item -LiteralPath $configPath -Destination "$configPath.pre-hardening.bak"
-            $existingConfig = $existingConfig -replace "'user'\s*=>\s*'root'", "'user'    => 'medishield_app'"
-            $existingConfig = $existingConfig -replace "'pass'\s*=>\s*''", "'pass'    => '$appPassword'"
-            Set-Content -LiteralPath $configPath -Value $existingConfig -NoNewline
-            Write-Host "Migrated legacy root database credentials; backup saved beside config.php"
-            $provisionApplicationUser = $true
-        } else {
-            Write-Host "Config file already exists: $configPath (preserving existing secrets)"
-        }
-
-        if ($existingConfig -notmatch "'audit_maintenance_db'\s*=>") {
-            $auditMaintenancePassword = New-SetupSecret
-            $maintenanceConfig = @"
-    // Dedicated scheduled-maintenance identity. It can read audit rows and null
-    // only attempted_identifier; it cannot edit chained fields or delete rows.
-    'audit_maintenance_db' => [
-        'host'    => '127.0.0.1',
-        'port'    => 3306,
-        'name'    => '$DbName',
-        'user'    => 'medishield_audit_maintenance',
-        'pass'    => '$auditMaintenancePassword',
-        'charset' => 'utf8mb4',
-    ],
-
-"@
-            $configMarker = '    // --- Cryptographic keys'
-            if (-not $existingConfig.Contains($configMarker)) {
-                throw "Cannot add audit-maintenance credentials to '$configPath': expected configuration marker was not found."
-            }
-            $existingConfig = $existingConfig.Replace($configMarker, "$maintenanceConfig$configMarker")
-            Set-Content -LiteralPath $configPath -Value $existingConfig -NoNewline
-            Write-Host 'Added dedicated audit-maintenance credentials to existing configuration'
-            $provisionAuditMaintenanceUser = $true
-        }
+    $configResult = Update-MediShieldApplicationConfig `
+        -SamplePath $configSamplePath `
+        -DestinationPath $configPath `
+        -SelectedDatabaseName $DbName `
+        -DisposableUiSetup:$isDisposableUiSetup
+    foreach ($message in $configResult.Messages) {
+        Write-Host $message
     }
+    $appPassword = $configResult.ApplicationPassword
+    $auditMaintenancePassword = $configResult.AuditMaintenancePassword
+    $provisionApplicationUser = $configResult.ProvisionApplicationUser
+    $provisionAuditMaintenanceUser = $configResult.ProvisionAuditMaintenanceUser
 
     if ($provisionApplicationUser) {
         $appUserSql = "CREATE USER IF NOT EXISTS 'medishield_app'@'127.0.0.1' IDENTIFIED BY '$appPassword'; ALTER USER 'medishield_app'@'127.0.0.1' IDENTIFIED BY '$appPassword';"
@@ -240,29 +262,39 @@ try {
         }
     }
 
-    # Remove legacy broad grants first. The web account can write operational
-    # tables, but audit_logs remains physically append-only to request code.
-    $appAccountSql = "'medishield_app'@'127.0.0.1'"
-    $resetAppPrivilegesSql = "REVOKE ALL PRIVILEGES, GRANT OPTION FROM $appAccountSql; GRANT SELECT, INSERT ON ``$DbName``.* TO $appAccountSql;"
-    Invoke-MySqlCommand -MySqlPath $mysql -Arguments ($baseArgs + @("--execute=$resetAppPrivilegesSql")) -Description 'Application privilege reset'
+    $auditInitializerPath = Join-Path $repoRoot 'scripts\initialize-audit-chain.php'
+    Write-Host 'Initializing and verifying the keyed audit chain head'
+    Invoke-PhpSetupHelper -ScriptPath $auditInitializerPath `
+        -Description 'Audit-chain initialization' `
+        -DatabaseName $DbName `
+        -SetupUser $DbUser `
+        -SetupPassword $DbPass
 
-    $tableQuery = "SELECT table_name FROM information_schema.tables WHERE table_schema = '$DbName' AND table_type = 'BASE TABLE' AND table_name <> 'audit_logs' ORDER BY table_name;"
+    # Remove legacy broad grants first, then grant exact table scopes. The web
+    # account can append audit rows and advance the keyed head, but cannot edit or
+    # delete forensic rows. The maintenance account can scrub one PII column only.
+    $appAccountSql = "'medishield_app'@'127.0.0.1'"
+    Revoke-DatabasePrivileges -MySqlPath $mysql -BaseArguments $baseArgs -DatabaseName $DbName -AccountName 'medishield_app'
+
+    $tableQuery = "SELECT table_name FROM information_schema.tables WHERE table_schema = '$DbName' AND table_type = 'BASE TABLE' AND table_name NOT IN ('audit_logs', 'audit_chain_head') ORDER BY table_name;"
     $applicationTables = & $mysql @baseArgs '--batch' '--skip-column-names' "--execute=$tableQuery"
     if ($LASTEXITCODE -ne 0) {
         throw 'Could not enumerate application tables for least-privilege grants.'
     }
     foreach ($tableName in $applicationTables) {
-        $tableGrantSql = "GRANT UPDATE, DELETE ON ``$DbName``.``$tableName`` TO $appAccountSql;"
+        $tableGrantSql = "GRANT SELECT, INSERT, UPDATE, DELETE ON ``$DbName``.``$tableName`` TO $appAccountSql;"
         Invoke-MySqlCommand -MySqlPath $mysql -Arguments ($baseArgs + @("--execute=$tableGrantSql")) -Description "Application DML grant for $tableName"
     }
+    Invoke-MySqlCommand -MySqlPath $mysql -Arguments ($baseArgs + @("--execute=GRANT SELECT, INSERT ON ``$DbName``.audit_logs TO $appAccountSql; GRANT SELECT, UPDATE ON ``$DbName``.audit_chain_head TO $appAccountSql;")) -Description 'Application audit grants'
 
     $maintenanceAccountSql = "'medishield_audit_maintenance'@'127.0.0.1'"
-    $maintenanceGrantSql = "REVOKE ALL PRIVILEGES, GRANT OPTION FROM $maintenanceAccountSql; GRANT SELECT, UPDATE (attempted_identifier) ON ``$DbName``.audit_logs TO $maintenanceAccountSql; FLUSH PRIVILEGES;"
+    Revoke-DatabasePrivileges -MySqlPath $mysql -BaseArguments $baseArgs -DatabaseName $DbName -AccountName 'medishield_audit_maintenance'
+    $maintenanceGrantSql = "GRANT SELECT, UPDATE (attempted_identifier) ON ``$DbName``.audit_logs TO $maintenanceAccountSql; FLUSH PRIVILEGES;"
     Invoke-MySqlCommand -MySqlPath $mysql -Arguments ($baseArgs + @("--execute=$maintenanceGrantSql")) -Description 'Audit maintenance privilege grant'
 
     # INFORMATION_SCHEMA stores GRANTEE as the literal text "'user'@'host'".
     $appGranteeLiteral = "'''medishield_app''@''127.0.0.1'''"
-    $unsafeGrantQuery = "SELECT COUNT(*) FROM information_schema.schema_privileges WHERE grantee = $appGranteeLiteral AND table_schema = '$DbName' AND privilege_type IN ('UPDATE', 'DELETE');"
+    $unsafeGrantQuery = "SELECT COUNT(*) FROM information_schema.schema_privileges WHERE grantee = $appGranteeLiteral AND table_schema = '$DbName';"
     $unsafeGrant = (& $mysql @baseArgs '--batch' '--skip-column-names' "--execute=$unsafeGrantQuery").Trim()
     $unsafeAuditTableGrantQuery = "SELECT COUNT(*) FROM information_schema.table_privileges WHERE grantee = $appGranteeLiteral AND table_schema = '$DbName' AND table_name = 'audit_logs' AND privilege_type IN ('UPDATE', 'DELETE');"
     $unsafeAuditTableGrant = (& $mysql @baseArgs '--batch' '--skip-column-names' "--execute=$unsafeAuditTableGrantQuery").Trim()
@@ -270,45 +302,25 @@ try {
         throw 'Least-privilege verification failed: the web account can still update or delete audit rows.'
     }
 
+    $grantVerifierPath = Join-Path $repoRoot 'scripts\verify-audit-grants.php'
+    Write-Host 'Verifying exact forensic grants and empirical denials'
+    Invoke-PhpSetupHelper -ScriptPath $grantVerifierPath `
+        -Description 'Audit grant verification' `
+        -DatabaseName $DbName `
+        -SetupUser $DbUser `
+        -SetupPassword $DbPass
+
     $vitalsMigrationPath = Join-Path $repoRoot 'scripts\migrate-vitals-encryption.php'
-    if (-not (Test-Path -LiteralPath $vitalsMigrationPath)) {
-        throw "Vitals encryption migration not found at '$vitalsMigrationPath'."
-    }
     Write-Host 'Encrypting legacy vitals, if any'
-    $previousSetupDatabase = [Environment]::GetEnvironmentVariable('MEDISHIELD_SETUP_DB_NAME', 'Process')
-    $previousSetupUser = [Environment]::GetEnvironmentVariable('MEDISHIELD_SETUP_DB_USER', 'Process')
-    $previousSetupPass = [Environment]::GetEnvironmentVariable('MEDISHIELD_SETUP_DB_PASS', 'Process')
-    try {
-        $env:MEDISHIELD_SETUP_DB_NAME = $DbName
-        $env:MEDISHIELD_SETUP_DB_USER = $DbUser
-        $env:MEDISHIELD_SETUP_DB_PASS = $DbPass
-        & php $vitalsMigrationPath
-        $vitalsMigrationExitCode = $LASTEXITCODE
-    } finally {
-        if ($null -eq $previousSetupDatabase) {
-            Remove-Item Env:MEDISHIELD_SETUP_DB_NAME -ErrorAction SilentlyContinue
-        } else {
-            $env:MEDISHIELD_SETUP_DB_NAME = $previousSetupDatabase
-        }
-        if ($null -eq $previousSetupUser) {
-            Remove-Item Env:MEDISHIELD_SETUP_DB_USER -ErrorAction SilentlyContinue
-        } else {
-            $env:MEDISHIELD_SETUP_DB_USER = $previousSetupUser
-        }
-        if ($null -eq $previousSetupPass) {
-            Remove-Item Env:MEDISHIELD_SETUP_DB_PASS -ErrorAction SilentlyContinue
-        } else {
-            $env:MEDISHIELD_SETUP_DB_PASS = $previousSetupPass
-        }
-    }
-    if ($vitalsMigrationExitCode -ne 0) {
-        throw "Vitals encryption migration failed with exit code $vitalsMigrationExitCode."
-    }
+    Invoke-PhpSetupHelper -ScriptPath $vitalsMigrationPath `
+        -Description 'Vitals encryption migration' `
+        -DatabaseName $DbName `
+        -SetupUser $DbUser `
+        -SetupPassword $DbPass
 
     Write-Host ''
     Write-Host 'Database setup completed successfully.' -ForegroundColor Green
     Write-Host 'No application user credentials were seeded or printed.'
-    $disposableUiDatabases = @('medishield_ui_test', 'medishield_ui_account_test')
     if ($DbName -in $disposableUiDatabases) {
         Write-Host 'The CLI-guarded UI seeder will add deterministic fixtures to this allowlisted disposable database.'
     } else {

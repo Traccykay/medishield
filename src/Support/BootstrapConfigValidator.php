@@ -20,6 +20,10 @@ final class BootstrapConfigValidator
      */
     public static function validate(array $config): void
     {
+        if (!self::hasSafeCryptographicConfiguration($config)) {
+            self::fail();
+        }
+
         $mail = $config['mail'] ?? null;
         if (!is_array($mail)) {
             self::fail();
@@ -42,6 +46,91 @@ final class BootstrapConfigValidator
         ) {
             self::fail();
         }
+    }
+
+    /**
+     * @param array<string,mixed> $config
+     */
+    private static function hasSafeCryptographicConfiguration(array $config): bool
+    {
+        $keyFields = [
+            'encryption_key_hex',
+            'audit_hmac_key_hex',
+            'audit_anchor_hmac_key_hex',
+            'request_throttle_hmac_key_hex',
+        ];
+        $keys = [];
+        foreach ($keyFields as $field) {
+            $value = $config[$field] ?? null;
+            if (
+                !is_string($value)
+                || strlen($value) < 64
+                || strlen($value) % 2 !== 0
+                || preg_match('/^[0-9a-fA-F]+$/D', $value) !== 1
+            ) {
+                return false;
+            }
+            $keys[] = strtolower($value);
+        }
+        if (count(array_unique($keys)) !== count($keys)) {
+            return false;
+        }
+
+        foreach (['audit_key_id', 'audit_anchor_key_id'] as $field) {
+            $value = $config[$field] ?? null;
+            if (
+                !is_string($value)
+                || preg_match('/^[A-Za-z0-9._-]{1,64}$/D', $value) !== 1
+            ) {
+                return false;
+            }
+        }
+
+        $anchorPath = $config['audit_anchor_path'] ?? null;
+        if (!is_string($anchorPath) || $anchorPath === '') {
+            return false;
+        }
+        $normalized = self::normalizeAbsolutePath($anchorPath);
+        $publicRoot = self::normalizeAbsolutePath(dirname(__DIR__, 2) . '/public');
+        if ($normalized === null || $publicRoot === null) {
+            return false;
+        }
+
+        return $normalized !== $publicRoot
+            && !str_starts_with($normalized, $publicRoot . '/');
+    }
+
+    private static function normalizeAbsolutePath(string $path): ?string
+    {
+        if ($path === '' || str_contains($path, "\0")) {
+            return null;
+        }
+        $path = str_replace('\\', '/', $path);
+        if (preg_match('/^[A-Za-z]:\//D', $path) === 1) {
+            $prefix = strtolower(substr($path, 0, 2));
+            $path = substr($path, 3);
+        } elseif (str_starts_with($path, '/')) {
+            $prefix = '';
+            $path = ltrim($path, '/');
+        } else {
+            return null;
+        }
+
+        $segments = [];
+        foreach (explode('/', $path) as $segment) {
+            if ($segment === '' || $segment === '.') {
+                continue;
+            }
+            if ($segment === '..') {
+                if ($segments === []) {
+                    return null;
+                }
+                array_pop($segments);
+                continue;
+            }
+            $segments[] = strtolower($segment);
+        }
+        return $prefix . '/' . implode('/', $segments);
     }
 
     private static function isHttpsBaseUrl(mixed $value): bool

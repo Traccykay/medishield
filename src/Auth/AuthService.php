@@ -43,6 +43,7 @@ use MediShield\Support\Clock;
  *     'anomaly' => 'NORMAL' | 'SUSPICIOUS' | 'HIGH_RISK',
  *     'failed_count' => int,              // current failed count (0 on success)
  *     'must_change'  => bool,             // force password change at first login
+ *     'account_unlocked' => bool,         // an expired lock was cleared
  *     'target_user_id'   => int|null,     // the account a FAILED attempt was against
  *     'target_user_role' => string|null,  // that account's role (for audit triage)
  *   ]
@@ -101,7 +102,10 @@ final class AuthService
             );
         }
 
-        // Correct password -> success.
+        $accountUnlocked = $this->hasExpiredLock($user);
+
+        // Correct password -> first factor accepted. LOGIN_SUCCESS is emitted by
+        // verify_otp.php only after the second factor completes.
         if (password_verify($password, (string) $user['password_hash'])) {
             $this->users->resetFailedAndUnlock((int) $user['user_id']);
             return [
@@ -112,6 +116,7 @@ final class AuthService
                 'anomaly'          => 'NORMAL',
                 'failed_count'     => 0,
                 'must_change'      => (bool) ($user['must_change_password'] ?? false),
+                'account_unlocked' => $accountUnlocked,
                 'target_user_id'   => (int) $user['user_id'],
                 'target_user_role' => (string) $user['role'],
             ];
@@ -147,6 +152,17 @@ final class AuthService
         return $lockedUntil === null || $lockedUntil > $this->clock->now();
     }
 
+    private function hasExpiredLock(array $user): bool
+    {
+        $until = $user['locked_until'] ?? null;
+        if (!is_string($until) || $until === '') {
+            return false;
+        }
+
+        $lockedUntil = Clock::parseDatabaseTimestamp($until);
+        return $lockedUntil !== null && $lockedUntil <= $this->clock->now();
+    }
+
     /** Return a valid verifier for one unit of password checking work. */
     private function verificationHash(array $user): string
     {
@@ -177,6 +193,7 @@ final class AuthService
             'anomaly'          => $anomaly,
             'failed_count'     => $failedCount,
             'must_change'      => false,
+            'account_unlocked' => false,
             'target_user_id'   => $user !== null ? (int) $user['user_id'] : null,
             'target_user_role' => $user !== null ? (string) $user['role'] : null,
         ];

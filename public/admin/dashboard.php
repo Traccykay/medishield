@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use MediShield\Audit\AuditDashboardSummary;
+
 /**
  * admin/dashboard.php
  * -------------------
@@ -29,25 +31,33 @@ $user = require_area('admin');
 // Pull a small recent slice for the monitoring counters and check chain integrity.
 // Both are read-only and must never take the page down, so we degrade gracefully.
 $recent    = [];
-$integrity = ['ok' => true, 'first_bad_log_id' => null];
+$integrity = ['state' => 'UNKNOWN', 'ok' => false, 'reason' => 'VERIFICATION_ERROR'];
 try {
     $recent    = ms_audit()->recent(25);
-    $integrity = ms_audit()->verifyChain();
+    $integrity = ms_audit()->verifyChain(ms_audit_anchors());
+    $localState = (string) ($integrity['local_state'] ?? $integrity['state'] ?? 'UNKNOWN');
+    if ($localState !== 'PASS') {
+        $recent = [];
+    }
 } catch (\Throwable $e) {
-    error_log('[admin/dashboard] audit read failed: ' . $e->getMessage());
+    error_log(json_encode([
+        'event' => 'AUDIT_VERIFICATION_ERROR',
+        'severity' => 'ERROR',
+        'surface' => 'admin_dashboard',
+        'error_type' => $e::class,
+    ], JSON_UNESCAPED_SLASHES));
 }
+$integrityState = (string) ($integrity['state'] ?? 'UNKNOWN');
+$integrityClass = match ($integrityState) {
+    'PASS' => 'ms-stat-ok',
+    'FAIL' => 'ms-stat-bad',
+    default => 'ms-stat-warn',
+};
 
-$failedLogins = 0;
-$anomalies    = 0;
+$auditSummary = AuditDashboardSummary::fromRows($recent);
+$failedEvents = $auditSummary['failed_events'];
+$anomalies = $auditSummary['anomalies'];
 $activeUsers  = 0;
-foreach ($recent as $row) {
-    if (($row['status'] ?? '') === 'FAILED') {
-        $failedLogins++;
-    }
-    if (($row['anomaly_flag'] ?? 'NORMAL') !== 'NORMAL') {
-        $anomalies++;
-    }
-}
 foreach (ms_user_repo()->listAll() as $account) {
     if (($account['status'] ?? '') === 'active') {
         $activeUsers++;
@@ -76,16 +86,16 @@ layout_app_header('Admin dashboard', $user, 'dashboard');
         <div class="ms-stat-num" data-testid="admin-active-users-count"><?= e((string) $activeUsers) ?></div>
         <div class="ms-stat-label">Active accounts</div>
     </div>
-    <div class="ms-card ms-stat <?= $failedLogins > 0 ? 'ms-stat-warn' : '' ?>">
-        <div class="ms-stat-num"><?= e((string) $failedLogins) ?></div>
+    <div class="ms-card ms-stat <?= $failedEvents > 0 ? 'ms-stat-warn' : '' ?>">
+        <div class="ms-stat-num" data-testid="admin-failed-events-count"><?= e((string) $failedEvents) ?></div>
         <div class="ms-stat-label">Failed events (recent)</div>
     </div>
     <div class="ms-card ms-stat <?= $anomalies > 0 ? 'ms-stat-warn' : '' ?>">
-        <div class="ms-stat-num"><?= e((string) $anomalies) ?></div>
+        <div class="ms-stat-num" data-testid="admin-anomaly-count"><?= e((string) $anomalies) ?></div>
         <div class="ms-stat-label">Anomaly flags (recent)</div>
     </div>
-    <div class="ms-card ms-stat <?= $integrity['ok'] ? 'ms-stat-ok' : 'ms-stat-bad' ?>">
-        <div class="ms-stat-num"><?= $integrity['ok'] ? 'OK' : 'TAMPERED' ?></div>
+    <div class="ms-card ms-stat <?= e($integrityClass) ?>">
+        <div class="ms-stat-num"><?= e($integrityState) ?></div>
         <div class="ms-stat-label">Audit chain integrity</div>
     </div>
 </section>

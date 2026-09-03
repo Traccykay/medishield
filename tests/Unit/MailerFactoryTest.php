@@ -18,6 +18,7 @@ final class MailerFactoryTest extends TestCase
     {
         $mailer = MailerFactory::fromConfig([
             'environment' => 'development',
+            ...$this->cryptographicConfig(),
             'mail' => [
                 'transport' => 'log',
                 'dump_dir' => __DIR__,
@@ -70,6 +71,7 @@ final class MailerFactoryTest extends TestCase
     {
         return [
             'environment' => 'production',
+            ...$this->cryptographicConfig(),
             'mail' => [
                 'transport' => 'smtp',
                 'from_email' => 'no-reply@example.test',
@@ -84,6 +86,22 @@ final class MailerFactoryTest extends TestCase
                     'timeout' => 15,
                 ],
             ],
+        ];
+    }
+
+    /**
+     * @return array<string,string>
+     */
+    private function cryptographicConfig(): array
+    {
+        return [
+            'encryption_key_hex' => str_repeat('11', 32),
+            'audit_hmac_key_hex' => str_repeat('22', 32),
+            'audit_key_id' => 'audit-primary-2026',
+            'audit_anchor_hmac_key_hex' => str_repeat('33', 32),
+            'audit_anchor_key_id' => 'anchor-primary-2026',
+            'audit_anchor_path' => dirname(__DIR__, 2) . '/var/audit-chain-anchors.jsonl',
+            'request_throttle_hmac_key_hex' => str_repeat('44', 32),
         ];
     }
 }

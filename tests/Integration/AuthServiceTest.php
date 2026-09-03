@@ -182,7 +182,9 @@ final class AuthServiceTest extends TestCase
 
         // Advance 16 minutes -> lock expired -> correct password now succeeds.
         $now = $now->add(new \DateInterval('PT16M'));
-        self::assertSame('success', $auth->attemptLogin('doc@example.com', 'Str0ng!Pass1')['status']);
+        $unlocked = $auth->attemptLogin('doc@example.com', 'Str0ng!Pass1');
+        self::assertSame('success', $unlocked['status']);
+        self::assertTrue($unlocked['account_unlocked']);
     }
 
     public function testAllAccountFailureStatesShareOneExternalStatus(): void

@@ -16,6 +16,12 @@ use PHPUnit\Framework\TestCase;
  */
 final class RequestThrottleTest extends TestCase
 {
+    public function testConstructor_WithShortKey_RejectsConfiguration(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new RequestThrottle(TestSchema::pdo(), new Clock(), str_repeat('ab', 31));
+    }
+
     private \DateTimeImmutable $now;
     private RequestThrottle $throttle;
     private \PDO $pdo;

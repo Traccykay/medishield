@@ -243,6 +243,10 @@ CREATE TABLE IF NOT EXISTS dispensing_records (
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS audit_logs (
     log_id             INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+    seq                BIGINT UNSIGNED NOT NULL,
+    event_id           VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    key_id             VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    format_version     SMALLINT UNSIGNED NOT NULL,
     user_id            INT UNSIGNED NULL,
     user_role          VARCHAR(50) NOT NULL,
     action             VARCHAR(150) NOT NULL,
@@ -257,12 +261,31 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     -- This is PII and is DELIBERATELY NOT part of the HMAC hash chain, so it can be
     -- scrubbed (set NULL) after the retention window without breaking verifyChain().
     attempted_identifier VARCHAR(255) NULL,
-    previous_hash      VARCHAR(255) NOT NULL,
-    current_hash       VARCHAR(255) NOT NULL,
+    previous_hash      VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    current_hash       VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     created_at         DATETIME NOT NULL,
+    CONSTRAINT chk_audit_seq_positive CHECK (seq >= 1),
+    UNIQUE KEY uq_audit_seq (seq),
+    UNIQUE KEY uq_audit_event (event_id),
+    UNIQUE KEY uq_audit_previous_hash (previous_hash),
     INDEX idx_audit_user (user_id),
     INDEX idx_audit_flag (anomaly_flag),
     INDEX idx_audit_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Keyed commitment to the current audit tip. The singleton row is initialized
+-- by scripts/initialize-audit-chain.php because its MAC requires the secret key.
+CREATE TABLE IF NOT EXISTS audit_chain_head (
+    singleton_id       TINYINT UNSIGNED PRIMARY KEY,
+    last_seq           BIGINT UNSIGNED NOT NULL,
+    last_log_id        INT UNSIGNED NULL,
+    head_hash          VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    key_id             VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    format_version     SMALLINT UNSIGNED NOT NULL,
+    key_check          CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    head_mac           CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    updated_at         DATETIME NOT NULL,
+    CONSTRAINT chk_audit_chain_head_singleton CHECK (singleton_id = 1)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------

@@ -39,6 +39,37 @@ final class BootstrapConfigValidatorTest extends TestCase
         self::addToAssertionCount(1);
     }
 
+    public function testValidate_ReusedAuditAndThrottleKeys_FailsClosed(): void
+    {
+        $config = $this->validProductionConfig();
+        $config['request_throttle_hmac_key_hex'] = $config['audit_hmac_key_hex'];
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage(BootstrapConfigValidator::FAILURE_MESSAGE);
+        BootstrapConfigValidator::validate($config);
+    }
+
+    public function testValidate_ShortAuditKey_FailsClosed(): void
+    {
+        $config = $this->validProductionConfig();
+        $config['audit_hmac_key_hex'] = str_repeat('ab', 31);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage(BootstrapConfigValidator::FAILURE_MESSAGE);
+        BootstrapConfigValidator::validate($config);
+    }
+
+    public function testValidate_AnchorPathResolvingInsidePublicRoot_FailsClosed(): void
+    {
+        $config = $this->validProductionConfig();
+        $config['audit_anchor_path'] = dirname(__DIR__, 2)
+            . '/var/../public/audit-anchor.jsonl';
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage(BootstrapConfigValidator::FAILURE_MESSAGE);
+        BootstrapConfigValidator::validate($config);
+    }
+
     #[DataProvider('unsupportedTransportProvider')]
     public function testValidate_UnsupportedTransportInAnyEnvironment_ThrowsSanitizedDiagnostic(
         array $config
@@ -162,6 +193,13 @@ final class BootstrapConfigValidatorTest extends TestCase
     {
         return [
             'environment' => 'production',
+            'encryption_key_hex' => str_repeat('11', 32),
+            'audit_hmac_key_hex' => str_repeat('22', 32),
+            'audit_key_id' => 'audit-primary-2026',
+            'audit_anchor_hmac_key_hex' => str_repeat('33', 32),
+            'audit_anchor_key_id' => 'anchor-primary-2026',
+            'audit_anchor_path' => dirname(__DIR__, 2) . '/var/audit-chain-anchors.jsonl',
+            'request_throttle_hmac_key_hex' => str_repeat('44', 32),
             'mail' => [
                 'transport' => 'smtp',
                 'from_email' => 'smtp.identity@example.test',

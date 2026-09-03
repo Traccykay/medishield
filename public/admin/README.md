@@ -15,7 +15,8 @@ self-registration.
 
 | File | Purpose | Audit actions |
 |------|---------|---------------|
-| `dashboard.php` | Admin home + security monitor: recent audit events, failed-login / anomaly counts, and audit-chain integrity status. **Read-only** over the audit log. | — |
+| `dashboard.php` | Admin home + security monitor: recent audit events, failed-event / anomaly counts, and audit-chain integrity status. Expected anchor-freshness limitations remain normal evidence and do not inflate these counters. **Read-only** over the audit log. | — |
+| `audit.php` | Forensic audit viewer. Quarantines rows unless local verification passes; records definite failures as high risk, verification errors as suspicious, and expected missing/stale-anchor states as normal operational evidence. | `AUDIT_LOGS_VIEWED`, `INTEGRITY_VERIFIED` |
 | `create_user.php` | The "registration" form: create an account and assign one of the seven roles. New users start with `must_change_password = 1`. | `USER_CREATED` |
 | `users.php` | List all users; activate/deactivate accounts (POST + CSRF only). An admin cannot deactivate their own account. | `USER_UPDATED` |
 | `assign_patient.php` | Assign/unassign patients to nurses and doctors. Doctor unassignment immediately revokes access and transactionally returns a matching active consultation to its existing nurse queue; nurse unassignment remains assignment-only. | `ASSIGNMENT_CHANGED` |

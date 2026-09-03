@@ -26,11 +26,19 @@ if ($isPost) {
     $remarks = request_string($_POST['remarks'] ?? null);
     $result = ms_clinical_service()->dispense($rxId, (int) $user['user_id'], $status, $remarks);
     if ($result['ok']) {
-        ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'pharmacist', 'action' => 'MEDICATION_DISPENSED', 'module' => 'pharmacy', 'affected_record_id' => (string) $rxId, 'status' => 'SUCCESS']);
+        ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'pharmacist', 'action' => $status === 'refused' ? 'MEDICATION_REFUSED' : 'MEDICATION_DISPENSED', 'module' => 'pharmacy', 'affected_record_id' => (string) $rxId, 'status' => 'SUCCESS']);
         redirect('/pharmacy/prescriptions.php');
     }
     $errors = $result['errors'];
 }
+ms_audit_log([
+    'user_id' => (int) $user['user_id'],
+    'user_role' => 'pharmacist',
+    'action' => 'PATIENT_VIEW',
+    'module' => 'pharmacy',
+    'affected_record_id' => (string) $rx['patient_id'],
+    'status' => 'SUCCESS',
+]);
 $token = Csrf::token($_SESSION);
 layout_app_header('Dispense medication', $user, 'payments');
 ?>

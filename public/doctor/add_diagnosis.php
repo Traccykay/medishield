@@ -71,6 +71,28 @@ if ($isPost) {
             'status' => 'SUCCESS',
             'anomaly_flag' => 'NORMAL',
         ]);
+        foreach ($result['lab_request_ids'] as $labRequestId) {
+            ms_audit_log([
+                'user_id' => (int) $user['user_id'],
+                'user_role' => 'doctor',
+                'action' => 'LAB_REQUESTED',
+                'module' => 'doctor',
+                'affected_record_id' => (string) $labRequestId,
+                'status' => 'SUCCESS',
+                'anomaly_flag' => 'NORMAL',
+            ]);
+        }
+        foreach ($result['prescription_ids'] as $prescriptionId) {
+            ms_audit_log([
+                'user_id' => (int) $user['user_id'],
+                'user_role' => 'doctor',
+                'action' => 'PRESCRIPTION_ISSUED',
+                'module' => 'doctor',
+                'affected_record_id' => (string) $prescriptionId,
+                'status' => 'SUCCESS',
+                'anomaly_flag' => 'NORMAL',
+            ]);
+        }
         $redirectPath = '/doctor/view_patient.php?patient_id=' . $patientId . '&visit_id=' . $visitId;
         $destination = $result['lab_request_ids'] !== []
             ? 'lab'
@@ -90,11 +112,11 @@ if ($isPost) {
                 ms_audit_log([
                     'user_id' => (int) $user['user_id'],
                     'user_role' => 'doctor',
-                    'action' => 'UNAUTHORIZED_ACCESS',
+                    'action' => 'WORKFLOW_ROUTING_FAILED',
                     'module' => 'doctor',
                     'affected_record_id' => (string) $patientId,
-                    'status' => 'BLOCKED',
-                    'anomaly_flag' => 'HIGH_RISK',
+                    'status' => 'FAILED',
+                    'anomaly_flag' => 'SUSPICIOUS',
                 ]);
             } else {
                 $redirectPath = '/doctor/dashboard.php';

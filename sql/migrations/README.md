@@ -44,6 +44,7 @@ Get-Content sql\migrations\2026-06-29_add_attempted_identifier.sql -Raw |
 | `2026-07-20_add_prescription_refused_status.sql` | Adds the terminal `refused` prescription status. A pharmacy refusal remains auditable and returns the linked encounter to its assigned doctor rather than leaving it in the pharmacy queue. |
 | `2026-07-24_add_request_throttles.sql` | Adds HMAC-scoped, fixed-window request budgets for login, OTP verification, and password-reset endpoints. The table contains no raw client IP addresses. |
 | `2026-09-02_add_auth_version.sql` | Adds the monotonic `users.auth_version` authentication epoch. Password, status, and role transitions increment it and atomically invalidate outstanding OTPs, preventing pending MFA or preserved sessions from surviving authoritative account changes. |
+| `2026-09-03_forensic_audit_v2.sql` | Adds deterministic `seq`, `event_id`, `key_id`, and `format_version` metadata; binary ASCII hash/index constraints; `CHECK (seq >= 1)`; and the singleton `audit_chain_head`. Existing rows remain v1 and retain their HMAC bytes. Backfill occurs only for wholly uninitialized legacy fields; mixed or non-positive forensic metadata is preserved and makes migration/initialization fail rather than being silently repaired. `scripts/initialize-audit-chain.php` verifies those rows and creates the keyed head. |
 
 ## MySQL 8 / MariaDB compatibility
 

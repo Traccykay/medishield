@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { loginWithOtp, logout } = require('./helpers');
+const { auditEventsAfter, latestAuditId, loginWithOtp, logout } = require('./helpers');
 
 test.describe.configure({ mode: 'serial' });
 
@@ -99,7 +99,22 @@ test('doctor submits multiple encounter-linked lab tests and prescriptions', asy
   await page.getByLabel('Instructions for Paracetamol 500 mg').fill('Take after meals');
   await page.getByRole('checkbox', { name: /Cetirizine 10 mg/ }).check();
   await page.getByLabel('Dosage for Cetirizine 10 mg').fill('One tablet at night');
+  const consultationAuditStart = latestAuditId();
   await page.getByRole('button', { name: 'Save consultation and selected orders' }).click();
+  const consultationEvents = auditEventsAfter(consultationAuditStart);
+  expect(consultationEvents.filter((event) => event.action === 'DIAGNOSIS_ADDED')).toHaveLength(1);
+  expect(consultationEvents.filter((event) => event.action === 'LAB_REQUESTED')).toHaveLength(2);
+  expect(consultationEvents.filter((event) => event.action === 'PRESCRIPTION_ISSUED')).toHaveLength(2);
+  const persistedAudit = JSON.stringify(consultationEvents);
+  for (const sensitiveValue of [
+    'Upper respiratory infection',
+    'Rest and fluids',
+    'One tablet every six hours',
+    'Take after meals',
+    'One tablet at night'
+  ]) {
+    expect(persistedAudit).not.toContain(sensitiveValue);
+  }
 
   await logout(page);
   await loginWithOtp(page, 'ui.lab@medishield.test');

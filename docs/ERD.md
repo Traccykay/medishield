@@ -109,6 +109,10 @@ erDiagram
 
     AUDIT_LOGS {
         int log_id PK
+        bigint seq UK
+        varchar event_id UK
+        varchar key_id
+        smallint format_version
         int user_id
         varchar user_role
         varchar action
@@ -122,6 +126,18 @@ erDiagram
         varchar previous_hash
         varchar current_hash
         datetime created_at
+    }
+
+    AUDIT_CHAIN_HEAD {
+        tinyint singleton_id PK
+        bigint last_seq
+        int last_log_id
+        varchar head_hash
+        varchar key_id
+        smallint format_version
+        char key_check
+        char head_mac
+        datetime updated_at
     }
 
     OTP_CODES {
@@ -173,6 +189,7 @@ erDiagram
     USERS ||--o{ OTP_CODES : "receives login OTPs"
     USERS ||--o{ ACCOUNT_ACTIVATIONS : "receives activation links"
     USERS ||--o{ AUDIT_LOGS : "logical actor"
+    AUDIT_LOGS ||--|| AUDIT_CHAIN_HEAD : "keyed current tip"
 ```
 
 ## Relationship Notes
@@ -193,3 +210,6 @@ erDiagram
 - `audit_logs.user_id` is treated as a logical link to `users`, but the schema
   intentionally does not declare a foreign key so historical forensic logs can
   survive account deletion or changes.
+- `audit_chain_head` has exactly one keyed row. It commits to the final sequence,
+  log id, hash, format, and active key id; external JSONL anchors commit that
+  head outside the database.

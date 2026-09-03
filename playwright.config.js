@@ -23,7 +23,8 @@ module.exports = defineConfig({
     reuseExistingServer: false,
     env: {
       MEDISHIELD_DB_NAME: 'medishield_ui_test',
-      MEDISHIELD_MAIL_DUMP_DIR: path.join(__dirname, 'test-results', 'mail')
+      MEDISHIELD_MAIL_DUMP_DIR: path.join(__dirname, 'test-results', 'mail'),
+      MEDISHIELD_AUDIT_ANCHOR_PATH: path.join(__dirname, 'test-results', 'audit-anchor.jsonl')
     }
   }
 });

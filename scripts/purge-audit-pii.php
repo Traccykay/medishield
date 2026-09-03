@@ -2,34 +2,14 @@
 
 declare(strict_types=1);
 
-/**
- * purge-audit-pii.php — scheduled MAINTENANCE task (run from CLI / cron / Task
- * Scheduler, NEVER from a web request).
- * ----------------------------------------------------------------------------
- * Removes the personal data (`attempted_identifier`, the email typed on a failed
- * login) from audit rows older than the configured retention window, so we keep
- * the forensic record of "who did what / when" while not retaining PII longer
- * than necessary (data minimisation).
- *
- * What it does NOT do:
- *   - It never deletes an audit row.
- *   - It never edits a hash-chained field, so AuditLogger::verifyChain() stays ok
- *     (attempted_identifier is deliberately outside the chain).
- *
- * Privilege note: this needs a DB account with UPDATE on audit_logs. The web
- * app's own DB user is granted only SELECT+INSERT, so the scrub cannot be
- * triggered from the request path even if the app were compromised.
- *
- * Usage:
- *   php scripts/purge-audit-pii.php            # use audit.pii_retention_days from config
- *   php scripts/purge-audit-pii.php --days 30  # override the retention window
- *   php scripts/purge-audit-pii.php --dry-run  # report how many rows WOULD be scrubbed
- *
- * Exit code 0 on success, 1 on failure.
- */
-
+use MediShield\Audit\AuditAnchorStore;
+use MediShield\Audit\AuditLogger;
 use MediShield\Audit\AuditRetention;
+use MediShield\Audit\AuditRetentionPolicy;
 use MediShield\Database\Connection;
+use MediShield\Security\AuditChain;
+use MediShield\Support\Clock;
+use MediShield\Support\DisposableDatabase;
 
 if (PHP_SAPI !== 'cli') {
     http_response_code(403);
@@ -38,57 +18,113 @@ if (PHP_SAPI !== 'cli') {
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-// --- Load configuration (real config preferred, sample as fallback) ----------
-$configReal   = __DIR__ . '/../config/config.php';
-$configSample = __DIR__ . '/../config/config.sample.php';
-$config       = require (is_file($configReal) ? $configReal : $configSample);
-
-// --- Parse arguments ---------------------------------------------------------
-$args         = $argv;
-$dryRun       = in_array('--dry-run', $args, true);
-$retentionDays = (int) ($config['audit']['pii_retention_days'] ?? 90);
-
-$daysIndex = array_search('--days', $args, true);
-if ($daysIndex !== false && isset($args[$daysIndex + 1])) {
-    $retentionDays = max(0, (int) $args[$daysIndex + 1]);
+$configPath = __DIR__ . '/../config/config.php';
+if (!is_file($configPath)) {
+    fwrite(STDERR, "AUDIT_PII_PURGE FAIL: generated configuration is missing.\n");
+    exit(1);
 }
 
-date_default_timezone_set('UTC');
-$now    = new DateTimeImmutable('now', new DateTimeZone('UTC'));
-$cutoff = $now->sub(new DateInterval('P' . $retentionDays . 'D'));
-
-printf(
-    "MediShield audit PII purge\n  retention : %d days\n  cutoff    : %s UTC\n  mode      : %s\n",
-    $retentionDays,
-    $cutoff->format('Y-m-d H:i:s'),
-    $dryRun ? 'DRY RUN (no changes)' : 'LIVE'
-);
-
 try {
+    $config = require $configPath;
+    $selectedDatabase = getenv('MEDISHIELD_AUDIT_DB_NAME');
+    if (is_string($selectedDatabase) && $selectedDatabase !== '') {
+        $selectedDatabase = DisposableDatabase::requireSetupTarget(
+            (string) $config['db']['name'],
+            $selectedDatabase
+        );
+        $config['db']['name'] = $selectedDatabase;
+        $config['audit_maintenance_db']['name'] = $selectedDatabase;
+    }
+    $selectedAnchorPath = getenv('MEDISHIELD_AUDIT_ANCHOR_PATH');
+    if (is_string($selectedAnchorPath) && $selectedAnchorPath !== '') {
+        $config['audit_anchor_path'] = $selectedAnchorPath;
+    }
+    $policy = AuditRetentionPolicy::fromArguments($argv, (array) ($config['audit'] ?? []));
     $maintenanceConfig = $config['audit_maintenance_db'] ?? null;
     if (!is_array($maintenanceConfig)) {
-        throw new RuntimeException(
-            'Audit-maintenance credentials are missing. Run scripts\\setup-db.ps1 to provision the isolated maintenance account.'
-        );
+        throw new \RuntimeException('Audit maintenance database identity is missing.');
     }
-    $config['db'] = $maintenanceConfig;
-    $pdo = Connection::fromConfig($config);
 
-    if ($dryRun) {
-        $stmt = $pdo->prepare(
-            'SELECT COUNT(*) FROM audit_logs
-              WHERE attempted_identifier IS NOT NULL AND created_at < :cutoff'
+    $clock = new Clock();
+    $chain = AuditChain::fromHexKey(
+        (string) $config['audit_hmac_key_hex'],
+        (string) $config['audit_key_id']
+    );
+    $logger = new AuditLogger(Connection::fromConfig($config), $chain, $clock);
+    $anchors = AuditAnchorStore::fromHexKey(
+        (string) $config['audit_anchor_path'],
+        (string) $config['audit_anchor_hmac_key_hex'],
+        (string) $config['audit_anchor_key_id'],
+        $clock
+    );
+    $beforeLocal = $logger->verifyLocalFull();
+    if ($beforeLocal['state'] !== 'PASS') {
+        throw new \RuntimeException('Local audit verification failed before retention.');
+    }
+    $beforeOverall = $logger->verifyChain($anchors);
+    if ($beforeOverall['state'] === 'FAIL') {
+        throw new \RuntimeException('External anchor detected a rollback before retention.');
+    }
+
+    $maintenanceRuntime = $config;
+    $maintenanceRuntime['db'] = $maintenanceConfig;
+    $retention = new AuditRetention(Connection::fromConfig($maintenanceRuntime));
+    $now = $clock->now();
+    $cutoff = $now->sub(new \DateInterval('P' . $policy->retentionDays . 'D'));
+
+    if ($policy->dryRun) {
+        printf(
+            "AUDIT_PII_PURGE DRY_RUN eligible=%d cutoff=%s retention_days=%d\n",
+            $retention->countEligible($cutoff),
+            $cutoff->format('Y-m-d H:i:s'),
+            $policy->retentionDays
         );
-        $stmt->execute([':cutoff' => $cutoff->format('Y-m-d H:i:s')]);
-        $count = (int) $stmt->fetchColumn();
-        printf("Would scrub %d row(s).\n", $count);
         exit(0);
     }
 
-    $scrubbed = (new AuditRetention($pdo))->purgeIdentifiersOlderThan($cutoff);
-    printf("Scrubbed attempted_identifier on %d row(s).\n", $scrubbed);
+    $scrubbed = 0;
+    do {
+        $batch = $retention->purgeBatch($cutoff, $policy->batchSize);
+        $scrubbed += $batch;
+    } while ($batch === $policy->batchSize);
+
+    $afterLocal = $logger->verifyLocalFull();
+    if ($afterLocal['state'] !== 'PASS') {
+        throw new \RuntimeException('Local audit verification failed after retention.');
+    }
+    $afterScrubOverall = $logger->verifyChain($anchors);
+    if ($afterScrubOverall['state'] === 'FAIL') {
+        throw new \RuntimeException('External anchor detected a rollback after retention.');
+    }
+
+    if ($scrubbed > 0) {
+        $logger->log([
+            'user_id' => null,
+            'user_role' => 'system',
+            'action' => 'AUDIT_PII_SCRUBBED',
+            'module' => 'maintenance',
+            'affected_record_id' => 'rows:' . $scrubbed,
+            'ip_address' => '127.0.0.1',
+            'user_agent' => 'MediShield CLI',
+            'status' => 'SUCCESS',
+            'anomaly_flag' => 'NORMAL',
+        ]);
+    }
+
+    $finalLocal = $logger->verifyLocalFull();
+    if ($finalLocal['state'] !== 'PASS') {
+        throw new \RuntimeException('Local audit verification failed after scrub evidence.');
+    }
+    $finalOverall = $logger->verifyChain($anchors);
+
+    printf(
+        "AUDIT_PII_PURGE PASS scrubbed=%d cutoff=%s local_before=PASS local_after=PASS anchor=%s\n",
+        $scrubbed,
+        $cutoff->format('Y-m-d H:i:s'),
+        (string) $finalOverall['state']
+    );
     exit(0);
-} catch (\Throwable $e) {
-    fwrite(STDERR, 'Purge failed: ' . $e->getMessage() . "\n");
+} catch (\Throwable) {
+    fwrite(STDERR, "AUDIT_PII_PURGE FAIL\n");
     exit(1);
 }

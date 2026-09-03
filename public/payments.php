@@ -33,6 +33,14 @@ if ($isPost) {
         );
         $errors = $result['errors'];
         if ($result['ok']) {
+            ms_audit_log([
+                'user_id' => (int) $user['user_id'],
+                'user_role' => (string) $user['role'],
+                'action' => 'BILLING_CHARGE_ADDED',
+                'module' => 'billing',
+                'affected_record_id' => (string) $visitId,
+                'status' => 'SUCCESS',
+            ]);
             $success = 'Charge added.';
         }
     } elseif (request_string($_POST['action'] ?? null) === 'record_payment') {
@@ -46,6 +54,14 @@ if ($isPost) {
         );
         $errors = $result['errors'];
         if ($result['ok']) {
+            ms_audit_log([
+                'user_id' => (int) $user['user_id'],
+                'user_role' => (string) $user['role'],
+                'action' => 'PAYMENT_RECORDED',
+                'module' => 'billing',
+                'affected_record_id' => (string) $visitId,
+                'status' => 'SUCCESS',
+            ]);
             $success = 'Payment recorded.';
         }
     } else {
@@ -58,6 +74,14 @@ layout_app_header($isStaff ? 'Billing and payments' : 'My billing', $user, 'paym
 
 if (!$isStaff) {
     $bills = ms_billing_service()->billsForPatientUser((int) $user['user_id']);
+    ms_audit_log([
+        'user_id' => (int) $user['user_id'],
+        'user_role' => (string) $user['role'],
+        'action' => 'BILLING_VIEWED',
+        'module' => 'billing',
+        'affected_record_id' => $visitId > 0 ? (string) $visitId : null,
+        'status' => 'SUCCESS',
+    ]);
     ?>
     <section class="ms-card">
         <h1 class="ms-h1">My billing</h1>
@@ -83,6 +107,14 @@ if (!$isStaff) {
 $visit = $visitId > 0 ? ms_billing_service()->visitForStaff($visitId, $user) : null;
 $bill = $visit === null ? null : ms_billing_service()->billForStaffVisit($visitId, $user);
 $visits = ms_billing_service()->visitsForStaff($user);
+ms_audit_log([
+    'user_id' => (int) $user['user_id'],
+    'user_role' => (string) $user['role'],
+    'action' => 'BILLING_VIEWED',
+    'module' => 'billing',
+    'affected_record_id' => $visitId > 0 ? (string) $visitId : null,
+    'status' => 'SUCCESS',
+]);
 ?>
 <section class="ms-card">
     <h1 class="ms-h1">Billing and payments</h1>

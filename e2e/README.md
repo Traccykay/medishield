@@ -101,8 +101,11 @@ database to revoke a doctor assignment immediately after a standalone or
 consultation-linked lab/prescription insert. It proves the committed clinical
 write remains, routing does not occur, the user sees a message that distinguishes
 the saved consultation/orders from the failed routing step, and exactly one
-patient-scoped `BLOCKED` / `HIGH_RISK` denial is stored without submitted
-clinical values.
+patient-scoped `WORKFLOW_ROUTING_FAILED` / `FAILED` / `SUSPICIOUS` event is
+stored without submitted clinical values. Account, workflow, and billing tests
+also assert post-MFA `LOGIN_SUCCESS`, actual activation role, one event per
+consolidated order, billing mutation/read coverage, and absence of clinical or
+payment-reference values from audit rows.
 
 Run every browser test, including the harness, with:
 

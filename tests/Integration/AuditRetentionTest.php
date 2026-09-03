@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MediShield\Tests\Integration;
 
+use MediShield\Audit\AuditChainInitializer;
 use MediShield\Audit\AuditLogger;
 use MediShield\Audit\AuditRetention;
 use MediShield\Security\AuditChain;
@@ -34,7 +35,8 @@ final class AuditRetentionTest extends TestCase
         // A clock that reads the mutable $this->now so tests can "advance time".
         $clock = new Clock(fn (): \DateTimeImmutable => $this->now);
         $this->pdo = TestSchema::pdo();
-        $chain = AuditChain::fromHexKey(str_repeat('cd', 32));
+        $chain = AuditChain::fromHexKey(str_repeat('cd', 32), 'audit-primary-2026');
+        (new AuditChainInitializer($this->pdo, $chain, $clock))->initialize();
         $this->logger = new AuditLogger($this->pdo, $chain, $clock);
         $this->retention = new AuditRetention($this->pdo);
     }
@@ -46,7 +48,7 @@ final class AuditRetentionTest extends TestCase
             'user_id' => null, 'user_role' => 'guest',
             'action' => 'LOGIN_FAILED', 'module' => 'Authentication',
             'ip_address' => '127.0.0.1', 'user_agent' => 'phpunit',
-            'status' => 'FAILURE', 'anomaly_flag' => 'SUSPICIOUS',
+            'status' => 'FAILED', 'anomaly_flag' => 'SUSPICIOUS',
             'attempted_identifier' => $email,
         ]);
     }
@@ -74,13 +76,13 @@ final class AuditRetentionTest extends TestCase
         $this->logFailedLoginAt('2026-01-01 09:00:00', 'old@example.com');
         $this->logFailedLoginAt('2026-05-30 09:00:00', 'recent@example.com');
 
-        self::assertTrue($this->logger->verifyChain()['ok']);
+        self::assertSame('PASS', $this->logger->verifyLocalFull()['state']);
 
         $cutoff = new \DateTimeImmutable('2026-03-01 00:00:00', new \DateTimeZone('UTC'));
         $this->retention->purgeIdentifiersOlderThan($cutoff);
 
         self::assertTrue(
-            $this->logger->verifyChain()['ok'],
+            $this->logger->verifyLocalFull()['ok'],
             'Scrubbing PII must never break the audit hash chain.'
         );
     }
@@ -102,5 +104,23 @@ final class AuditRetentionTest extends TestCase
 
         $count = (int) $this->pdo->query('SELECT COUNT(*) FROM audit_logs')->fetchColumn();
         self::assertSame(1, $count, 'The audit row itself must remain — only PII is removed.');
+    }
+
+    public function testPurgeBatch_IsBoundedAndIdempotent(): void
+    {
+        for ($day = 1; $day <= 5; $day++) {
+            $this->logFailedLoginAt(
+                sprintf('2026-01-%02d 09:00:00', $day),
+                'old-' . $day . '@example.com'
+            );
+        }
+        $cutoff = new \DateTimeImmutable('2026-03-01 00:00:00', new \DateTimeZone('UTC'));
+
+        self::assertSame(2, $this->retention->purgeBatch($cutoff, 2));
+        self::assertSame(2, $this->retention->purgeBatch($cutoff, 2));
+        self::assertSame(1, $this->retention->purgeBatch($cutoff, 2));
+        self::assertSame(0, $this->retention->purgeBatch($cutoff, 2));
+        self::assertSame(5, (int) $this->pdo->query('SELECT COUNT(*) FROM audit_logs')->fetchColumn());
+        self::assertSame('PASS', $this->logger->verifyLocalFull()['state']);
     }
 }

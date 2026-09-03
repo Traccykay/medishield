@@ -60,7 +60,8 @@ have access to (a code emailed to you). Passing the password is **not** enough.
 6. Browser  ──POST code──>  verify_otp.php
 7. verify_otp.php ─> ms_otp_service()->verify(userId, code)
        'ok'       -> login_user(user)  (regenerates session id, sets $_SESSION['auth'])
-                     audit: OTP_VERIFIED (SUCCESS)  -> redirect to landing page
+                     audit: OTP_VERIFIED, then LOGIN_SUCCESS (SUCCESS)
+                     -> redirect to landing page
        'invalid'  -> audit OTP_FAILED  -> "try again"
        'expired'  -> audit OTP_EXPIRED -> back to login (get a new code)
        'too_many' -> audit OTP_FAILED (SUSPICIOUS) -> code killed, restart login
@@ -162,9 +163,14 @@ preserve access after an administrator revokes the assignment.
 Every security-relevant event is appended to `audit_logs` via `ms_audit_log()`
 (`includes/bootstrap.php` → `src/Audit/AuditLogger.php`).
 
-- Each row is **HMAC-chained** to the previous row (`src/Security/AuditChain.php`):
-  changing or deleting any row breaks the chain, which the admin's **integrity
-  check** (`verifyChain()`, shown on `admin/audit.php`) detects.
+- Historical rows retain the original v1 HMAC. New v2 rows use
+  domain-separated, typed length-prefix canonicalization and bind sequence,
+  key id, IP, user agent, every prior chained field, and the previous hash.
+- `audit_chain_head` is locked before every append and has its own key check and
+  MAC. It exposes row edits, gaps, forks, and suffix/full deletion by an actor
+  who controls the database but not the audit key.
+- The admin check reports `PASS`, `FAIL`, or `UNKNOWN`. Whole-database rollback
+  remains `UNKNOWN` until a separately keyed JSONL anchor matches the DB head.
 - The log is **append-only in practice**: there is no code path that updates or
   deletes an audit row — even an admin cannot tamper with it.
 - Failed logins record the **typed email** (`attempted_identifier`) as PII so an
@@ -296,8 +302,9 @@ We split "who may see a nav item" (authorization, in `Rbac`) from "how it render
 page re-checks with `require_nav`/`require_area`. *Tradeoff:* the rule lives in two
 files, but each file has one job and the security boundary stays on the server.
 
-**Audit log is append-only and HMAC-chained.**
-We deliberately provide no update/delete path for audit rows and chain each row to the
-last, so tampering is *evident* even though we cannot make it *impossible* on a box
-where someone has DB access. *Tradeoff:* we cannot edit a mistaken row — which is
-exactly the property a forensic log should have.
+**Audit claims stop at the trust boundary.**
+The keyed DB head makes database-only tampering evident, while an independently
+stored anchor detects rollback behind its latest sequence. It does not protect
+against a party controlling the application/filesystem and both keys, and it
+cannot prove the unanchored suffix. Reporting `UNKNOWN` in those cases is more
+useful than a false green result.

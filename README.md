@@ -34,14 +34,23 @@ Cybersecurity is central to the project: authentication, role-based access contr
   `with_doctor` visit; lab/pharmacy access is queue-based.
 - **Password hashing:** passwords are stored with PHP `password_hash()` and verified with `password_verify()`.
 - **AES-256-GCM encryption:** sensitive clinical fields are encrypted at rest using authenticated encryption.
-- **HMAC hash-chained audit logs:** forensic audit entries are append-only and tamper-evident using HMAC-SHA256 with a server-side key.
+- **Forensic audit chain:** v2 rows use domain-separated, length-prefixed
+  HMAC-SHA256; a keyed singleton database head detects row edits, forks,
+  sequence gaps, and suffix/full deletion by a database-only attacker. An
+  independently keyed append-only JSONL anchor is required to turn
+  whole-database rollback from `UNKNOWN` into `PASS` or `FAIL`.
 - **Anomaly detection:** suspicious and high-risk activity is flagged, including repeated failed logins, unauthorized access, IDOR attempts, CSRF failures, and integrity failures.
 - **CSRF protection:** state-changing forms use CSRF tokens.
 - **Secure sessions:** strict cookie-only session IDs, post-MFA regeneration,
   fail-closed pending/idle/absolute timeouts, and a monotonic account epoch that
   revokes pending and authenticated sessions after password, status, or role changes.
-- **Request throttling:** HMAC-scoped fixed-window budgets limit login, OTP, and password-reset storms without storing raw IP addresses.
-- **Auditable least privilege:** the web database identity cannot update or delete audit rows; a separate maintenance identity can clear only retention-approved audit PII.
+- **Request throttling:** HMAC-scoped fixed-window budgets use a key distinct
+  from the audit key and limit login, OTP, and password-reset storms without
+  storing raw IP addresses.
+- **Auditable least privilege:** the web identity can insert audit rows and
+  advance only the keyed head; it cannot update/delete audit rows. The
+  maintenance identity can clear only retention-approved audit PII. Setup
+  verifies exact metadata grants and empirical rollback-only denial probes.
 - **Production transport boundary:** production rejects plaintext HTTP and trusts `X-Forwarded-Proto` only from explicitly configured TLS proxies.
 - **STRIDE threat modelling:** used to identify and reduce spoofing, tampering, repudiation, information disclosure, denial-of-service, and elevation-of-privilege risks.
 
@@ -139,7 +148,8 @@ Each command should print a version number.
 
 This creates a local database named `medishield_db`, applies upgrades, provisions
 a non-root web database account, and creates your private `config\config.php`
-file with unique encryption and audit keys. It deliberately creates no
+file with distinct encryption, audit-chain, external-anchor, and throttle keys.
+It initializes the keyed audit head, verifies least privilege, and deliberately creates no
 application users and prints no login credential. The configuration file is
 intentionally not uploaded to GitHub.
 
@@ -252,6 +262,7 @@ composer install
 | PHPUnit unit | Fast checks of security primitives and isolated rules, including crypto, CSRF, RBAC, passwords, audit-chain logic, and mail delivery. | `composer test:unit` |
 | PHPUnit integration | Services and repositories with a fresh in-memory SQLite database: authentication, activation/OTP, session revocation, audit retention, user/patient access, and clinical workflows. | `composer test:integration` |
 | All PHP tests | Runs both PHPUnit suites. It does not need MySQL or change local application data. | `composer test` |
+| MariaDB forensic integration | Opt-in destructive test against the allowlisted `medishield_ui_account_test`: applies the audit migration twice, preserves v1 hashes, and runs two concurrent append processes. | `$env:MEDISHIELD_MARIADB_AUDIT_TEST='1'; vendor\bin\phpunit tests\Integration\MariaDbAuditConcurrencyTest.php` |
 | Playwright workflow | Exercises the real browser-based hospital workflow using disposable role-specific accounts. | `.\scripts\run-ui-tests.ps1` |
 | Playwright security harness | Exercises hostile browser requests: role/object-reference denial, live doctor-assignment revocation with nurse-queue recovery and released doctor capacity, deterministic method/CSRF rejection across all mutation controllers, malformed-array no-mutation checks, stored-XSS encoding, security headers, and generic authentication failures. The standard UI runner executes it with the workflow tests. | `.\scripts\run-ui-tests.ps1` |
 | OWASP ZAP passive baseline | Scans the disposable local application for passive OWASP-style HTTP findings and writes HTML, JSON, and XML reports. Requires Docker Desktop. | `.\scripts\run-zap-baseline.ps1` |
@@ -309,9 +320,10 @@ Deliverable 1 includes:
 - Admin "registration" flow: create users and assign one of the seven roles
 - Admin user management: list users, activate/deactivate accounts
 - Admin dashboard with security monitoring: recent audit events, failed-login /
-  anomaly counts, and audit-chain integrity status
+  anomaly counts, and explicit `PASS` / `FAIL` / `UNKNOWN` integrity status
 - Role-Based Access Control enforced server-side (admin area is admin-only)
-- Forensic audit logging (HMAC hash-chain) wired into every security event
+- Forensic audit logging with v1 compatibility, v2 canonical HMAC rows, a keyed
+  database head, external rollback anchors, and PHI-free security/workflow events
 - Database schema + seed and a reproducible XAMPP setup
 - Unit and integration tests (TDD): run with `composer test`
 

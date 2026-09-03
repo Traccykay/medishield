@@ -12,7 +12,7 @@ Run them from the repository root in this order:
 | 1 | `install-dependencies.ps1` | **Administrator** | Bootstraps every prerequisite with a check-then-install pattern: installs **Chocolatey** if missing, then XAMPP 8.1 + Composer (via Chocolatey) if missing, then calls `configure-php-ini.ps1`, then runs `composer install`. Safe to re-run — already-installed tools are detected and skipped. |
 | 2 | `configure-php-ini.ps1` | not required | Configures the target PHP's `php.ini` to the canonical MediShield baseline (extensions + settings). Called automatically by script #1, but can be run standalone. |
 | 3 | `configure-xampp-apache.ps1` | **Administrator** | Preserves XAMPP's default localhost site, configures `medishield.local` with `public/` as its separate document root, enables overrides and `mod_rewrite`, suppresses Apache version details, validates syntax, restarts Apache, and probes public/denied paths. |
-| 4 | `setup-db.ps1` | not required | Creates the `medishield_db` database, loads the schema and non-credential seed data, applies every idempotent migration in `sql/migrations/`, provisions the non-root web and audit-maintenance identities, verifies audit-table least privilege, and generates `config/config.php` with unique secrets. It creates no application user. |
+| 4 | `setup-db.ps1` | not required | Creates the database, applies every migration, verifies/initializes the keyed audit head, provisions exact web/maintenance grants, runs empirical grant checks, and generates distinct encryption/audit/anchor/throttle keys. It creates no application user. Persistent config generation/upgrades are delegated to `setup-config.ps1`. |
 | 5 | `provision-initial-admin.php` | not required | One-time, explicit initial-admin bootstrap. Creates an inactive admin and delivers an expiring single-use activation link without generating or printing a password. |
 
 ### Initial administrator
@@ -42,7 +42,10 @@ succeed.
 
 | Script | When | What it does |
 |--------|------|--------------|
-| `purge-audit-pii.php` | cron / Task Scheduler (e.g. daily) | Scrubs PII (`attempted_identifier`, the email typed on a failed login) from `audit_logs` rows older than `audit.pii_retention_days`. Never deletes rows and never touches the hash chain, so `verifyChain()` stays ok. Uses the isolated maintenance identity, which has column-level update permission only. See `src/Audit/README.md`. |
+| `initialize-audit-chain.php` | called by `setup-db.ps1` | Verifies preserved v1 rows without rehashing them, assigns deterministic metadata, and creates/validates the keyed singleton head. |
+| `anchor-audit-chain.php` | trusted scheduler after setup and periodically | Appends an idempotent, monotonic, separately keyed JSONL commitment to the current valid database head. |
+| `verify-audit-grants.php` | called by `setup-db.ps1` | Verifies exact grant metadata, runs rolled-back allow/deny probes for both identities, and appends `AUDIT_GRANTS_VERIFIED` on success. |
+| `purge-audit-pii.php` | cron / Task Scheduler (e.g. daily) | Strictly enforces the retention floor, verifies integrity before/after bounded idempotent batches, nulls only `attempted_identifier`, and appends PHI-free `AUDIT_PII_SCRUBBED` evidence. |
 | `migrate-vitals-encryption.php` | called by `setup-db.ps1` | Encrypts legacy plaintext vitals during the controlled schema upgrade. `setup-db.ps1` passes its selected database explicitly; the helper accepts only the configured database or a named disposable UI database. |
 | `seed-ui-test-users.php` | Playwright global setup | Seeds deterministic role and forced-password fixtures only in `medishield_ui_test` or `medishield_ui_account_test`. |
 | `seed-ui-dashboard-data.php` | selected Playwright scenarios | Seeds workflow data only in the same two disposable databases. |
@@ -55,6 +58,15 @@ they cannot target `medishield_db` or an arbitrary database name. The
 setup-time vitals migration validates its explicit target through the same
 boundary, accepting either the configured normal database or a named
 disposable database and rejecting every mismatched arbitrary override.
+
+`setup-db.ps1` separates its selected execution database from the database names
+stored in the shared ignored config. A normal setup aligns
+`audit_maintenance_db.name` with the selected normal database without changing
+existing passwords or cryptographic keys. A disposable UI setup keeps the
+existing web and maintenance names (or the sample's normal name on first
+generation) and supplies the disposable name, setup user, and setup password to
+each PHP helper through process-scoped environment overrides. It therefore never
+persists `medishield_ui_test` or `medishield_ui_account_test` into shared config.
 
 | `setup-ui-test-db.ps1` | before Playwright UI tests | Rebuilds the disposable `medishield_ui_test` database. Playwright calls this automatically and never modifies development data. |
 | `run-ui-tests.ps1` | before submitting UI-affecting or security-sensitive changes | Checks required runtimes, installs pinned Playwright dependencies/Chromium when absent, then runs the full isolated browser workflow and hostile-path security suites. Pass `-Demo` for a visible, slowed, recorded supervisor walkthrough. |
@@ -77,9 +89,12 @@ written authorization.
 # Use the retention window from config (audit.pii_retention_days, default 90):
 php scripts\purge-audit-pii.php
 
-# Preview how many rows would be scrubbed, or override the window:
+# Preview how many rows would be scrubbed, or use an override at/above the floor:
 php scripts\purge-audit-pii.php --dry-run
 php scripts\purge-audit-pii.php --days 30
+
+# Commit the current valid database head to independent append-only storage:
+php scripts\anchor-audit-chain.php
 
 # Verify/start MySQL/MariaDB for test runners:
 .\scripts\ensure-mysql.ps1

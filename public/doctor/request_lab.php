@@ -51,11 +51,11 @@ if ($isPost) {
             ms_audit_log([
                 'user_id' => (int) $user['user_id'],
                 'user_role' => 'doctor',
-                'action' => 'UNAUTHORIZED_ACCESS',
+                'action' => 'WORKFLOW_ROUTING_FAILED',
                 'module' => 'doctor',
                 'affected_record_id' => (string) $patientId,
-                'status' => 'BLOCKED',
-                'anomaly_flag' => 'HIGH_RISK',
+                'status' => 'FAILED',
+                'anomaly_flag' => 'SUSPICIOUS',
             ]);
         } else {
             redirect('/doctor/dashboard.php');

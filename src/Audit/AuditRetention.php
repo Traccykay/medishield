@@ -28,8 +28,8 @@ use PDO;
  * ----------------------------------------------
  *   - It ONLY sets `attempted_identifier` (the typed email) to NULL.
  *   - That column is intentionally NOT part of the HMAC hash chain
- *     (see AuditLogger::log / verifyChain), so nulling it does not change any
- *     row's current_hash and verifyChain() keeps returning ok.
+ *     (see AuditChain v1/v2 canonicalization), so nulling it does not change any
+ *     row's current_hash and local verification remains PASS.
  *   - It NEVER deletes rows and NEVER edits a chained field. The forensic
  *     "who did what / when" record survives; only the personal identifier of the
  *     person whose data we are no longer permitted to retain is removed.
@@ -49,17 +49,84 @@ final class AuditRetention
      */
     public function purgeIdentifiersOlderThan(\DateTimeImmutable $cutoff): int
     {
-        // created_at is stored as 'Y-m-d H:i:s' (UTC). That format sorts
-        // lexicographically the same as chronologically, so a string '<' compare
-        // is correct and works identically on MySQL/MariaDB and SQLite.
+        $total = 0;
+        do {
+            $affected = $this->purgeBatch($cutoff, 500);
+            $total += $affected;
+        } while ($affected === 500);
+
+        return $total;
+    }
+
+    public function countEligible(\DateTimeImmutable $cutoff): int
+    {
         $stmt = $this->pdo->prepare(
-            'UPDATE audit_logs
-                SET attempted_identifier = NULL
+            'SELECT COUNT(*)
+               FROM audit_logs
               WHERE attempted_identifier IS NOT NULL
                 AND created_at < :cutoff'
         );
         $stmt->execute([':cutoff' => $cutoff->format('Y-m-d H:i:s')]);
+        return (int) $stmt->fetchColumn();
+    }
 
-        return $stmt->rowCount();
+    /**
+     * Scrub at most one bounded batch. Each batch owns its transaction, making a
+     * retry safe and limiting a failed operation's lock footprint.
+     */
+    public function purgeBatch(\DateTimeImmutable $cutoff, int $batchSize = 500): int
+    {
+        if ($batchSize < 1 || $batchSize > 1000) {
+            throw new \InvalidArgumentException('Audit retention batch size must be between 1 and 1000.');
+        }
+        if ($this->pdo->inTransaction()) {
+            throw new \LogicException('Audit retention batch must own its transaction.');
+        }
+
+        if ($this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+            $this->pdo->exec('BEGIN IMMEDIATE');
+        } else {
+            $this->pdo->beginTransaction();
+        }
+
+        try {
+            $select = $this->pdo->prepare(
+                'SELECT log_id
+                   FROM audit_logs
+                  WHERE attempted_identifier IS NOT NULL
+                    AND created_at < :cutoff
+                  ORDER BY log_id ASC
+                  LIMIT ' . $batchSize
+            );
+            $select->execute([':cutoff' => $cutoff->format('Y-m-d H:i:s')]);
+            $ids = array_map('intval', $select->fetchAll(PDO::FETCH_COLUMN));
+            if ($ids === []) {
+                $this->pdo->commit();
+                return 0;
+            }
+
+            $placeholders = [];
+            $params = [];
+            foreach ($ids as $index => $id) {
+                $placeholder = ':id' . $index;
+                $placeholders[] = $placeholder;
+                $params[$placeholder] = $id;
+            }
+            $update = $this->pdo->prepare(
+                'UPDATE audit_logs
+                    SET attempted_identifier = NULL
+                  WHERE attempted_identifier IS NOT NULL
+                    AND log_id IN (' . implode(', ', $placeholders) . ')'
+            );
+            $update->execute($params);
+            $affected = $update->rowCount();
+            $this->pdo->commit();
+            return $affected;
+        } catch (\Throwable $error) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $error;
+        }
     }
 }

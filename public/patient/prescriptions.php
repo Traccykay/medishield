@@ -15,6 +15,14 @@ if ($patientId === null) {
 $pending = ms_clinical_repo()->prescriptions('pending', null, $patientId);
 $dispensed = ms_clinical_repo()->prescriptions('dispensed', null, $patientId);
 $history = ms_clinical_repo()->dispensingForPatient($patientId);
+ms_audit_log([
+    'user_id' => (int) $user['user_id'],
+    'user_role' => 'patient',
+    'action' => 'PATIENT_VIEW',
+    'module' => 'patient_prescriptions',
+    'affected_record_id' => (string) $patientId,
+    'status' => 'SUCCESS',
+]);
 
 layout_app_header('My prescriptions', $user, 'payments');
 ?>

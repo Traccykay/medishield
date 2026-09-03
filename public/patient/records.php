@@ -13,6 +13,14 @@ if ($patientId === null) {
 $patient = ms_patient_repo()->findById($patientId);
 $vitals = ms_clinical_service()->decryptVitals(ms_clinical_repo()->vitalsForPatient($patientId));
 $records = ms_clinical_repo()->recordsForPatient($patientId);
+ms_audit_log([
+    'user_id' => (int) $user['user_id'],
+    'user_role' => 'patient',
+    'action' => 'PATIENT_VIEW',
+    'module' => 'patient_records',
+    'affected_record_id' => (string) $patientId,
+    'status' => 'SUCCESS',
+]);
 
 layout_app_header('My records', $user, 'patients');
 ?>

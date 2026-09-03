@@ -13,6 +13,14 @@ if ($patientId === null) {
     redirect('/patient/dashboard.php');
 }
 $results = ms_clinical_repo()->labResultsForPatient($patientId);
+ms_audit_log([
+    'user_id' => (int) $user['user_id'],
+    'user_role' => 'patient',
+    'action' => 'PATIENT_VIEW',
+    'module' => 'patient_labs',
+    'affected_record_id' => (string) $patientId,
+    'status' => 'SUCCESS',
+]);
 
 layout_app_header('My lab results', $user, 'patients');
 ?>

@@ -82,7 +82,7 @@ final class ActivationService
      * Re-validates the token, enforces the password policy and confirm match, then
      * sets the password + status 'active' and burns the token (single use).
      *
-     * @return array{ok:bool, errors:string[], user_id:?int}
+     * @return array{ok:bool, errors:string[], user_id:?int, user_role?:string}
      */
     public function activate(string $token, string $password, string $confirm): array
     {
@@ -129,7 +129,12 @@ final class ActivationService
                 throw new \LogicException('Locked activation state changed unexpectedly.');
             }
 
-            return ['ok' => true, 'errors' => [], 'user_id' => $userId];
+            return [
+                'ok' => true,
+                'errors' => [],
+                'user_id' => $userId,
+                'user_role' => (string) $user['role'],
+            ];
         });
     }
 

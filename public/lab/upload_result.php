@@ -33,6 +33,14 @@ if ($isPost) {
     }
     $errors = $result['errors'];
 }
+ms_audit_log([
+    'user_id' => (int) $user['user_id'],
+    'user_role' => 'lab',
+    'action' => 'PATIENT_VIEW',
+    'module' => 'lab',
+    'affected_record_id' => (string) $request['patient_id'],
+    'status' => 'SUCCESS',
+]);
 $token = Csrf::token($_SESSION);
 layout_app_header('Upload lab result', $user, 'reports');
 ?>

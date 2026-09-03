@@ -24,9 +24,17 @@ final class RequestThrottle
         private Clock $clock,
         string $scopeKeyHex
     ) {
-        $this->scopeKey = hex2bin($scopeKeyHex) ?: throw new \InvalidArgumentException(
-            'Request throttle key must be valid hexadecimal.'
-        );
+        if (
+            strlen($scopeKeyHex) % 2 !== 0
+            || preg_match('/^[0-9a-fA-F]+$/D', $scopeKeyHex) !== 1
+        ) {
+            throw new \InvalidArgumentException('Request throttle key must be valid hexadecimal.');
+        }
+        $raw = hex2bin($scopeKeyHex);
+        if ($raw === false || strlen($raw) < 32) {
+            throw new \InvalidArgumentException('Request throttle key must contain at least 32 bytes.');
+        }
+        $this->scopeKey = $raw;
     }
 
     /**

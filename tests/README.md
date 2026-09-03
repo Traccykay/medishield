@@ -27,8 +27,8 @@ angles:
 - **Integration** checks stateful services and SQL with a clean SQLite
   database: account activation and OTP, login lockout, IP-scoped request
   throttling, replay-safe initial-admin provisioning, session revocation, audit
-  logging and retention, user/patient authorization, visits, and clinical
-  workflow data.
+  logging and retention, snapshot-consistent verification, user/patient
+  authorization, visits, and clinical workflow data.
 
 Browser suites live in [`../e2e/`](../e2e/) and are deliberately separate
 because they need PHP, MySQL/MariaDB, and Chromium:

@@ -27,6 +27,7 @@ require_once __DIR__ . '/error_boundary.php';
  */
 
 use MediShield\Audit\AuditLogger;
+use MediShield\Audit\AuditAnchorStore;
 use MediShield\Billing\BillingRepository;
 use MediShield\Billing\BillingService;
 use MediShield\Auth\ActivationRepository;
@@ -86,6 +87,10 @@ if (!function_exists('ms_config')) {
         $testMailDir = getenv('MEDISHIELD_MAIL_DUMP_DIR');
         if (is_string($testMailDir) && $testMailDir !== '') {
             $config['mail']['dump_dir'] = $testMailDir;
+        }
+        $testAnchorPath = getenv('MEDISHIELD_AUDIT_ANCHOR_PATH');
+        if (is_string($testAnchorPath) && $testAnchorPath !== '') {
+            $config['audit_anchor_path'] = $testAnchorPath;
         }
 
         return $config;
@@ -235,11 +240,27 @@ if (!function_exists('ms_audit')) {
     {
         static $logger = null;
         if ($logger === null) {
-            $chain  = AuditChain::fromHexKey(ms_config()['audit_hmac_key_hex']);
+            $chain  = AuditChain::fromHexKey(
+                (string) ms_config()['audit_hmac_key_hex'],
+                (string) ms_config()['audit_key_id']
+            );
             $logger = new AuditLogger(ms_db(), $chain, ms_clock());
         }
 
         return $logger;
+    }
+}
+
+if (!function_exists('ms_audit_anchors')) {
+    function ms_audit_anchors(): AuditAnchorStore
+    {
+        static $anchors = null;
+        return $anchors ??= AuditAnchorStore::fromHexKey(
+            (string) ms_config()['audit_anchor_path'],
+            (string) ms_config()['audit_anchor_hmac_key_hex'],
+            (string) ms_config()['audit_anchor_key_id'],
+            ms_clock()
+        );
     }
 }
 
@@ -250,7 +271,7 @@ if (!function_exists('ms_request_throttle')) {
         return $throttle ??= new RequestThrottle(
             ms_db(),
             ms_clock(),
-            (string) ms_config()['audit_hmac_key_hex']
+            (string) ms_config()['request_throttle_hmac_key_hex']
         );
     }
 }
@@ -486,11 +507,12 @@ if (!function_exists('ms_user_agent')) {
 
 if (!function_exists('ms_audit_log')) {
     /**
-     * Convenience wrapper that appends an audit entry, automatically attaching the
-     * request IP / user-agent. Auditing must never crash the page, so any failure
-     * is logged and swallowed.
+     * Append after the domain operation has committed. A failed forensic write
+     * cannot roll back an already-committed clinical/business transaction, but it
+     * returns false and emits a PHI-free structured diagnostic instead of silently
+     * claiming success.
      */
-    function ms_audit_log(array $event): void
+    function ms_audit_log(array $event): bool
     {
         try {
             $event += [
@@ -498,8 +520,16 @@ if (!function_exists('ms_audit_log')) {
                 'user_agent' => ms_user_agent(),
             ];
             ms_audit()->log($event);
+            return true;
         } catch (\Throwable $e) {
-            error_log('[audit] failed to write entry: ' . $e->getMessage());
+            error_log(json_encode([
+                'event' => 'AUDIT_APPEND_FAILED',
+                'severity' => 'ERROR',
+                'action' => is_string($event['action'] ?? null) ? $event['action'] : 'UNKNOWN',
+                'module' => is_string($event['module'] ?? null) ? $event['module'] : 'unknown',
+                'error_type' => $e::class,
+            ], JSON_UNESCAPED_SLASHES));
+            return false;
         }
     }
 }

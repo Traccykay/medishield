@@ -1,9 +1,22 @@
 const { test, expect } = require('@playwright/test');
+const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { loginWithOtp, logout, readNewMail } = require('./helpers');
 
 test.describe.configure({ mode: 'serial' });
+
+function mysql(sql) {
+  return execFileSync('mysql.exe', [
+    '--host=127.0.0.1',
+    '--user=root',
+    '--database=medishield_ui_test',
+    '--batch',
+    '--skip-column-names',
+    '--raw',
+    `--execute=${sql}`
+  ], { encoding: 'utf8' }).trim();
+}
 
 test('denies direct access to include-only billing partials without leaking errors', async ({ page }) => {
   for (const partialPath of [
@@ -55,6 +68,105 @@ test('blocks role and object-reference attacks without disclosing patient data',
   await page.goto('/admin/audit.php');
   await expect(page.getByRole('heading', { name: 'Access denied' })).toBeVisible();
   await expect(page.getByText('Audit logs')).not.toBeVisible();
+});
+
+test('records missing-anchor verification as normal without inflating dashboard security counters', async ({ page }) => {
+  await loginWithOtp(page, 'ui.admin@medishield.test');
+  const [failedBefore, anomaliesBefore] = mysql(
+    "SELECT SUM(status = 'FAILED'), SUM(anomaly_flag <> 'NORMAL') FROM audit_logs"
+  ).split('\t').map(Number);
+  const auditStart = Number(mysql('SELECT COALESCE(MAX(log_id), 0) FROM audit_logs'));
+
+  await page.goto('/admin/audit.php');
+  await expect(page.locator('.ms-stat-num').filter({ hasText: /^UNKNOWN$/ })).toBeVisible();
+  const [status, anomaly] = mysql(
+    `SELECT status, anomaly_flag
+       FROM audit_logs
+      WHERE action = 'INTEGRITY_VERIFIED' AND log_id > ${auditStart}
+      ORDER BY log_id ASC
+      LIMIT 1`
+  ).split('\t');
+
+  expect(status).toBe('SUCCESS');
+  expect(anomaly).toBe('NORMAL');
+
+  const [failedAfter, anomaliesAfter] = mysql(
+    "SELECT SUM(status = 'FAILED'), SUM(anomaly_flag <> 'NORMAL') FROM audit_logs"
+  ).split('\t').map(Number);
+  expect(failedAfter).toBe(failedBefore);
+  expect(anomaliesAfter).toBe(anomaliesBefore);
+
+  await page.goto('/admin/dashboard.php');
+  const [recentFailed, recentAnomalies] = mysql(
+    `SELECT SUM(status = 'FAILED'), SUM(anomaly_flag <> 'NORMAL')
+       FROM (
+         SELECT status, anomaly_flag
+           FROM audit_logs
+          ORDER BY seq DESC
+          LIMIT 25
+       ) AS recent_audit`
+  ).split('\t').map(Number);
+  await expect(page.getByTestId('admin-failed-events-count')).toHaveText(String(recentFailed));
+  await expect(page.getByTestId('admin-anomaly-count')).toHaveText(String(recentAnomalies));
+});
+
+test('does not recursively append integrity evidence for an unanchored suffix', async ({ page }) => {
+  await loginWithOtp(page, 'ui.admin@medishield.test');
+  const root = path.resolve(__dirname, '..');
+  execFileSync('php', [path.join(root, 'scripts', 'anchor-audit-chain.php')], {
+    cwd: root,
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      MEDISHIELD_AUDIT_DB_NAME: 'medishield_ui_test',
+      MEDISHIELD_AUDIT_ANCHOR_PATH: path.join(root, 'test-results', 'audit-anchor.jsonl')
+    }
+  });
+  const beforePass = Number(mysql(
+    "SELECT COUNT(*) FROM audit_logs WHERE action = 'INTEGRITY_VERIFIED'"
+  ));
+
+  await page.goto('/admin/audit.php');
+  await expect(page.locator('.ms-stat-num').filter({ hasText: /^PASS$/ })).toBeVisible();
+  const afterPass = Number(mysql(
+    "SELECT COUNT(*) FROM audit_logs WHERE action = 'INTEGRITY_VERIFIED'"
+  ));
+  expect(afterPass).toBe(beforePass + 1);
+
+  await page.reload();
+  await expect(page.locator('.ms-stat-num').filter({ hasText: /^UNKNOWN$/ })).toBeVisible();
+  const afterSuffix = Number(mysql(
+    "SELECT COUNT(*) FROM audit_logs WHERE action = 'INTEGRITY_VERIFIED'"
+  ));
+  expect(afterSuffix).toBe(afterPass);
+});
+
+test('quarantines recent audit rows when local integrity verification fails', async ({ page }) => {
+  await loginWithOtp(page, 'ui.admin@medishield.test');
+  const [logId, originalActionHex] = mysql(
+    'SELECT log_id, HEX(action) FROM audit_logs ORDER BY seq ASC LIMIT 1'
+  ).split('\t');
+  expect(logId).toMatch(/^[1-9]\d*$/);
+  expect(originalActionHex).toMatch(/^[0-9A-F]+$/);
+
+  mysql(`UPDATE audit_logs SET action = 'FORGED_UI_AUDIT_ROW' WHERE log_id = ${logId}`);
+  try {
+    await page.goto('/admin/audit.php');
+    await expect(page.locator('.ms-stat-num').filter({ hasText: /^FAIL$/ })).toBeVisible();
+    await expect(page.getByText(
+      'Recent audit rows are quarantined from display because local chain integrity was not verified.'
+    )).toBeVisible();
+    await expect(page.getByText('FORGED_UI_AUDIT_ROW')).toHaveCount(0);
+  } finally {
+    mysql(
+      `UPDATE audit_logs SET action = UNHEX('${originalActionHex}') WHERE log_id = ${logId}`
+    );
+  }
+
+  await page.reload();
+  await expect(page.getByText(
+    'Recent audit rows are quarantined from display because local chain integrity was not verified.'
+  )).toHaveCount(0);
 });
 
 test('revoked doctor assignment immediately blocks reads, IDOR, and mutation', async ({ page }) => {

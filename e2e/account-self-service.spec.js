@@ -2,7 +2,13 @@ const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
-const { loginWithOtp, logout, readNewMail } = require('./helpers');
+const {
+  auditEventsAfter,
+  latestAuditId,
+  loginWithOtp,
+  logout,
+  readNewMail
+} = require('./helpers');
 
 const root = path.resolve(__dirname, '..');
 const mailDir = process.env.MEDISHIELD_MAIL_DUMP_DIR
@@ -33,7 +39,22 @@ async function createPendingPatientUser(page) {
 }
 
 test('administrator creates, activates, resets, and safely manages a user account', async ({ page }) => {
+  const loginAuditStart = latestAuditId();
   await loginWithOtp(page, 'ui.admin@medishield.test');
+  const loginEvents = auditEventsAfter(loginAuditStart);
+  const loginActions = loginEvents.map((event) => event.action);
+  expect(loginActions).toContain('OTP_SENT');
+  expect(loginActions).toContain('OTP_VERIFIED');
+  expect(loginActions).toContain('LOGIN_SUCCESS');
+  expect(loginActions.indexOf('LOGIN_SUCCESS')).toBeGreaterThan(loginActions.indexOf('OTP_VERIFIED'));
+  expect(loginEvents.find((event) => event.action === 'LOGIN_SUCCESS')).toMatchObject({
+    user_role: 'admin',
+    status: 'SUCCESS',
+    attempted_identifier: null
+  });
+  await page.goto('/admin/audit.php');
+  await expect(page.getByText('UNKNOWN', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Audit rollback status is UNKNOWN/)).toBeVisible();
   const token = await createPendingPatientUser(page);
 
   await logout(page);
@@ -54,8 +75,17 @@ test('administrator creates, activates, resets, and safely manages a user accoun
 
   await page.getByLabel('New password', { exact: true }).fill(activationPassword);
   await page.getByLabel('Confirm password').fill(activationPassword);
+  const activationAuditStart = latestAuditId();
   await page.getByRole('button', { name: 'Activate account' }).click();
   await expect(page.getByText('Your account is now active. You can sign in with your new password.')).toBeVisible();
+  const activationEvents = auditEventsAfter(activationAuditStart);
+  expect(activationEvents).toHaveLength(1);
+  expect(activationEvents[0]).toMatchObject({
+    user_role: 'patient',
+    action: 'ACCOUNT_ACTIVATED',
+    status: 'SUCCESS',
+    attempted_identifier: null
+  });
 
   await loginWithOtp(page, activationEmail, activationPassword);
   await expect(page.getByRole('heading', { name: 'Patient dashboard' })).toBeVisible();

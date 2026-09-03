@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use MediShield\Audit\AuditVerificationEventPolicy;
+
 /**
  * admin/audit.php
  * ---------------
@@ -22,7 +24,36 @@ require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('admin');
 
-// Record that the audit log was viewed (accountability for the monitors too).
+// Read-only views that must never take the page down.
+$recent    = [];
+$recentQuarantined = false;
+$integrity = [
+    'state' => 'UNKNOWN',
+    'ok' => false,
+    'reason' => 'VERIFICATION_ERROR',
+    'first_bad_log_id' => null,
+    'head_seq' => null,
+];
+try {
+    $recent    = ms_audit()->recent(100);
+    $integrity = ms_audit()->verifyChain(ms_audit_anchors());
+    $localState = (string) ($integrity['local_state'] ?? $integrity['state'] ?? 'UNKNOWN');
+    if ($localState !== 'PASS') {
+        $recent = [];
+        $recentQuarantined = true;
+    }
+} catch (\Throwable $e) {
+    error_log(json_encode([
+        'event' => 'AUDIT_VERIFICATION_ERROR',
+        'severity' => 'ERROR',
+        'surface' => 'admin_audit',
+        'error_type' => $e::class,
+    ], JSON_UNESCAPED_SLASHES));
+}
+
+// Evidence is appended after the assessed tip is fixed. A normal unanchored
+// suffix suppresses its integrity row so verification does not extend the
+// condition it just reported; the access event itself remains auditable.
 ms_audit_log([
     'user_id'   => (int) $user['user_id'],
     'user_role' => (string) $user['role'],
@@ -30,17 +61,27 @@ ms_audit_log([
     'module'    => 'admin',
     'status'    => 'SUCCESS',
 ]);
-
-// Read-only views that must never take the page down.
-$recent    = [];
-$integrity = ['ok' => true, 'first_bad_log_id' => null];
-try {
-    $recent    = ms_audit()->recent(100);
-    $integrity = ms_audit()->verifyChain();
-} catch (\Throwable $e) {
-    error_log('[admin/audit] audit read failed: ' . $e->getMessage());
+$verificationEvidence = AuditVerificationEventPolicy::classify($integrity);
+if ($verificationEvidence['should_record']) {
+    ms_audit_log([
+        'user_id' => (int) $user['user_id'],
+        'user_role' => (string) $user['role'],
+        'action' => 'INTEGRITY_VERIFIED',
+        'module' => 'admin',
+        'affected_record_id' => isset($integrity['head_seq'])
+            ? 'seq:' . (int) $integrity['head_seq']
+            : null,
+        'status' => $verificationEvidence['status'],
+        'anomaly_flag' => $verificationEvidence['anomaly_flag'],
+    ]);
 }
 
+$integrityState = (string) ($integrity['state'] ?? 'UNKNOWN');
+$integrityClass = match ($integrityState) {
+    'PASS' => 'ms-stat-ok',
+    'FAIL' => 'ms-stat-bad',
+    default => 'ms-stat-warn',
+};
 layout_app_header('Forensic Auditing', $user, 'audit');
 ?>
 <section class="ms-card">
@@ -50,20 +91,32 @@ layout_app_header('Forensic Auditing', $user, 'audit');
             <p class="ms-muted">Tamper-evident record of security activity: logins,
                 failed attempts, OTP and activation events, and access denials.</p>
         </div>
-        <div class="ms-stat <?= $integrity['ok'] ? 'ms-stat-ok' : 'ms-stat-bad' ?>">
-            <div class="ms-stat-num"><?= $integrity['ok'] ? 'OK' : 'TAMPERED' ?></div>
+        <div class="ms-stat <?= e($integrityClass) ?>">
+            <div class="ms-stat-num"><?= e($integrityState) ?></div>
             <div class="ms-stat-label">Chain integrity</div>
         </div>
     </div>
 
-    <?php if (!$integrity['ok']) {
+    <?php if ($integrityState === 'FAIL') {
         layout_alert('danger', 'Audit chain integrity check FAILED. The log may have been tampered with from log #'
             . (string) ($integrity['first_bad_log_id'] ?? '?') . '.');
+    } elseif ($integrityState === 'UNKNOWN') {
+        layout_alert(
+            'warning',
+            'Audit rollback status is UNKNOWN. Check the configured external anchor and maintenance logs.'
+        );
     } ?>
 
-    <?php if ($recent === []) { ?>
+    <?php if ($recentQuarantined) {
+        layout_alert(
+            'warning',
+            'Recent audit rows are quarantined from display because local chain integrity was not verified.'
+        );
+    } ?>
+
+    <?php if ($recent === [] && !$recentQuarantined) { ?>
         <p class="ms-muted">No audit events recorded yet.</p>
-    <?php } else { ?>
+    <?php } elseif ($recent !== []) { ?>
         <div class="ms-table-wrap">
             <table class="ms-table">
                 <thead>

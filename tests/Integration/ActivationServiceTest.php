@@ -75,6 +75,7 @@ final class ActivationServiceTest extends TestCase
 
         self::assertTrue($result['ok']);
         self::assertSame($userId, $result['user_id']);
+        self::assertSame('doctor', $result['user_role']);
 
         $row = $this->users->findById($userId);
         self::assertSame('active', $row['status']);

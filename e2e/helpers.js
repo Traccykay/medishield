@@ -47,7 +47,7 @@ if ($mode === 'fingerprint') {
          FROM information_schema.TABLES
          WHERE TABLE_SCHEMA = DATABASE()
            AND TABLE_TYPE = 'BASE TABLE'
-           AND TABLE_NAME <> 'audit_logs'
+           AND TABLE_NAME NOT IN ('audit_logs', 'audit_chain_head')
          ORDER BY TABLE_NAME"
     )->fetchAll(PDO::FETCH_COLUMN);
     $fingerprint = [];

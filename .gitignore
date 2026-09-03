@@ -17,6 +17,7 @@ config/secrets.php
 logs/*.log
 # OTP codes and activation links are dumped here by the dev LogMailer — never commit.
 logs/mail/
+var/*.jsonl
 node_modules/
 playwright-report/
 test-results/

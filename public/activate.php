@@ -65,7 +65,7 @@ if ($isPost && $tokenValue !== '') {
     if ($result['ok']) {
         ms_audit_log([
             'user_id'            => (int) $result['user_id'],
-            'user_role'          => 'user',
+            'user_role'          => (string) $result['user_role'],
             'action'             => 'ACCOUNT_ACTIVATED',
             'module'             => 'auth',
             'affected_record_id' => (int) $result['user_id'],

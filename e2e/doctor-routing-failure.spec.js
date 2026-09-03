@@ -183,13 +183,13 @@ function routingFailureState(scenario, patientId, visitId) {
       'denialCount', (
         SELECT COUNT(*)
           FROM audit_logs
-         WHERE action = 'UNAUTHORIZED_ACCESS'
+         WHERE action = 'WORKFLOW_ROUTING_FAILED'
            AND affected_record_id = '${patientId}'
       ),
       'denialLogId', (
         SELECT log_id
           FROM audit_logs
-         WHERE action = 'UNAUTHORIZED_ACCESS'
+         WHERE action = 'WORKFLOW_ROUTING_FAILED'
            AND affected_record_id = '${patientId}'
          ORDER BY log_id DESC
          LIMIT 1
@@ -197,7 +197,7 @@ function routingFailureState(scenario, patientId, visitId) {
       'denialUserId', (
         SELECT user_id
           FROM audit_logs
-         WHERE action = 'UNAUTHORIZED_ACCESS'
+         WHERE action = 'WORKFLOW_ROUTING_FAILED'
            AND affected_record_id = '${patientId}'
          ORDER BY log_id DESC
          LIMIT 1
@@ -205,7 +205,7 @@ function routingFailureState(scenario, patientId, visitId) {
       'denialRole', (
         SELECT user_role
           FROM audit_logs
-         WHERE action = 'UNAUTHORIZED_ACCESS'
+         WHERE action = 'WORKFLOW_ROUTING_FAILED'
            AND affected_record_id = '${patientId}'
          ORDER BY log_id DESC
          LIMIT 1
@@ -213,7 +213,7 @@ function routingFailureState(scenario, patientId, visitId) {
       'denialModule', (
         SELECT module
           FROM audit_logs
-         WHERE action = 'UNAUTHORIZED_ACCESS'
+         WHERE action = 'WORKFLOW_ROUTING_FAILED'
            AND affected_record_id = '${patientId}'
          ORDER BY log_id DESC
          LIMIT 1
@@ -221,7 +221,7 @@ function routingFailureState(scenario, patientId, visitId) {
       'denialRecordId', (
         SELECT affected_record_id
           FROM audit_logs
-         WHERE action = 'UNAUTHORIZED_ACCESS'
+         WHERE action = 'WORKFLOW_ROUTING_FAILED'
            AND affected_record_id = '${patientId}'
          ORDER BY log_id DESC
          LIMIT 1
@@ -229,7 +229,7 @@ function routingFailureState(scenario, patientId, visitId) {
       'denialStatus', (
         SELECT status
           FROM audit_logs
-         WHERE action = 'UNAUTHORIZED_ACCESS'
+         WHERE action = 'WORKFLOW_ROUTING_FAILED'
            AND affected_record_id = '${patientId}'
          ORDER BY log_id DESC
          LIMIT 1
@@ -237,7 +237,7 @@ function routingFailureState(scenario, patientId, visitId) {
       'denialAnomaly', (
         SELECT anomaly_flag
           FROM audit_logs
-         WHERE action = 'UNAUTHORIZED_ACCESS'
+         WHERE action = 'WORKFLOW_ROUTING_FAILED'
            AND affected_record_id = '${patientId}'
          ORDER BY log_id DESC
          LIMIT 1
@@ -245,7 +245,7 @@ function routingFailureState(scenario, patientId, visitId) {
       'denialIp', (
         SELECT ip_address
           FROM audit_logs
-         WHERE action = 'UNAUTHORIZED_ACCESS'
+         WHERE action = 'WORKFLOW_ROUTING_FAILED'
            AND affected_record_id = '${patientId}'
          ORDER BY log_id DESC
          LIMIT 1
@@ -253,7 +253,7 @@ function routingFailureState(scenario, patientId, visitId) {
       'denialUserAgent', (
         SELECT user_agent
           FROM audit_logs
-         WHERE action = 'UNAUTHORIZED_ACCESS'
+         WHERE action = 'WORKFLOW_ROUTING_FAILED'
            AND affected_record_id = '${patientId}'
          ORDER BY log_id DESC
          LIMIT 1
@@ -261,7 +261,7 @@ function routingFailureState(scenario, patientId, visitId) {
       'denialAttemptedIdentifier', (
         SELECT attempted_identifier
           FROM audit_logs
-         WHERE action = 'UNAUTHORIZED_ACCESS'
+         WHERE action = 'WORKFLOW_ROUTING_FAILED'
            AND affected_record_id = '${patientId}'
          ORDER BY log_id DESC
          LIMIT 1
@@ -331,8 +331,8 @@ for (const scenario of scenarios) {
     expect(state.denialRole).toBe('doctor');
     expect(state.denialModule).toBe('doctor');
     expect(state.denialRecordId).toBe(String(patientId));
-    expect(state.denialStatus).toBe('BLOCKED');
-    expect(state.denialAnomaly).toBe('HIGH_RISK');
+    expect(state.denialStatus).toBe('FAILED');
+    expect(state.denialAnomaly).toBe('SUSPICIOUS');
     expect(state.successLogId).toBeLessThan(state.denialLogId);
 
     const persistedDenial = JSON.stringify({

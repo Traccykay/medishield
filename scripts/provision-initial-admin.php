@@ -124,7 +124,10 @@ try {
     try {
         $audit = new AuditLogger(
             $pdo,
-            AuditChain::fromHexKey((string) $config['audit_hmac_key_hex']),
+            AuditChain::fromHexKey(
+                (string) $config['audit_hmac_key_hex'],
+                (string) ($config['audit_key_id'] ?? 'primary')
+            ),
             $clock
         );
         foreach (['USER_CREATED', 'ACTIVATION_SENT'] as $action) {

@@ -11,6 +11,12 @@ This folder holds MediShield's configuration.
 Both files simply `return` a PHP associative array. The application loads it via
 `includes/bootstrap.php`, which calls `require config/config.php`.
 
+Database setup treats the persistent web/maintenance database names separately
+from disposable UI-test execution. Normal setup aligns only the maintenance
+database name with its selected normal database; it preserves existing database
+passwords and cryptographic keys. Disposable setup uses process-scoped database
+overrides and never writes a disposable database name into this shared config.
+
 ## Setup
 You normally don't create `config.php` by hand — `scripts\setup-db.ps1` copies the
 sample for you. To do it manually:
