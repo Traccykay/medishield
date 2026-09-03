@@ -26,6 +26,7 @@ $authenticated = (string) ($argv[2] ?? 'guest') === 'authenticated';
 $GLOBALS['request_guard_probe']['audit_failed'] = (string) ($argv[3] ?? 'audit-ok') === 'audit-fails';
 $_SERVER['REQUEST_METHOD'] = match ($variant) {
     'get' => 'GET',
+    'head' => 'HEAD',
     'put' => 'PUT',
     default => 'POST',
 };

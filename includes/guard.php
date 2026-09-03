@@ -303,23 +303,23 @@ if (!function_exists('request_post_guard')) {
      * Enforce the request method and validate CSRF before a controller parses
      * request fields, looks up an object, or invokes domain work.
      *
-     * Mixed GET/form pages receive false for GET and true for a verified POST.
-     * Action-only controllers pass $postOnly=true so every non-POST method is
-     * rejected with 405. CSRF failures always terminate with the same generic
-     * 403 response after exactly one best-effort audit attempt.
+     * Mixed GET/form pages receive false for GET/HEAD and true for a verified
+     * POST. Action-only controllers pass $postOnly=true so every non-POST
+     * method is rejected with 405. CSRF failures always terminate with the
+     * same generic 403 response after exactly one best-effort audit attempt.
      */
     function request_post_guard(string $module, bool $postOnly = false): bool
     {
         $method = $_SERVER['REQUEST_METHOD'] ?? '';
         $method = is_string($method) ? strtoupper($method) : '';
 
-        if ($method === 'GET' && !$postOnly) {
+        if (($method === 'GET' || $method === 'HEAD') && !$postOnly) {
             return false;
         }
 
         if ($method !== 'POST') {
             if (!headers_sent()) {
-                header('Allow: POST');
+                header($postOnly ? 'Allow: POST' : 'Allow: GET, HEAD, POST');
             }
             http_response_code(405);
             exit('Request method not allowed.');

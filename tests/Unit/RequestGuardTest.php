@@ -75,8 +75,21 @@ final class RequestGuardTest extends TestCase
         self::assertSame([], $result['audit_events']);
     }
 
+    public function testRequestPostGuard_HeadOnMixedPage_UsesReadPath(): void
+    {
+        $result = $this->runProbe('head', 'authenticated', 'audit-ok');
+
+        self::assertFalse($result['status']);
+        self::assertTrue($result['mutated']);
+        self::assertSame([], $result['audit_events']);
+    }
+
     /**
-     * @return array{status:int|false,audit_events:list<array<string,mixed>>,mutated:bool}
+     * @return array{
+     *     status:int|false,
+     *     audit_events:list<array<string,mixed>>,
+     *     mutated:bool
+     * }
      */
     private function runProbe(string $variant, string $actor, string $audit): array
     {

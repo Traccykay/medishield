@@ -144,8 +144,18 @@ final class BuiltInRuntimeTest extends TestCase
         $response = self::request('/login.php', 'TRACE');
 
         self::assertSame(405, $response['status']);
+        self::assertHeader($response, 'allow', 'GET, HEAD, POST');
         self::assertHeader($response, 'referrer-policy', 'no-referrer');
         self::assertHeader($response, 'x-content-type-options', 'nosniff');
+    }
+
+    public function testHeadRequest_OnMixedPage_UsesGetSemanticsWithoutBody(): void
+    {
+        $response = self::request('/login.php', 'HEAD');
+
+        self::assertSame(200, $response['status']);
+        self::assertSame('', $response['body']);
+        self::assertHeader($response, 'referrer-policy', 'no-referrer');
     }
 
     /**

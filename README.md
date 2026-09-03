@@ -326,6 +326,10 @@ On failure, inspect `test-results` for the screenshot, video, and trace. See
 [`e2e/README.md`](e2e/README.md) for browser-test setup and troubleshooting.
 See [`SECURITY_TESTING.md`](SECURITY_TESTING.md) for all runner prerequisites,
 ZAP reports, and the safe active-scan boundary.
+The completed remediation evidence and remaining operational risks are in
+[`SECURITY_REMEDIATION_HANDOFF.md`](SECURITY_REMEDIATION_HANDOFF.md); the
+presentation-focused control narrative is in
+[`SECURITY_REMEDIATION_ACADEMIC_SUMMARY.md`](SECURITY_REMEDIATION_ACADEMIC_SUMMARY.md).
 
 ### OWASP ZAP context
 
