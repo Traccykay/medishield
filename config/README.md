@@ -11,6 +11,10 @@ This folder holds MediShield's configuration.
 Both files simply `return` a PHP associative array. The application loads it via
 `includes/bootstrap.php`, which calls `require config/config.php`.
 
+Account activation and password reset have independent token lifetimes:
+`activation.ttl_hours` defaults to 48 hours for inactive accounts, while
+`password_reset.ttl_minutes` defaults to 60 minutes for active accounts.
+
 Database setup treats the persistent web/maintenance database names separately
 from disposable UI-test execution. Normal setup aligns only the maintenance
 database name with its selected normal database; it preserves existing database

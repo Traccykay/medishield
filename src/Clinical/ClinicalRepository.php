@@ -220,10 +220,33 @@ final class ClinicalRepository
         return $stmt->fetchColumn() !== false;
     }
 
-    public function createLabResult(int $labRequestId, int $patientId, int $labTechId, string $encryptedResult): int
+    public function createLabResult(
+        int $labRequestId,
+        int $patientId,
+        int $labTechId,
+        string $encryptedResult
+    ): ?int
     {
         $this->pdo->beginTransaction();
         try {
+            $claim = $this->pdo->prepare(
+                'UPDATE lab_requests
+                    SET status = :completed
+                  WHERE lab_request_id = :id
+                    AND patient_id = :patient_id
+                    AND status = :pending'
+            );
+            $claim->execute([
+                ':completed' => 'completed',
+                ':id' => $labRequestId,
+                ':patient_id' => $patientId,
+                ':pending' => 'pending',
+            ]);
+            if ($claim->rowCount() !== 1) {
+                $this->pdo->rollBack();
+                return null;
+            }
+
             $stmt = $this->pdo->prepare(
                 'INSERT INTO lab_results
                     (lab_request_id, patient_id, lab_technician_id, result_encrypted, created_at)
@@ -239,10 +262,6 @@ final class ClinicalRepository
             ]);
             $resultId = (int) $this->pdo->lastInsertId();
 
-            $update = $this->pdo->prepare(
-                'UPDATE lab_requests SET status = :status WHERE lab_request_id = :id'
-            );
-            $update->execute([':status' => 'completed', ':id' => $labRequestId]);
             $this->pdo->commit();
             return $resultId;
         } catch (\Throwable $e) {

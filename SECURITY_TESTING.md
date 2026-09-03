@@ -7,7 +7,7 @@ security-sensitive changes; no one layer proves the whole security posture.
 | --- | --- | --- |
 | PHP unit + integration | `composer test` | Crypto, CSRF, RBAC, audit-chain integrity, throttling, authentication, OTP, and data-access behavior. Does not need MySQL. |
 | Locked dependency audit | `.\scripts\audit-dependencies.ps1` | Strict Composer validation/advisories, PHP 8.1 lock compatibility, script-free npm clean reconciliation, npm advisories, and available registry signatures over exact locked versions. |
-| Real MariaDB forensic test | `$env:MEDISHIELD_MARIADB_AUDIT_TEST='1'; vendor\bin\phpunit tests\Integration\MariaDbAuditConcurrencyTest.php` | Applies the v2 migration twice, preserves v1 HMACs, checks `ascii_bin`/unique constraints, and drives two concurrent append processes against the allowlisted disposable database. |
+| Real MariaDB concurrency tests | `$env:MEDISHIELD_MARIADB_AUDIT_TEST='1'; vendor\bin\phpunit --filter 'MariaDb.*ConcurrencyTest'` | Applies the v2 audit migration twice, preserves v1 HMACs, checks audit constraints and concurrent appends, and proves that two contending lab-result submissions cannot both claim one pending request. |
 | Browser workflows + hostile paths | `.\scripts\run-ui-tests.ps1` | The real rendered application, role/ownership denial, CSRF no-write behavior, stored-XSS encoding, headers, generic authentication failures, reset-link revocation, and reset-storm throttling. |
 | OWASP ZAP passive baseline | `.\scripts\run-zap-baseline.ps1` | Spidered unauthenticated HTTP responses, passive OWASP-style findings, and ZAP HTML/JSON/XML reports. Requires Docker Desktop. |
 

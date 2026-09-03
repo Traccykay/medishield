@@ -379,6 +379,10 @@ final class ClinicalService
             $labTechId,
             $this->crypto->encrypt($result)
         );
+        if ($id === null) {
+            return ['ok' => false, 'errors' => ['Lab request is not pending.'], 'lab_result_id' => null];
+        }
+
         return ['ok' => true, 'errors' => [], 'lab_result_id' => $id];
     }
 

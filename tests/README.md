@@ -30,7 +30,8 @@ angles:
   database: account activation and OTP, login lockout, IP-scoped request
   throttling, replay-safe initial-admin provisioning, session revocation, audit
   logging and retention, snapshot-consistent verification, user/patient
-  authorization, visits, and clinical workflow data.
+  authorization, visits, and clinical workflow data. Opt-in MariaDB tests add
+  real audit-writer and lab-result row-lock contention.
 
 Browser suites live in [`../e2e/`](../e2e/) and are deliberately separate
 because they need PHP, MySQL/MariaDB, and Chromium:

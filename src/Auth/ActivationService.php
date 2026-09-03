@@ -22,8 +22,9 @@ use MediShield\Support\Clock;
  *                    'active' (via {@see UserRepository::activate()}), consuming the
  *                    token so the link is single-use.
  *
- * Security rationale mirrors OtpService but the token is long-lived (hours) and
- * high-entropy, hence SHA-256 (deterministic lookup) rather than bcrypt. The caller
+ * Security rationale mirrors OtpService but the token is high-entropy, hence
+ * SHA-256 (deterministic lookup) rather than bcrypt. Pending-account activation
+ * and active-account password reset retain independent expiry windows. The caller
  * (a page) owns emailing the link and writing the audit entries.
  */
 final class ActivationService
@@ -33,7 +34,8 @@ final class ActivationService
         private UserRepository $users,
         private PasswordPolicy $passwordPolicy,
         private Clock $clock,
-        private int $ttlHours = 48
+        private int $activationTtlHours = 48,
+        private int $passwordResetTtlMinutes = 60
     ) {
     }
 
@@ -47,11 +49,16 @@ final class ActivationService
     {
         return $this->activations->transactional(function () use ($userId): string {
             $this->activations->invalidateAllForUser($userId);
+            $user = $this->users->findById($userId, true);
+            if ($user === null) {
+                throw new \LogicException('Cannot issue a token for an unknown account.');
+            }
 
             $token = bin2hex(random_bytes(32)); // 64 hex chars, ~256 bits of entropy
-            $expiresAt = $this->clock->now()
-                ->add(new \DateInterval('PT' . max(1, $this->ttlHours) . 'H'))
-                ->format('Y-m-d H:i:s');
+            $interval = (string) $user['status'] === 'active'
+                ? new \DateInterval('PT' . max(1, $this->passwordResetTtlMinutes) . 'M')
+                : new \DateInterval('PT' . max(1, $this->activationTtlHours) . 'H');
+            $expiresAt = $this->clock->now()->add($interval)->format('Y-m-d H:i:s');
 
             $this->activations->create($userId, $this->hashToken($token), $expiresAt);
             return $token;

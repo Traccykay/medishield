@@ -31,6 +31,14 @@ if ($isPost) {
         ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'lab', 'action' => 'LAB_RESULT_UPLOADED', 'module' => 'lab', 'affected_record_id' => (string) $requestId, 'status' => 'SUCCESS']);
         redirect('/lab/requests.php');
     }
+    ms_audit_log([
+        'user_id' => (int) $user['user_id'],
+        'user_role' => 'lab',
+        'action' => 'LAB_RESULT_UPLOADED',
+        'module' => 'lab',
+        'affected_record_id' => (string) $requestId,
+        'status' => 'FAILED',
+    ]);
     $errors = $result['errors'];
 }
 ms_audit_log([

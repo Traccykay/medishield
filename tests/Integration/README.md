@@ -18,10 +18,11 @@ service orchestration actually work end-to-end, not just in isolation.
 | `AuditAnchorStoreTest.php` | `Audit/AuditAnchorStore` — monotonic/idempotent JSONL anchors, wrong-key UNKNOWN, unanchored-suffix UNKNOWN, and whole-database rollback FAIL. |
 | `AuditRetentionTest.php` | `Audit/AuditRetention` — bounded/idempotent PII scrub batches that null only `attempted_identifier`, preserve rows, and keep local verification PASS. |
 | `MariaDbAuditConcurrencyTest.php` | Opt-in real MariaDB proof: migration twice, v1 preservation, fresh and upgrade-path positive-sequence constraints, refusal without repair of a pre-existing zero sequence, `ascii_bin`/unique schema checks, and two concurrent append processes. |
+| `MariaDbClinicalConcurrencyTest.php` | Opt-in real MariaDB proof: two pre-connected workers contend on one locked pending lab request, but exactly one completes it and creates a result. |
 | `PatientServiceTest.php` | `Patient/PatientService` — demographics validation, staff assignment, search, and patient/nurse/admin access rules. Doctor encounter policy is covered separately by `DoctorPatientAuthorizerTest`. |
 | `DoctorPatientAuthorizerTest.php` | `Auth/DoctorPatientAuthorizer` — the assignment-plus-owned-active-visit truth table, mismatched doctor/patient/visit denial, inactive states, SQLite lock-syntax compatibility, list filtering, and immediate revocation. |
 | `VisitWorkflowTest.php` | `Visit/...` — receptionist arrival, transactional nurse-to-doctor routing, atomic doctor revocation with nurse-queue recovery and rollback, unchanged nurse unassignment, availability, immediate authorization denial, and payment validation. |
-| `ClinicalWorkflowTest.php` | `Clinical/...` — vital validation, encrypted clinical fields, tamper detection, lab processing, pharmacy dispensing, revocation-safe doctor mutations, pre-lookup authorization, and doctor/status-scoped order counts. |
+| `ClinicalWorkflowTest.php` | `Clinical/...` — vital validation, encrypted clinical fields, tamper detection, replay-safe lab processing, pharmacy dispensing, revocation-safe doctor mutations, pre-lookup authorization, and doctor/status-scoped order counts. |
 
 ## How the DB is provided
 

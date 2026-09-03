@@ -7,7 +7,9 @@ assignment:
 - doctors submit an encounter-bound encrypted diagnosis/treatment with multiple
   catalog lab tests and medications in one consultation; the server snapshots
   each catalog price and encrypts prescription details
-- lab users work from the request queue and upload encrypted results
+- lab users work from the request queue and upload encrypted results; the
+  transaction must first claim the exact request from `pending` to `completed`,
+  so concurrent submissions cannot both create a result
 - pharmacists work only from encounters currently assigned to pharmacy and record
   dispensed or terminal refused outcomes; a refusal requires a reason and
   atomically returns the linked encounter to its assigned doctor for review

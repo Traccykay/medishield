@@ -85,12 +85,15 @@ try {
     $users = new UserRepository($pdo, $clock);
     $activationConfig = (array) ($config['activation'] ?? []);
     $ttlHours = (int) ($activationConfig['ttl_hours'] ?? 48);
+    $passwordResetConfig = (array) ($config['password_reset'] ?? []);
+    $passwordResetTtlMinutes = (int) ($passwordResetConfig['ttl_minutes'] ?? 60);
     $activations = new ActivationService(
         new ActivationRepository($pdo, $clock),
         $users,
         new PasswordPolicy(),
         $clock,
-        $ttlHours
+        $ttlHours,
+        $passwordResetTtlMinutes
     );
     $mailer = $transport === 'smtp'
         ? new SmtpMailer(

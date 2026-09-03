@@ -2,11 +2,12 @@
 
 ## Scope and status
 
-This handoff covers the six focused remediation commits on
-`security/zap-remediation`, followed by Phase 7 verification. Nothing was
-pushed. The normal `medishield_db` database was not rebuilt or used by browser
-or ZAP testing; those runners use the allowlisted `medishield_ui_test`
-database.
+This handoff covers the seven completed remediation commits on
+`security/zap-remediation` plus the final independent-review remediation pass.
+Nothing was pushed. The normal `medishield_db` database was not rebuilt or
+used by browser or ZAP testing; those runners use the allowlisted
+`medishield_ui_test` database. Real concurrency tests use only the allowlisted
+`medishield_ui_account_test` database.
 
 The branch preserves the seven-role workflow: `patient`, `receptionist`,
 `nurse`, `doctor`, `lab`, `pharmacist`, and `admin`.
@@ -79,6 +80,26 @@ The branch preserves the seven-role workflow: `patient`, `receptionist`,
    - Made method rejections advertise truthful `Allow` headers: `GET, HEAD,
      POST` on mixed pages and `POST` on mutation-only routes.
    - Added unit and live built-in-server regressions for both behaviors.
+
+8. **Independent-review remediation**
+   - Made the database transaction conditionally claim a lab request from
+     `pending` to `completed` before inserting its encrypted result. Only one
+     contender can change the row; the existing unique result constraint
+     remains a second database guarantee.
+   - Converted a lost lab-result race or replay into a controlled rejection
+     with no duplicate row and a `LAB_RESULT_UPLOADED` / `FAILED` audit event.
+   - Added a barrier-synchronized real MariaDB test in which two pre-connected
+     workers contend behind a held row lock; both prove contention, but exactly
+     one creates a result.
+   - Separated active-account password reset to a 60-minute token lifetime
+     while preserving the 48-hour inactive-account activation lifetime and
+     transactional single-use behavior.
+   - Standardized activation-token transaction lock order as
+     `account_activations` then `users` to avoid a new deadlock window.
+   - Confirmed each admin audit page already performs one full-chain
+     verification per request. Request-scoped memoization would not eliminate
+     that one O(total rows) scan, so no ineffective cache or weaker
+     cross-request verdict reuse was introduced.
 
 ## Files modified
 
@@ -164,11 +185,11 @@ PHP development-server and static Apache tests do not prove XAMPP behavior.
 | --- | --- |
 | Focused Phase 6 PHPUnit suites | **PASS** — 98 tests, 715 assertions. |
 | Final toolchain regression suite | **PASS** — 11 tests, 121 assertions. |
-| Final full PHPUnit suite | **PASS** — 428 tests, 1,930 assertions; 3 opt-in MariaDB tests skipped in the ordinary run. |
-| Opt-in real MariaDB audit suite | **PASS** — 3 tests, 27 assertions against `medishield_ui_account_test`. |
-| Full Playwright suite | **PASS** — 36 scenarios in approximately 8.3 minutes against `medishield_ui_test`. |
+| Final full PHPUnit suite | **PASS** — 433 tests, 1,940 assertions; 4 opt-in MariaDB tests skipped in the ordinary run. |
+| Opt-in real MariaDB concurrency suite | **PASS** — 4 tests, 42 assertions against `medishield_ui_account_test`, including two contending lab-result workers. |
+| Full Playwright suite | **PASS** — 36 scenarios in approximately 7.1 minutes against `medishield_ui_test`, after the last code change. |
 | Manual hostile HTTP matrix | **PASS** — protected scripts, Git data, and traversal returned 403; unknown/path-info routes returned 404; malformed array input remained controlled; no sensitive leakage observed. |
-| Passive OWASP ZAP baseline | **PASS** — manifest status and exit code were successful, no retained alert was at or above WARN, HTML/JSON/XML reports validated, and exact cleanup succeeded. The reports retain 3 Informational alert types across 9 instances. |
+| Passive OWASP ZAP baseline | **PASS** — run after the last code change; manifest status and exit code were successful, no retained alert was at or above WARN, HTML/JSON/XML reports validated, and exact cleanup succeeded. The reports retain 5 Informational alert types across 15 instances. |
 | Composer install/validation/audit/PHP 8.1 graph | **PASS** — no advisories and no package prohibits PHP 8.1. |
 | npm clean installation through the configured TLS proxy | **PASS** — exact SHA-512 lock installed. |
 | npm advisory audit through the configured TLS proxy | **PASS** — 0 vulnerabilities. |
@@ -178,7 +199,7 @@ PHP development-server and static Apache tests do not prove XAMPP behavior.
 
 The final successful ZAP evidence is under:
 
-`test-results\zap\runs\zap-20260903T044202954Z-9c20cbc33810\`
+`test-results\zap\runs\zap-20260903T095148915Z-c258fa8e4844\`
 
 ## OWASP ZAP findings addressed
 
@@ -218,23 +239,41 @@ which is supplied by PHPUnit and Playwright.
    Until a trusted scheduler writes an independently stored anchor, rollback
    status is correctly `UNKNOWN`. Next action: schedule and separately protect
    `anchor-audit-chain.php`, its key, and its output.
-4. **Admin audit pages perform repeated full-chain verification.** Risk:
-   request latency grows with the append-only log and may become a
-   denial-of-service concern at scale. Next action: reuse one verification
-   result per request and reserve full verification for an explicit operator
-   action; do not weaken current integrity semantics without tests.
+4. **Each admin audit-page request performs one full-chain verification.**
+   Source review confirmed there is no duplicate verification within one
+   request, so request-scoped memoization would not reduce the remaining
+   O(total audit rows) work. This is accepted for the academic deployment but
+   may become a latency or denial-of-service concern at scale. Any future
+   optimization must preserve consistent-snapshot and external-anchor
+   semantics rather than reuse a stale verdict across requests.
 5. **Local secret-file ACLs inherit from the parent directory.** Risk: another
    local account on a shared workstation may read `config/config.php`. Next
    action: add explicit Windows ACL hardening to setup.
-6. **Password-reset links share the 48-hour activation TTL.** Tokens are
-   single-use and hash-stored, but a shorter dedicated reset TTL is preferable.
-7. **Legacy v1 audit rows remain weaker by design.** New writes are v2; v1 is
+6. **Legacy v1 audit rows remain weaker by design.** New writes are v2; v1 is
    verification compatibility only.
-8. **Whole-tier compromise remains outside an in-database HMAC guarantee.** A
+7. **Whole-tier compromise remains outside an in-database HMAC guarantee.** A
    compromise of the database, web filesystem, audit key, anchor key, and
    anchor storage can forge all local evidence. Operational separation is
    required.
-9. **The authoritative external specification was edited outside this Git
+8. **Sustained database contention can still produce a generic failure.** A
+   normal duplicate lab submission is rejected cleanly, but an InnoDB lock
+   timeout or deadlock is treated as an infrastructure failure and rolled back
+   rather than being mislabeled as “not pending.”
+9. **Environment test overrides remain an operational trust boundary.** The
+   web bootstrap accepts process environment overrides used by isolated
+   runners; they are not derived from remote requests and must not be exposed
+   to untrusted deployment configuration.
+10. **Bounded PowerShell helpers terminate their direct child on timeout.** A
+    grandchild retaining redirected handles is a theoretical residual process
+    cleanup risk.
+11. **Local HTTP tests do not prove production TLS or HSTS.** HTTPS termination
+    and HSTS must be verified in the real deployment.
+12. **The XAMPP configurator's host-file encoding and hostname behavior remain
+    unobserved.** Its first live run must confirm the preserved host entries,
+    `medishield.local` resolution, and default-host routing.
+13. **No preserved pre-remediation ZAP report exists.** A numeric before/after
+    scanner comparison cannot be reconstructed without fabricating evidence.
+14. **The authoritative external specification was edited outside this Git
    repository during Phase 5.** `C:\personal\Capstone\MediShield_Specification_v2.md`
    cannot be included in this branch commit and had no original backup.
 
@@ -263,7 +302,7 @@ At handoff-writing time:
   - `95ae66a` — `fix: harden authentication and request boundaries`
   - `48b6c74` — `fix: strengthen forensic audit integrity`
   - `57e57b8` — `fix: harden runtime and dependency boundaries`
-- The final Phase 7 commit carries the `HEAD`/`Allow` guard correction, its
-  regressions, and these handoff documents; its hash is recorded in Git after
-  this file is reviewed.
+  - `72d8412` — `docs: record security remediation verification`
+- The final independent-review remediation commit is created after this file
+  and the exact final test evidence are reviewed.
 - Nothing has been pushed.

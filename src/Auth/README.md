@@ -12,7 +12,7 @@ that the login and admin pages call into.
 | `UserService` | Admin "registration": `createUser()` (with password) and `createPendingUser()` (no password, status `inactive`, for the activation-link flow). Validates input, password policy, unique email. | §9.2 |
 | `SessionValidator` | Binds pending MFA and authenticated session payloads to the authoritative account `auth_version`, status, and role; enforces pending-login, idle, and absolute ages with fail-closed timestamp parsing. | §16 |
 | `OtpService` / `OtpRepository` | Login **second factor**: issue a 6-char code (stored bcrypt-hashed in `otp_codes`) and conditionally consume it under a transaction/row lock. Expired and exhausted codes are burned. | 2FA |
-| `ActivationService` / `ActivationRepository` | Activation/reset tokens are conditionally consumed in the same transaction as the authoritative password/status mutation. Token and user rows use MySQL locking while SQLite follows the portable transaction path. | activation |
+| `ActivationService` / `ActivationRepository` | Activation/reset tokens are conditionally consumed in the same transaction as the authoritative password/status mutation. Inactive-account activation remains valid for 48 hours; active-account password reset uses an independent 60-minute lifetime. Token and user rows use consistent MySQL lock ordering while SQLite follows the portable transaction path. | activation |
 | `InitialAdminProvisioner` | Guarded first-admin bootstrap: atomically creates one inactive pending admin, delivers an activation link, rolls back failed delivery, and leaves any existing admin untouched. | §9.2 |
 
 ## How they fit together
@@ -37,5 +37,6 @@ guard.php (page guard) -> SessionValidator (time + auth_version)
   is enabled only for transactional mutation rechecks and omitted on SQLite.
 - `AuthService`, `UserService`, `OtpService`, `ActivationService` and
   `InitialAdminProvisioner` receive their dependencies, so policy logic —
-  including OTP expiry, activation single-use, bootstrap idempotency, and
-  delivery rollback — is verified end-to-end without a real database server.
+  including OTP expiry, independent activation/reset expiry, token single-use,
+  bootstrap idempotency, and delivery rollback — is verified end-to-end
+  without a real database server.

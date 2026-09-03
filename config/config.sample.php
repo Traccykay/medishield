@@ -143,6 +143,13 @@ return [
         'ttl_hours' => 48,      // how long an activation link stays valid
     ],
 
+    // --- Password-reset links ---
+    // Keep this substantially shorter than account activation because an active
+    // account's credential can be replaced by anyone holding the reset link.
+    'password_reset' => [
+        'ttl_minutes' => 60,
+    ],
+
     // --- Paths ---
     'error_log' => __DIR__ . '/../logs/app_errors.log',
 ];

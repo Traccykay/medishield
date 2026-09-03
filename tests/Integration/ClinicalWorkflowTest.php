@@ -540,6 +540,40 @@ final class ClinicalWorkflowTest extends TestCase
         self::assertSame('Normal count', $this->clinical->decrypt($results[0]['result_encrypted']));
     }
 
+    public function testLabUpload_WhenRequestIsAlreadyCompleted_RejectsWithoutDuplicateResult(): void
+    {
+        [$patientId, $doctorId, $visitId] = $this->doctorConsultation();
+        $recordId = (int) $this->clinical->addDiagnosis(
+            $patientId,
+            $doctorId,
+            $visitId,
+            'Diagnosis',
+            null
+        )['record_id'];
+        $requestId = (int) $this->clinical->requestLab(
+            $patientId,
+            $doctorId,
+            $visitId,
+            $recordId,
+            'Complete blood count (CBC)',
+            null
+        )['lab_request_id'];
+        $labId = $this->users->create(
+            'Lee Lab',
+            'lee.lab.replay@example.com',
+            password_hash('Str0ng!Pass1', PASSWORD_DEFAULT),
+            'lab'
+        );
+
+        self::assertTrue($this->clinical->uploadLabResult($requestId, $labId, 'Normal count')['ok']);
+        $second = $this->clinical->uploadLabResult($requestId, $labId, 'Duplicate count');
+
+        self::assertFalse($second['ok']);
+        self::assertSame(['Lab request is not pending.'], $second['errors']);
+        self::assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM lab_results')->fetchColumn());
+        self::assertSame('completed', $this->clinicalRepo->findLabRequest($requestId)['status']);
+    }
+
     public function testPharmacistDispensesPendingPrescription(): void
     {
         [$patientId, $doctorId, $visitId] = $this->doctorConsultation();

@@ -326,13 +326,15 @@ if (!function_exists('ms_activation_service')) {
     {
         static $svc = null;
         if ($svc === null) {
-            $cfg = ms_config()['activation'] ?? [];
+            $activationConfig = ms_config()['activation'] ?? [];
+            $passwordResetConfig = ms_config()['password_reset'] ?? [];
             $svc = new ActivationService(
                 new ActivationRepository(ms_db(), ms_clock()),
                 ms_user_repo(),
                 new PasswordPolicy(),
                 ms_clock(),
-                (int) ($cfg['ttl_hours'] ?? 48)
+                (int) ($activationConfig['ttl_hours'] ?? 48),
+                (int) ($passwordResetConfig['ttl_minutes'] ?? 60)
             );
         }
         return $svc;

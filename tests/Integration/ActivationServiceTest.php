@@ -36,7 +36,14 @@ final class ActivationServiceTest extends TestCase
         $this->users       = new UserRepository($this->pdo, $clock);
         $this->userService = new UserService($this->users, new PasswordPolicy());
         $this->repository  = new ActivationRepository($this->pdo, $clock);
-        $this->activation  = new ActivationService($this->repository, $this->users, new PasswordPolicy(), $clock, 48);
+        $this->activation  = new ActivationService(
+            $this->repository,
+            $this->users,
+            new PasswordPolicy(),
+            $clock,
+            48,
+            60
+        );
     }
 
     /** Helper: create a pending user and return its id. */
@@ -102,6 +109,53 @@ final class ActivationServiceTest extends TestCase
         self::assertFalse(password_verify('Old!Pass1234', (string) $row['password_hash']));
         self::assertSame(2, (int) $row['auth_version']);
         self::assertFalse($this->activation->validate($token)['ok']);
+    }
+
+    public function testPasswordResetTokenIsValidInsideDedicatedResetTtl(): void
+    {
+        $userId = $this->users->create(
+            'Reset Person',
+            'reset-inside-ttl@example.com',
+            password_hash('Old!Pass1234', PASSWORD_DEFAULT),
+            'doctor',
+            false
+        );
+        $token = $this->activation->issueFor($userId);
+
+        $this->now = $this->now->add(new \DateInterval('PT59M'));
+
+        self::assertTrue($this->activation->validate($token)['ok']);
+    }
+
+    public function testPasswordResetTokenExpiresAtDedicatedResetTtl(): void
+    {
+        $userId = $this->users->create(
+            'Reset Person',
+            'reset-expired@example.com',
+            password_hash('Old!Pass1234', PASSWORD_DEFAULT),
+            'doctor',
+            false
+        );
+        $token = $this->activation->issueFor($userId);
+
+        $this->now = $this->now->add(new \DateInterval('PT60M'));
+
+        self::assertSame('expired', $this->activation->validate($token)['reason']);
+        self::assertFalse(
+            $this->activation->activate($token, 'New!Pass4567', 'New!Pass4567')['ok']
+        );
+    }
+
+    public function testAccountActivationRetainsIndependentFortyEightHourTtl(): void
+    {
+        $userId = $this->makePending('activation-ttl@example.com');
+        $token = $this->activation->issueFor($userId);
+
+        $this->now = $this->now->add(new \DateInterval('PT47H59M'));
+        self::assertTrue($this->activation->validate($token)['ok']);
+
+        $this->now = $this->now->add(new \DateInterval('PT1M'));
+        self::assertSame('expired', $this->activation->validate($token)['reason']);
     }
 
     public function testActivationLinkIsSingleUse(): void

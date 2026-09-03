@@ -33,7 +33,14 @@ if ($isPost) {
         if ($user !== null && (string) $user['status'] === 'active') {
             $token = ms_activation_service()->issueFor((int) $user['user_id']);
             $link = rtrim((string) ms_config()['mail']['app_base_url'], '/') . '/activate.php?token=' . urlencode($token);
-            ms_mailer()->send((string) $user['email'], (string) $user['full_name'], 'Reset your MediShield password', "Open this link to set a new password:\n\n" . $link);
+            $ttlMinutes = (int) (ms_config()['password_reset']['ttl_minutes'] ?? 60);
+            ms_mailer()->send(
+                (string) $user['email'],
+                (string) $user['full_name'],
+                'Reset your MediShield password',
+                "Open this link to set a new password:\n\n" . $link
+                . "\n\nThis link expires in " . $ttlMinutes . " minutes."
+            );
         }
         $message = 'If that email belongs to an active account, a password reset link has been sent.';
     }
