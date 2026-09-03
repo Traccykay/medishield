@@ -11,6 +11,7 @@ small, single-purpose, and unit-tested.
 | `AuditChain` | Computes legacy v1 hashes, canonical v2 row HMACs, and keyed-head MACs that authenticate the stored key check. Enforces a 32-byte minimum key. | §9.8 |
 | `RequestThrottle` | Persists fixed-window request budgets under an HMAC-derived action/IP scope; raw IP addresses are not stored. | STRIDE DoS |
 | `TransportSecurity` | Accepts direct HTTPS or a forwarding header from an explicitly trusted TLS proxy only. | STRIDE tampering/disclosure |
+| `PublicRuntimePolicy` | Enumerates executable development-server routes and static asset MIME mappings, rejecting sensitive names, directories, malformed encoding, and traversal before filesystem dispatch. | STRIDE disclosure/tampering |
 
 ## Key rules
 - **Passwords are hashed, never encrypted** (`password_hash`/`password_verify`),

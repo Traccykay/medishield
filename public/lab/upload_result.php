@@ -14,7 +14,7 @@ $requestId = request_positive_int(
 );
 $request = $requestId > 0 ? ms_clinical_repo()->findLabRequest($requestId) : null;
 if ($request === null || (string) $request['status'] !== 'pending') {
-    redirect('/lab/requests.php');
+    redirect('/lab/requests.php', 303);
 }
 $errors = [];
 $resultText = '';

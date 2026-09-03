@@ -37,8 +37,14 @@ final class DeploymentBoundaryTest extends TestCase
             $this->root . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . '.htaccess'
         );
 
+        self::assertStringContainsString('Options -Indexes -MultiViews', $contents);
+        self::assertStringContainsString('AcceptPathInfo Off', $contents);
+        self::assertStringContainsString('RewriteRule ^assets/css/style\.css$ - [L]', $contents);
+        self::assertStringContainsString('RewriteRule ^assets(?:/|$) - [F,L,NC]', $contents);
         self::assertStringContainsString('RewriteRule ^partials(?:/|$) - [F,L,NC]', $contents);
         self::assertStringContainsString('README', $contents);
+        self::assertStringContainsString('Header onsuccess unset Referrer-Policy', $contents);
+        self::assertStringContainsString('Header always set Referrer-Policy "no-referrer"', $contents);
         self::assertStringContainsString('Require all denied', $contents);
     }
 
@@ -295,9 +301,13 @@ final class DeploymentBoundaryTest extends TestCase
             $this->root . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'headers.php'
         );
         self::assertStringContainsString(
-            'Cache-Control: no-store, no-cache, must-revalidate, max-age=0',
+            'Cache-Control: no-store, private, max-age=0, must-revalidate',
             $headers
         );
+        $bootstrap = (string) file_get_contents(
+            $this->root . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'bootstrap.php'
+        );
+        self::assertStringContainsString('ms_send_no_store_headers();', $bootstrap);
 
         foreach ([
             'login.php',
@@ -386,9 +396,18 @@ final class DeploymentBoundaryTest extends TestCase
         foreach ([
             'ServerTokens Prod',
             'ServerSignature Off',
+            'TraceEnable Off',
             'LoadModule rewrite_module modules/mod_rewrite.so',
+            'LoadModule headers_module modules/mod_headers.so',
             'AllowOverride All',
+            'Options -Indexes -MultiViews',
+            'AcceptPathInfo Off',
+            'Require local',
+            'AllowRemoteAccess',
             'httpd.exe -t',
+            "-ArgumentList @('-M')",
+            'headers_module',
+            'rewrite_module',
             'medishield.local',
             'configure-php-ini.ps1',
         ] as $requirement) {
@@ -399,6 +418,24 @@ final class DeploymentBoundaryTest extends TestCase
             'Runtime verification failed; Apache, hosts, and process state were restored.',
             $contents
         );
+    }
+
+    public function testEarlyErrorBoundary_EmitsFeasibleCoreSecurityHeaders(): void
+    {
+        $contents = (string) file_get_contents(
+            $this->root . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR
+                . 'error_boundary.php'
+        );
+
+        foreach ([
+            'X-Frame-Options: DENY',
+            'X-Content-Type-Options: nosniff',
+            'Referrer-Policy: no-referrer',
+            "Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+            'Cache-Control: no-store, private, max-age=0, must-revalidate',
+        ] as $header) {
+            self::assertStringContainsString($header, $contents);
+        }
     }
 
     /** @return array<string,array{string,string}> */

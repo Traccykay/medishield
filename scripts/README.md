@@ -9,11 +9,20 @@ Run them from the repository root in this order:
 
 | # | Script | Elevation | What it does |
 |---|--------|-----------|--------------|
-| 1 | `install-dependencies.ps1` | **Administrator** | Bootstraps every prerequisite with a check-then-install pattern: installs **Chocolatey** if missing, then XAMPP 8.1 + Composer (via Chocolatey) if missing, then calls `configure-php-ini.ps1`, then runs `composer install`. Safe to re-run — already-installed tools are detected and skipped. |
-| 2 | `configure-php-ini.ps1` | not required | Configures the target PHP's `php.ini` to the canonical MediShield baseline (extensions + settings). Called automatically by script #1, but can be run standalone. |
-| 3 | `configure-xampp-apache.ps1` | **Administrator** | Preserves XAMPP's default localhost site, configures `medishield.local` with `public/` as its separate document root, enables overrides and `mod_rewrite`, suppresses Apache version details, validates syntax, restarts Apache, and probes public/denied paths. |
+| 1a | `install-dependencies.ps1 -MachinePackages` | **Administrator** | Uses only `C:\ProgramData\chocolatey\bin\choco.exe` and the explicit Chocolatey community HTTPS source to install exact `xampp-81` version `8.1.6`. It never bootstraps Chocolatey, uses user PATH provenance, or runs Composer/project code. |
+| 1b | `install-dependencies.ps1 -ProjectDependencies` | **standard user only** | Resolves installed PHP/Composer application files, applies the canonical PHP configuration, and performs two-attempt/time-bounded locked Composer installation with plugins and scripts disabled. It refuses elevation and changes no global Composer/user environment setting. |
+| 2 | `configure-php-ini.ps1` | not required | Configures the target PHP's `php.ini` to the canonical MediShield baseline (extensions + settings). Called by the standard-user dependency phase, but can be run standalone. |
+| 3 | `configure-xampp-apache.ps1` | **Administrator** | Preserves XAMPP's default localhost site, configures a local-only `medishield.local` vhost with `public/` as its document root, enables/asserts `mod_rewrite` and `mod_headers`, disables indexing/MultiViews/path-info/TRACE, validates syntax/modules, restarts Apache, and probes the live boundary. |
 | 4 | `setup-db.ps1` | not required | Creates the database, applies every migration, verifies/initializes the keyed audit head, provisions exact web/maintenance grants, runs empirical grant checks, and generates distinct encryption/audit/anchor/throttle keys. It creates no application user. Persistent config generation/upgrades are delegated to `setup-config.ps1`. |
 | 5 | `provision-initial-admin.php` | not required | One-time, explicit initial-admin bootstrap. Creates an inactive admin and delivers an expiring single-use activation link without generating or printing a password. |
+
+Chocolatey and Composer are manual prerequisites when absent. Follow only the
+official instructions at <https://chocolatey.org/install> and
+<https://getcomposer.org/download/>, and inspect the command, checksum, and
+publisher before installing them. No script in this repository downloads and
+executes a mutable Administrator bootstrap. These workstation helpers are for
+local development only; **never run them on a production host**. Provision
+production runtimes through a separately reviewed image/deployment pipeline.
 
 ### Initial administrator
 
@@ -69,21 +78,37 @@ each PHP helper through process-scoped environment overrides. It therefore never
 persists `medishield_ui_test` or `medishield_ui_account_test` into shared config.
 
 | `setup-ui-test-db.ps1` | before Playwright UI tests | Rebuilds the disposable `medishield_ui_test` database. Playwright calls this automatically and never modifies development data. |
-| `run-ui-tests.ps1` | before submitting UI-affecting or security-sensitive changes | Checks required runtimes, installs pinned Playwright dependencies/Chromium when absent, then runs the full isolated browser workflow and hostile-path security suites. Pass `-Demo` for a visible, slowed, recorded supervisor walkthrough. |
+| `audit-dependencies.ps1` | after any dependency change and before release | Strictly validates/audits `composer.lock`, proves no package prohibits PHP 8.1, always reconciles npm with `npm ci --ignore-scripts` from the official strict-TLS registry, audits the lock, and verifies available npm registry signatures. |
+| `run-ui-tests.ps1` | before submitting UI-affecting or security-sensitive changes | Always reconciles the exact npm lock with `npm ci --ignore-scripts`, rejects custom Playwright download hosts, invokes repository-local Playwright, installs Chromium, then runs the full isolated browser workflow and hostile-path suites. Pass `-Demo` for a visible, slowed, recorded supervisor walkthrough. |
 | `ensure-mysql.ps1` | automatically before database-dependent test runners, or manually for diagnosis | Idempotently verifies a real root connection; when stopped, starts a recognised Windows service, XAMPP, or Scoop MariaDB and waits for readiness. |
-| `ensure-docker-desktop.ps1` | automatically before ZAP, or manually for diagnosis | Installs Docker Desktop through WinGet (or Chocolatey when WinGet is unavailable) if absent, starts it when its engine is stopped, and waits for a real Docker Engine response. |
-| `run-zap-baseline.ps1` | before releasing security-sensitive changes | Runs Docker Desktop setup, rebuilds the disposable UI database, serves the app locally, then runs OWASP ZAP's passive baseline and writes HTML/JSON/XML reports to `test-results\zap`. |
+| `ensure-docker-desktop.ps1` | automatically before ZAP, or manually for diagnosis | Resolves a preinstalled Docker Desktop only from known application paths, requires a valid Docker Inc. signature, starts it if needed, and waits for a real engine. It refuses unpinned automatic installation; `-SkipInstall` preserves explicit preinstallation-only automation. |
+| `run-zap-baseline.ps1` | before releasing security-sensitive changes | Rebuilds only the disposable UI database, proves a nonce-bound local server, uses the reviewed immutable ZAP digest in a uniquely named hardened container/network, validates reports, writes a unique manifest, and performs bounded exact cleanup. |
 
 ### OWASP ZAP baseline
 
 `run-zap-baseline.ps1` is intentionally passive. It may spider the disposable
-application, but it does not submit active attack payloads. The script retries
-the stable GHCR image and falls back to the official Docker Hub stable image if
-that registry is unavailable. A ZAP `WARN` or `FAIL` makes the command fail;
-review `test-results\zap\zap-baseline.html`, `.json`, and `.xml` to decide
-whether to fix a real finding or record a specific, time-bound exception. Never
-run an active scan against production or real patient data without explicit
-written authorization.
+application, but it does not submit active attack payloads. It uses only
+`ghcr.io/zaproxy/zaproxy@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef`;
+bounded retries never switch to an unreviewed tag or registry. It rejects an
+occupied port and requires an exact nonce in both the identity body and header
+before Docker starts.
+
+Every run writes to `test-results\zap\runs\<run-id>\`. The manifest records the
+run ID, digest, available image version metadata, image ID, target, exact
+command, command/overall exit codes, report validation, and cleanup result.
+Reports are isolated in the `reports\` child and must be nonempty plus parseable
+as HTML, JSON, and XML. The wrapper log is preserved as `zap.out`; a dedicated
+file mount keeps that one path writable while the image root remains read-only.
+The uniquely named container drops all capabilities, enables
+`no-new-privileges`, runs as `zap`, uses a read-only root filesystem, a 256 MiB
+temporary-files tmpfs, and a 1 GiB scanner-home tmpfs, and is attached to a
+uniquely named network. Container/network cleanup is exact and time-bounded; a
+cleanup failure changes an otherwise successful run to failure without hiding
+an earlier ZAP exit.
+
+A ZAP `WARN` or `FAIL` makes the command fail. Decide whether to fix a real
+finding or record a specific, time-bound exception. Never run an active scan
+against production or real patient data without explicit written authorization.
 
 ```powershell
 # Use the retention window from config (audit.pii_retention_days, default 90):
@@ -99,10 +124,13 @@ php scripts\anchor-audit-chain.php
 # Verify/start MySQL/MariaDB for test runners:
 .\scripts\ensure-mysql.ps1
 
+# Validate and audit both exact dependency locks:
+.\scripts\audit-dependencies.ps1
+
 # Run passive OWASP ZAP scan (requires Docker Desktop):
 .\scripts\run-zap-baseline.ps1
 
-# Install if needed, then verify/start Docker Desktop before the ZAP scan:
+# Verify/start an already installed, signed Docker Desktop:
 .\scripts\ensure-docker-desktop.ps1
 ```
 
@@ -175,11 +203,14 @@ selected port. The first/default `localhost` host reuses the `DocumentRoot`
 already configured in XAMPP's main `httpd.conf`, so the XAMPP dashboard,
 phpMyAdmin aliases, and unmatched `Host` requests retain their normal behavior.
 The second host maps only `medishield.local` to the repository's `public/`
-directory. The script updates the Windows hosts file, applies
-`ServerTokens Prod` and `ServerSignature Off`, and validates Apache before a
-restart. It then proves the running MediShield boundary with positive and
-negative HTTP requests; static configuration checks alone are not treated as
-runtime proof.
+directory and uses `Require local` by default. The script updates the Windows
+hosts file, enables `mod_rewrite` and `mod_headers`, applies `ServerTokens Prod`,
+`ServerSignature Off`, `TraceEnable Off`, `Options -Indexes -MultiViews`, and
+`AcceptPathInfo Off`, then validates both syntax and loaded modules before a
+restart. Its probes cover the login route, CSS MIME/cache/content, README and
+dotfile denial, router/maps/backups/manifests/source/config exposure, directory
+listing, controlled errors, TRACE, security-header uniqueness, and an
+unexpected `Host`. Static configuration checks alone are not runtime proof.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\configure-xampp-apache.ps1
@@ -190,7 +221,14 @@ Use `-XamppRoot C:\tools\xampp` for a nonstandard installation. The
 configuration-only maintenance, but leaves HTTP behavior unverified. Passing a
 non-default port, such as `-Port 8080`, adds a managed `Listen 8080` directive
 when Apache does not already listen there and configures both virtual hosts on
-that port.
+that port. `-AllowRemoteAccess` is an explicit opt-in that changes only the
+MediShield vhost to `Require all granted`; use it only with deliberate network
+and firewall controls.
+
+This HTTP script does not configure or prove TLS/HSTS. In production, configure
+the HTTPS virtual host separately and set HSTS there so static files and
+Apache-generated errors receive it. Do not advertise HSTS until HTTPS works for
+every covered host.
 
 ---
 

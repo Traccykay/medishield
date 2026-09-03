@@ -6,7 +6,7 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('nurse');
-$patientId = (int) ($_GET['patient_id'] ?? 0);
+$patientId = request_positive_int($_GET['patient_id'] ?? null);
 if ($patientId <= 0 || !ms_patient_service()->canViewPatient($user, $patientId)) {
     deny_access($user, 'nurse:view_vitals');
 }

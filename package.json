@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "MediShield is a web-based healthcare records management system for securely managing patient records while demonstrating practical cybersecurity controls. It is intentionally focused: it is not a full hospital management system, but a security-first academic project showing how healthcare data can be protected and audited.",
   "scripts": {
+    "audit:dependencies": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\audit-dependencies.ps1",
     "test:ui": "playwright test",
     "test:zap": "powershell -ExecutionPolicy Bypass -File scripts\\run-zap-baseline.ps1",
     "show:ui-report": "playwright show-report",
@@ -20,6 +21,6 @@
   },
   "homepage": "https://github.com/Traccykay/medishield#readme",
   "devDependencies": {
-    "@playwright/test": "^1.61.1"
+    "@playwright/test": "1.61.1"
   }
 }

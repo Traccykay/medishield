@@ -27,7 +27,7 @@ if ($isPost) {
     $result = ms_visit_service()->assignDoctor($visitId, (int) $user['user_id'], $doctorId);
     if ($result['ok']) {
         ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'nurse', 'action' => 'ASSIGNMENT_CHANGED', 'module' => 'nurse', 'affected_record_id' => (string) $patientId, 'status' => 'SUCCESS']);
-        redirect('/nurse/dashboard.php');
+        redirect('/nurse/dashboard.php', 303);
     } else {
         $errors = $result['errors'];
     }

@@ -1,21 +1,18 @@
 <#
 .SYNOPSIS
-Ensures Docker Desktop is installed and its engine is ready for local security tests.
+Validates a reviewed Docker Desktop installation and waits for its engine.
 
 .DESCRIPTION
-The OWASP ZAP runner uses Docker to pin the scanner image instead of requiring a
-machine-wide ZAP installation. This script finds Docker Desktop in standard
-install locations, downloads/installs it through WinGet (or Chocolatey when
-WinGet is unavailable), then starts it and waits for a real `docker version`
-response. Re-running is safe: installation occurs only when Desktop is absent.
+Automatic Docker installation is intentionally unavailable because this
+repository does not pin a reviewed immutable Docker Desktop installer. The
+helper resolves only known application paths, validates the Authenticode
+publisher where Windows exposes one, starts the installed application, and
+waits for a real Docker Engine response.
 #>
 [CmdletBinding()]
 param(
     [ValidateRange(15, 180)]
     [int]$TimeoutSeconds = 90,
-
-    [ValidateRange(30, 900)]
-    [int]$InstallTimeoutSeconds = 600,
 
     [switch]$SkipInstall
 )
@@ -24,7 +21,7 @@ $ErrorActionPreference = 'Stop'
 
 function Get-DockerDesktopExecutable {
     $candidates = @(
-        (Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'),
+        'C:\Program Files\Docker\Docker\Docker Desktop.exe',
         (Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop\Docker Desktop.exe'),
         (Join-Path $env:LOCALAPPDATA 'Docker\Docker Desktop.exe')
     )
@@ -39,98 +36,88 @@ function Get-DockerDesktopExecutable {
 }
 
 function Get-DockerCli {
-    $command = Get-Command docker.exe -ErrorAction SilentlyContinue
-    if ($null -ne $command) {
-        return $command.Source
-    }
-
-    $desktop = Get-DockerDesktopExecutable
-    if ($null -eq $desktop) {
-        return $null
-    }
-
     $candidates = @(
-        (Join-Path (Split-Path -Parent $desktop) 'resources\bin\docker.exe'),
-        (Join-Path $env:ProgramFiles 'Docker\Docker\resources\bin\docker.exe')
+        'C:\Program Files\Docker\Docker\resources\bin\docker.exe',
+        (Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop\resources\bin\docker.exe'),
+        (Join-Path $env:LOCALAPPDATA 'Docker\resources\bin\docker.exe')
     )
-    foreach ($cli in $candidates) {
-        if (Test-Path -LiteralPath $cli) {
-            return $cli
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate) {
+            return $candidate
         }
     }
 
     return $null
 }
 
+function Assert-DockerPublisher {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DesktopPath
+    )
+
+    $signature = Get-AuthenticodeSignature -LiteralPath $DesktopPath
+    if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+        throw "Docker Desktop Authenticode validation failed: $($signature.Status)."
+    }
+    if ($signature.SignerCertificate.Subject -notmatch 'Docker Inc') {
+        throw "Docker Desktop at '$DesktopPath' is not signed by Docker Inc."
+    }
+}
+
 function Test-DockerEngine {
-    param([Parameter(Mandatory = $true)][string]$DockerCli)
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DockerCli
+    )
 
     & $DockerCli version --format '{{.Server.Version}}' 2>$null | Out-Null
     return $LASTEXITCODE -eq 0
 }
 
-function Install-DockerDesktop {
-    if ($SkipInstall) {
-        throw 'Docker Desktop is not installed and installation was skipped. Remove -SkipInstall or install Docker Desktop, then rerun npm run test:zap.'
-    }
-
-    $winget = Get-Command winget.exe -ErrorAction SilentlyContinue
-    $choco = Get-Command choco.exe -ErrorAction SilentlyContinue
-
-    if ($null -ne $winget) {
-        Write-Host 'Docker Desktop is missing; installing the official WinGet package...'
-        & $winget.Source install --id Docker.DockerDesktop --exact --silent --accept-package-agreements --accept-source-agreements | Out-Host
-    } elseif ($null -ne $choco) {
-        Write-Host 'Docker Desktop is missing; installing through Chocolatey...'
-        & $choco.Source install docker-desktop --yes --no-progress | Out-Host
-    } else {
-        throw 'Docker Desktop is not installed and neither winget.exe nor choco.exe is available to install it. Install WinGet or Chocolatey, then rerun npm run test:zap.'
-    }
-
-    if ($LASTEXITCODE -ne 0) {
-        throw "Docker Desktop installation failed with exit code $LASTEXITCODE. Resolve the installer error, then rerun npm run test:zap."
-    }
-
-    for ($attempt = 1; $attempt -le $InstallTimeoutSeconds; $attempt++) {
-        $installed = Get-DockerDesktopExecutable
-        if ($null -ne $installed) {
-            return $installed
+function Invoke-DockerDesktopReadiness {
+    $desktop = Get-DockerDesktopExecutable
+    if ($null -eq $desktop) {
+        $suffix = if ($SkipInstall) {
+            'Installation was explicitly skipped.'
+        } else {
+            'Automatic installation is refused because no reviewed exact installer version and digest are pinned.'
         }
-        Start-Sleep -Seconds 1
+        throw "Docker Desktop must be preinstalled from https://docs.docker.com/desktop/setup/install/windows-install/. $suffix Verify the Docker Inc. publisher, then rerun."
     }
 
-    throw "Docker Desktop installation completed but its executable was not found within $InstallTimeoutSeconds seconds. Check the installer result, then rerun npm run test:zap."
-}
+    Assert-DockerPublisher -DesktopPath $desktop
+    $docker = Get-DockerCli
+    if ($null -eq $docker) {
+        throw "Docker Desktop was found at '$desktop', but docker.exe was absent from approved application paths."
+    }
 
-$desktop = Get-DockerDesktopExecutable
-if ($null -eq $desktop) {
-    $desktop = Install-DockerDesktop
-}
-
-$docker = Get-DockerCli
-if ($null -eq $docker) {
-    throw "Docker Desktop was found at '$desktop', but docker.exe was not found. Repair the Docker Desktop installation, then rerun npm run test:zap."
-}
-
-if (Test-DockerEngine -DockerCli $docker) {
-    Write-Host 'Docker Desktop engine is already ready.'
-    exit 0
-}
-
-$desktopProcess = Get-Process -Name 'Docker Desktop' -ErrorAction SilentlyContinue
-if ($null -eq $desktopProcess) {
-    Start-Process -FilePath $desktop
-    Write-Host 'Starting Docker Desktop...'
-} else {
-    Write-Host 'Docker Desktop is running; waiting for its engine...'
-}
-
-for ($attempt = 1; $attempt -le $TimeoutSeconds; $attempt++) {
-    Start-Sleep -Seconds 1
     if (Test-DockerEngine -DockerCli $docker) {
-        Write-Host "Docker Desktop engine is ready after $attempt second(s)."
-        exit 0
+        Write-Host "Docker Desktop $((Get-Item -LiteralPath $desktop).VersionInfo.ProductVersion) engine is ready."
+        return
     }
+
+    Start-Process -FilePath $desktop | Out-Null
+    Write-Host 'Starting the validated Docker Desktop application...'
+
+    for ($attempt = 1; $attempt -le $TimeoutSeconds; $attempt++) {
+        Start-Sleep -Seconds 1
+        if (Test-DockerEngine -DockerCli $docker) {
+            Write-Host "Docker Desktop engine is ready after $attempt second(s)."
+            return
+        }
+    }
+
+    throw "Docker Desktop did not become ready within $TimeoutSeconds seconds."
 }
 
-throw "Docker Desktop did not become ready within $TimeoutSeconds seconds. Open Docker Desktop, resolve its startup error, then rerun npm run test:zap."
+if ($MyInvocation.InvocationName -ne '.') {
+    try {
+        Invoke-DockerDesktopReadiness
+        exit 0
+    } catch {
+        Write-Error "Docker Desktop readiness failed: $($_.Exception.Message)"
+        exit 1
+    }
+}

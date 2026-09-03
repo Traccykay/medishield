@@ -16,7 +16,7 @@ $rxId = request_positive_int(
 $rx = $rxId > 0 ? ms_clinical_repo()->findPrescription($rxId) : null;
 $visit = $rx === null || !isset($rx['visit_id']) ? null : ms_visit_repo()->findById((int) $rx['visit_id']);
 if ($rx === null || (string) $rx['status'] !== 'pending' || $visit === null || (string) $visit['status'] !== 'pharmacy') {
-    redirect('/pharmacy/prescriptions.php');
+    redirect('/pharmacy/prescriptions.php', 303);
 }
 $errors = [];
 $remarks = '';

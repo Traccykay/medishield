@@ -16,7 +16,7 @@ if ($isPost) {
     if ($result['ok']) {
         $visit = ms_visit_repo()->findById($visitId);
         ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'nurse', 'action' => 'ASSIGNMENT_CHANGED', 'module' => 'triage', 'affected_record_id' => (string) $visitId, 'status' => 'SUCCESS']);
-        redirect('/nurse/add_vitals.php?patient_id=' . (int) $visit['patient_id'] . '&visit_id=' . $visitId);
+        redirect('/nurse/add_vitals.php?patient_id=' . (int) $visit['patient_id'] . '&visit_id=' . $visitId, 303);
     }
     $errors = $result['errors'];
 }

@@ -5,32 +5,77 @@ declare(strict_types=1);
 /**
  * Router for PHP's development server.
  *
- * The built-in server serves static files without loading PHP, which would skip
- * the security headers enforced by Apache in production. Serve only assets here
- * so local browser and ZAP checks exercise the same response policy.
+ * PHP's built-in server otherwise serves any file below the document root and
+ * performs permissive script fallback. This front controller therefore executes
+ * only enumerated routes and serves only enumerated static assets.
  */
 
-$requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
-$relativePath = ltrim(rawurldecode(is_string($requestPath) ? $requestPath : '/'), '/\\');
-$assetsRoot = realpath(__DIR__ . DIRECTORY_SEPARATOR . 'assets');
-$candidate = realpath(__DIR__ . DIRECTORY_SEPARATOR . $relativePath);
+use MediShield\Security\PublicRuntimePolicy;
 
-if (
-    $assetsRoot !== false
-    && $candidate !== false
-    && is_file($candidate)
-    && str_starts_with($candidate, $assetsRoot . DIRECTORY_SEPARATOR)
-) {
-    require_once __DIR__ . '/../includes/headers.php';
-    ms_send_security_headers();
+require_once __DIR__ . '/../includes/error_boundary.php';
+require_once __DIR__ . '/../includes/headers.php';
+require_once __DIR__ . '/../src/Security/PublicRuntimePolicy.php';
 
-    $mimeType = (new finfo(FILEINFO_MIME_TYPE))->file($candidate);
-    if (is_string($mimeType) && $mimeType !== '') {
-        header('Content-Type: ' . $mimeType);
+$requestUri = $_SERVER['REQUEST_URI'] ?? '/';
+$decision = PublicRuntimePolicy::decide(is_string($requestUri) ? $requestUri : '/');
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$method = is_string($method) ? strtoupper($method) : '';
+
+if ($decision['kind'] === 'route') {
+    $route = __DIR__ . DIRECTORY_SEPARATOR
+        . str_replace('/', DIRECTORY_SEPARATOR, $decision['path']);
+    if (!is_file($route)) {
+        ms_runtime_error(404, 'Not found.');
     }
 
-    readfile($candidate);
+    require $route;
     return true;
 }
 
-return false;
+if ($decision['kind'] === 'asset') {
+    if (!in_array($method, ['GET', 'HEAD'], true)) {
+        header('Allow: GET, HEAD', true);
+        ms_runtime_error(405, 'Method not allowed.');
+    }
+
+    $asset = realpath(
+        __DIR__ . DIRECTORY_SEPARATOR
+        . str_replace('/', DIRECTORY_SEPARATOR, $decision['path'])
+    );
+    $assetsRoot = realpath(__DIR__ . DIRECTORY_SEPARATOR . 'assets');
+    if (
+        $asset === false
+        || $assetsRoot === false
+        || !is_file($asset)
+        || !str_starts_with($asset, $assetsRoot . DIRECTORY_SEPARATOR)
+    ) {
+        ms_runtime_error(404, 'Not found.');
+    }
+
+    ms_send_security_headers();
+    header('Content-Type: ' . $decision['mime'], true);
+    header('Cache-Control: public, max-age=3600', true);
+    header('Content-Length: ' . (string) filesize($asset), true);
+    if ($method === 'GET') {
+        readfile($asset);
+    }
+    return true;
+}
+
+ms_runtime_error(
+    $decision['status'],
+    $decision['kind'] === 'forbidden' ? 'Forbidden.' : 'Not found.'
+);
+
+/**
+ * Emit a deterministic router-owned error without exposing filesystem details.
+ */
+function ms_runtime_error(int $status, string $message): never
+{
+    ms_send_security_headers();
+    ms_send_no_store_headers();
+    http_response_code($status);
+    header('Content-Type: text/plain; charset=utf-8', true);
+    echo $message . "\n";
+    exit;
+}

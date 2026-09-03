@@ -9,12 +9,12 @@ $admin = require_area('admin');
 request_post_guard('admin', postOnly: true);
 $userId = request_positive_int($_POST['user_id'] ?? null);
 if ($userId <= 0) {
-    redirect('/admin/users.php');
+    redirect('/admin/users.php', 303);
 }
 
 $target = ms_user_repo()->findById($userId);
 if ($target === null || (string) $target['status'] !== 'active') {
-    redirect('/admin/users.php');
+    redirect('/admin/users.php', 303);
 }
 
 $token = ms_activation_service()->issueFor($userId);
@@ -26,4 +26,4 @@ ms_mailer()->send(
     "Hello " . $target['full_name'] . ",\n\nAn administrator requested a password reset. Set a new password here:\n\n" . $link
 );
 ms_audit_log(['user_id' => (int) $admin['user_id'], 'user_role' => 'admin', 'action' => 'PASSWORD_RESET', 'module' => 'admin', 'affected_record_id' => (string) $userId, 'status' => 'SUCCESS']);
-redirect('/admin/users.php?reset=1');
+redirect('/admin/users.php?reset=1', 303);

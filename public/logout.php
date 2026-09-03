@@ -23,4 +23,4 @@ ms_audit_log([
 ]);
 
 logout_user();
-redirect('/login.php');
+redirect('/login.php', 303);

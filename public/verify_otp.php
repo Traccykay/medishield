@@ -106,7 +106,7 @@ if ($isPost) {
                     'status' => 'BLOCKED',
                 ]);
                 unset($_SESSION['pending_login']);
-                redirect('/login.php?otp=revoked');
+                redirect('/login.php?otp=revoked', 303);
             }
             $user = (array) $finalPending['user'];
 
@@ -132,11 +132,14 @@ if ($isPost) {
                 'status' => 'SUCCESS',
             ])) {
                 logout_user();
-                redirect('/login.php?otp=audit_unavailable');
+                redirect('/login.php?otp=audit_unavailable', 303);
             }
 
             $mustChange = (bool) ($user['must_change_password'] ?? false);
-            redirect($mustChange ? '/change_password.php' : landing_path_for((string) $user['role']));
+            redirect(
+                $mustChange ? '/change_password.php' : landing_path_for((string) $user['role']),
+                303
+            );
         }
 
         if ($status === 'expired') {
@@ -148,7 +151,7 @@ if ($isPost) {
                 'status'    => 'FAILED',
             ]);
             unset($_SESSION['pending_login']);
-            redirect('/login.php?otp=expired');
+            redirect('/login.php?otp=expired', 303);
         }
 
         if ($status === 'too_many') {
@@ -163,13 +166,13 @@ if ($isPost) {
                 'anomaly_flag' => 'SUSPICIOUS',
             ]);
             unset($_SESSION['pending_login']);
-            redirect('/login.php?otp=too_many');
+            redirect('/login.php?otp=too_many', 303);
         }
 
         if ($status === 'none') {
             // No active code (e.g. a stale step). Restart cleanly.
             unset($_SESSION['pending_login']);
-            redirect('/login.php');
+            redirect('/login.php', 303);
         }
 
         // 'invalid' — wrong code, attempt counted, user may retry.

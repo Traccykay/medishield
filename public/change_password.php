@@ -60,7 +60,7 @@ if ($isPost) {
 
             audit_forced_logout($user, 'SUCCESS');
             logout_user();
-            redirect('/login.php?password=changed');
+            redirect('/login.php?password=changed', 303);
         }
 
         ms_audit_log([

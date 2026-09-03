@@ -58,7 +58,7 @@ if ($isPost) {
                 'anomaly_flag' => 'SUSPICIOUS',
             ]);
         } else {
-            redirect('/doctor/dashboard.php');
+            redirect('/doctor/dashboard.php', 303);
         }
     } else {
         $errors = $result['errors'];

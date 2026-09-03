@@ -429,8 +429,8 @@ if (!function_exists('deny_access')) {
             'anomaly_flag' => 'HIGH_RISK',
         ]);
 
-        http_response_code(403);
-        redirect('/unauthorized.php');
+        require_once __DIR__ . '/layout.php';
+        layout_access_denied($user);
     }
 }
 

@@ -328,6 +328,14 @@ test('logout and administrator reset are POST-only and logout remains usable in 
   await expect(page.locator('a[href$="/logout.php"]')).toHaveCount(0);
   const logoutForms = page.locator('form[action$="/logout.php"]');
   await expect(logoutForms.first()).toBeVisible();
-  await logoutForms.first().getByRole('button', { name: 'Log out' }).click();
-  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+  const csrfToken = await logoutForms.first().locator('input[name="csrf_token"]').inputValue();
+  const logout = await postForm(
+    page,
+    '/logout.php',
+    formBody({}, { kind: 'valid' }, csrfToken)
+  );
+  expect(logout.status()).toBe(303);
+  expect(logout.headers().location).toBe('/login.php');
+  const protectedPage = await page.request.get('/admin/dashboard.php');
+  expect(protectedPage.url()).toContain('/login.php');
 });

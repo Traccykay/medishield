@@ -29,33 +29,33 @@ if (!function_exists('ms_send_security_headers')) {
             return;
         }
 
-        header('X-Frame-Options: DENY');
-        header('X-Content-Type-Options: nosniff');
-        header('Referrer-Policy: no-referrer-when-downgrade');
-        header("Content-Security-Policy: default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'");
-        header('Permissions-Policy: geolocation=(), camera=(), microphone=()');
-        header('Cross-Origin-Embedder-Policy: require-corp');
-        header('Cross-Origin-Opener-Policy: same-origin');
-        header('Cross-Origin-Resource-Policy: same-origin');
+        header('X-Frame-Options: DENY', true);
+        header('X-Content-Type-Options: nosniff', true);
+        header('Referrer-Policy: no-referrer', true);
+        header("Content-Security-Policy: default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'", true);
+        header('Permissions-Policy: geolocation=(), camera=(), microphone=()', true);
+        header('Cross-Origin-Embedder-Policy: require-corp', true);
+        header('Cross-Origin-Opener-Policy: same-origin', true);
+        header('Cross-Origin-Resource-Policy: same-origin', true);
         header_remove('X-Powered-By');
 
         // Only advertise HSTS when actually on HTTPS (localhost demo runs on HTTP).
         if ($isHttps) {
-            header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+            header('Strict-Transport-Security: max-age=31536000; includeSubDomains', true);
         }
     }
 }
 
 if (!function_exists('ms_send_no_store_headers')) {
-    /** Prevent browsers and intermediaries from retaining authentication responses. */
+    /** Prevent retention of dynamic responses that carry a session or private data. */
     function ms_send_no_store_headers(): void
     {
         if (headers_sent()) {
             return;
         }
 
-        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-        header('Pragma: no-cache');
-        header('Expires: 0');
+        header('Cache-Control: no-store, private, max-age=0, must-revalidate', true);
+        header('Pragma: no-cache', true);
+        header('Expires: 0', true);
     }
 }

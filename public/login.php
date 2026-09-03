@@ -113,7 +113,7 @@ if ($isPost) {
             // Only non-sensitive routing data lives in the pending record.
             $_SESSION['pending_login'] = ms_session_validator()->createPendingLogin($user);
 
-            redirect('/verify_otp.php');
+            redirect('/verify_otp.php', 303);
         }
 
         // Any failure: audit with the computed anomaly flag, show a generic message.

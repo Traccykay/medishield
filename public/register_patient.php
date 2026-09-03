@@ -66,7 +66,7 @@ if ($isPost) {
         $destination = (string) $user['role'] === 'receptionist'
             ? '/reception/intake.php?patient_id=' . $patientId
             : '/patient_profile.php?patient_id=' . $patientId;
-        redirect($destination);
+        redirect($destination, 303);
     }
 
     ms_audit_log([

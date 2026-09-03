@@ -81,6 +81,27 @@ if (!function_exists('layout_footer')) {
     }
 }
 
+if (!function_exists('layout_access_denied')) {
+    /** Render the controlled denial at the original URL without redirecting it. */
+    function layout_access_denied(?array $user): never
+    {
+        http_response_code(403);
+        layout_header('Access denied', $user);
+        echo "<section class=\"ms-card\">\n";
+        echo "<h1 class=\"ms-h1\">Access denied</h1>\n";
+        echo "<p>You do not have permission to view that page.</p>\n";
+        $target = $user !== null
+            ? landing_path_for((string) ($user['role'] ?? ''))
+            : '/login.php';
+        $label = $user !== null ? 'Back to your dashboard' : 'Go to login';
+        echo '<a class="ms-btn ms-btn-primary" href="' . e(ms_url($target)) . '">'
+            . e($label) . "</a>\n";
+        echo "</section>\n";
+        layout_footer();
+        exit;
+    }
+}
+
 if (!function_exists('layout_alert')) {
     /**
      * Render a coloured message box. $type is one of: success, danger, warning, info.

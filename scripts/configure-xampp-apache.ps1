@@ -3,11 +3,11 @@
 Configures and verifies a hardened XAMPP Apache site for MediShield.
 
 .DESCRIPTION
-This idempotent script makes public/ the Apache document root, enables
-mod_rewrite, applies ServerTokens Prod and ServerSignature Off, configures the
+This idempotent script makes public/ the Apache document root, enables and
+asserts mod_rewrite and mod_headers, applies protocol hardening, configures the
 medishield.local host without replacing XAMPP's default localhost site,
-validates with httpd.exe -t, restarts Apache, and probes both public and denied
-paths. Existing Apache and hosts files are backed up and restored if
+validates with httpd.exe -t and -M, restarts Apache, and probes the live HTTP
+boundary. Existing Apache and hosts files are backed up and restored if
 configuration validation fails.
 
 .PARAMETER XamppRoot
@@ -23,6 +23,11 @@ Apply and syntax-check configuration without restarting Apache.
 
 .PARAMETER SkipHttpProbe
 Skip HTTP behavior probes. This does not make static checks runtime proof.
+
+.PARAMETER AllowRemoteAccess
+Replace the default local-only MediShield vhost rule with Require all granted.
+Use only when the surrounding network and host firewall are intentionally
+configured for remote development access.
 #>
 
 [CmdletBinding()]
@@ -32,7 +37,8 @@ param(
     [ValidateRange(1, 65535)]
     [int]$Port = 80,
     [switch]$SkipRestart,
-    [switch]$SkipHttpProbe
+    [switch]$SkipHttpProbe,
+    [switch]$AllowRemoteAccess
 )
 
 $ErrorActionPreference = 'Stop'
@@ -167,7 +173,8 @@ function New-ApacheHardeningBody {
     }
     $directives += @(
         'ServerTokens Prod',
-        'ServerSignature Off'
+        'ServerSignature Off',
+        'TraceEnable Off'
     )
     return $directives -join "`r`n"
 }
@@ -178,11 +185,13 @@ function New-ApacheVirtualHostsBody {
         [string]$PublicRoot,
         [string]$ApplicationHostName,
         [ValidateRange(1, 65535)]
-        [int]$Port
+        [int]$Port,
+        [switch]$AllowRemoteAccess
     )
 
     $apacheDefaultRoot = $DefaultRoot.Replace('\', '/')
     $apachePublicRoot = $PublicRoot.Replace('\', '/')
+    $accessRule = if ($AllowRemoteAccess) { 'Require all granted' } else { 'Require local' }
     return @"
 <VirtualHost *:$Port>
     ServerName localhost
@@ -192,10 +201,20 @@ function New-ApacheVirtualHostsBody {
 <VirtualHost *:$Port>
     ServerName $ApplicationHostName
     DocumentRoot "$apachePublicRoot"
+    Header always set X-Frame-Options "DENY"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "no-referrer"
+    Header always set Content-Security-Policy "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'"
+    Header always set Permissions-Policy "geolocation=(), camera=(), microphone=()"
+    Header always set Cross-Origin-Embedder-Policy "require-corp"
+    Header always set Cross-Origin-Opener-Policy "same-origin"
+    Header always set Cross-Origin-Resource-Policy "same-origin"
+    Header always unset X-Powered-By
     <Directory "$apachePublicRoot">
-        Options -Indexes
+        Options -Indexes -MultiViews
+        AcceptPathInfo Off
         AllowOverride All
-        Require all granted
+        $accessRule
     </Directory>
     ErrorLog "logs/medishield-error.log"
     CustomLog "logs/medishield-access.log" combined
@@ -255,17 +274,51 @@ function Get-HttpErrorBody {
     }
 }
 
+function Get-HttpHeaderValues {
+    param(
+        $Headers,
+        [string]$Name
+    )
+
+    if ($null -eq $Headers) {
+        return @()
+    }
+    if ($null -ne $Headers.PSObject.Methods['GetValues']) {
+        return @($Headers.GetValues($Name) | ForEach-Object { [string] $_ })
+    }
+
+    $value = $Headers[$Name]
+    if ($null -eq $value) {
+        return @()
+    }
+    return @($value | ForEach-Object { [string] $_ })
+}
+
 function Invoke-HttpProbe {
     param(
         [string]$Uri,
         [int[]]$ExpectedStatuses,
-        [string[]]$ForbiddenContent = @()
+        [string[]]$ForbiddenContent = @(),
+        [string[]]$RequiredContent = @(),
+        [string]$Method = 'GET',
+        [hashtable]$Headers = @{},
+        [string]$ExpectedContentType,
+        [switch]$RequireSecurityHeaders,
+        [switch]$AllowCaching
     )
 
     try {
-        $response = Invoke-WebRequest -Uri $Uri -UseBasicParsing -MaximumRedirection 0
+        $request = @{
+            Uri = $Uri
+            UseBasicParsing = $true
+            MaximumRedirection = 0
+            Method = $Method
+            Headers = $Headers
+        }
+        $response = Invoke-WebRequest @request
         $status = [int] $response.StatusCode
         $body = [string] $response.Content
+        $responseHeaders = $response.Headers
     }
     catch {
         if ($null -eq $_.Exception.Response) {
@@ -278,6 +331,7 @@ function Invoke-HttpProbe {
             throw "HTTP probe $Uri returned $status, but its response body could not be inspected."
         }
         $body = $errorBody.Body
+        $responseHeaders = $_.Exception.Response.Headers
     }
 
     if ($status -notin $ExpectedStatuses) {
@@ -288,7 +342,46 @@ function Invoke-HttpProbe {
             throw "HTTP probe $Uri exposed forbidden diagnostic content: $forbidden"
         }
     }
-    Write-Host "  PASS $status $Uri" -ForegroundColor Green
+    foreach ($required in $RequiredContent) {
+        if ($body.IndexOf($required, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+            throw "HTTP probe $Uri did not contain required content: $required"
+        }
+    }
+
+    if ($ExpectedContentType) {
+        $contentTypes = @(Get-HttpHeaderValues -Headers $responseHeaders -Name 'Content-Type')
+        if ($contentTypes.Count -ne 1 -or $contentTypes[0] -ine $ExpectedContentType) {
+            throw "HTTP probe $Uri returned Content-Type '$($contentTypes -join ', ')'; expected exactly '$ExpectedContentType'."
+        }
+    }
+
+    if ($RequireSecurityHeaders) {
+        $expectedHeaders = [ordered]@{
+            'X-Frame-Options' = 'DENY'
+            'X-Content-Type-Options' = 'nosniff'
+            'Referrer-Policy' = 'no-referrer'
+            'Content-Security-Policy' = "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'"
+            'Permissions-Policy' = 'geolocation=(), camera=(), microphone=()'
+            'Cross-Origin-Embedder-Policy' = 'require-corp'
+            'Cross-Origin-Opener-Policy' = 'same-origin'
+            'Cross-Origin-Resource-Policy' = 'same-origin'
+        }
+        foreach ($headerName in $expectedHeaders.Keys) {
+            $values = @(Get-HttpHeaderValues -Headers $responseHeaders -Name $headerName)
+            if ($values.Count -ne 1 -or $values[0] -cne $expectedHeaders[$headerName]) {
+                throw "HTTP probe $Uri returned non-unique or unexpected $headerName`: $($values -join ', ')"
+            }
+        }
+    }
+
+    if ($AllowCaching) {
+        $cacheValues = @(Get-HttpHeaderValues -Headers $responseHeaders -Name 'Cache-Control')
+        if (($cacheValues -join ',').IndexOf('no-store', [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            throw "HTTP probe $Uri unexpectedly disabled static caching."
+        }
+    }
+
+    Write-Host "  PASS $status $Method $Uri" -ForegroundColor Green
 }
 
 if ($MyInvocation.InvocationName -eq '.') {
@@ -349,6 +442,18 @@ try {
     else {
         $main = $main.TrimEnd() + "`r`n$rewriteDirective`r`n"
     }
+    $headersDirective = 'LoadModule headers_module modules/mod_headers.so'
+    if ($main -match '(?m)^\s*#?\s*LoadModule\s+headers_module\s+modules/mod_headers\.so\s*$') {
+        $main = [regex]::Replace(
+            $main,
+            '(?m)^\s*#?\s*LoadModule\s+headers_module\s+modules/mod_headers\.so\s*$',
+            $headersDirective,
+            1
+        )
+    }
+    else {
+        $main = $main.TrimEnd() + "`r`n$headersDirective`r`n"
+    }
 
     $vhostInclude = 'Include conf/extra/httpd-vhosts.conf'
     if ($main -match '(?m)^\s*#?\s*Include\s+conf/extra/httpd-vhosts\.conf\s*$') {
@@ -373,7 +478,8 @@ try {
         -DefaultRoot $apacheDefaultRoot `
         -PublicRoot $publicRoot `
         -ApplicationHostName $HostName `
-        -Port $Port
+        -Port $Port `
+        -AllowRemoteAccess:$AllowRemoteAccess
     $vhosts = Get-Content -LiteralPath $vhostsConf -Raw
     $vhosts = Set-ManagedBlock -Content $vhosts -Name 'VIRTUAL HOST' -Body $virtualHosts
     Set-Content -LiteralPath $vhostsConf -Value $vhosts -Encoding ascii
@@ -399,6 +505,17 @@ try {
         throw "Apache syntax validation failed: $($syntaxResult.Output)"
     }
     Write-Host "Apache syntax validation passed: $($syntaxResult.Output)" -ForegroundColor Green
+
+    $moduleResult = Invoke-NativeCommand -FilePath $httpd -ArgumentList @('-M')
+    if ($moduleResult.ExitCode -ne 0) {
+        throw "Apache module inspection failed: $($moduleResult.Output)"
+    }
+    foreach ($requiredModule in @('headers_module', 'rewrite_module')) {
+        if ($moduleResult.Output -notmatch "(?m)^\s*$([regex]::Escape($requiredModule))\s+\(") {
+            throw "Apache required module is not loaded: $requiredModule"
+        }
+    }
+    Write-Host 'Apache required modules are loaded: headers_module, rewrite_module' -ForegroundColor Green
 }
 catch {
     if ($configurationWritten -or $backups.Count -gt 0) {
@@ -454,8 +571,26 @@ try {
             $repositoryRoot.Replace('\', '/'),
             'medishield_db'
         )
-        Invoke-HttpProbe -Uri "$baseUri/login.php" -ExpectedStatuses @(200)
+        Invoke-HttpProbe `
+            -Uri "$baseUri/login.php" `
+            -ExpectedStatuses @(200) `
+            -RequiredContent @('Sign in') `
+            -RequireSecurityHeaders
+        Invoke-HttpProbe `
+            -Uri "$baseUri/assets/css/style.css" `
+            -ExpectedStatuses @(200) `
+            -ExpectedContentType 'text/css; charset=utf-8' `
+            -RequiredContent @('body {', 'margin: 0;') `
+            -RequireSecurityHeaders `
+            -AllowCaching
         foreach ($path in @(
+            '/README.md',
+            '/.htaccess',
+            '/router.php',
+            '/assets/README.md',
+            '/assets/css/style.css.map',
+            '/login.php.bak',
+            '/manifest.json',
             '/partials/bill_charges.php',
             '/Partials/bill_charges.php',
             '/scripts/seed-ui-test-users.php',
@@ -467,8 +602,40 @@ try {
             '/composer.lock',
             '/.git/config'
         )) {
-            Invoke-HttpProbe -Uri "$baseUri$path" -ExpectedStatuses @(403, 404) -ForbiddenContent $forbidden
+            Invoke-HttpProbe `
+                -Uri "$baseUri$path" `
+                -ExpectedStatuses @(403, 404) `
+                -ForbiddenContent $forbidden `
+                -RequireSecurityHeaders
         }
+        Invoke-HttpProbe `
+            -Uri "$baseUri/assets/css/" `
+            -ExpectedStatuses @(403, 404) `
+            -ForbiddenContent ($forbidden + @('Index of', 'style.css')) `
+            -RequireSecurityHeaders
+        Invoke-HttpProbe `
+            -Uri "$baseUri/runtime-probe-missing" `
+            -ExpectedStatuses @(404) `
+            -ForbiddenContent $forbidden `
+            -RequireSecurityHeaders
+        Invoke-HttpProbe `
+            -Uri "$baseUri/login.php" `
+            -Method 'TRACE' `
+            -ExpectedStatuses @(405) `
+            -ForbiddenContent $forbidden `
+            -RequireSecurityHeaders
+
+        $loopbackBaseUri = if ($Port -eq 80) {
+            'http://127.0.0.1'
+        }
+        else {
+            "http://127.0.0.1`:$Port"
+        }
+        Invoke-HttpProbe `
+            -Uri "$loopbackBaseUri/login.php" `
+            -Headers @{ Host = 'unexpected.invalid' } `
+            -ExpectedStatuses @(403, 404) `
+            -ForbiddenContent ($forbidden + @('MediShield'))
     }
 }
 catch {

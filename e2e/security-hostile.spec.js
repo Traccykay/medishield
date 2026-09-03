@@ -382,7 +382,7 @@ test('sends security headers and gives generic invalid-login errors', async ({ p
 
   expect(response.headers()['x-frame-options']).toBe('DENY');
   expect(response.headers()['x-content-type-options']).toBe('nosniff');
-  expect(response.headers()['referrer-policy']).toBe('no-referrer-when-downgrade');
+  expect(response.headers()['referrer-policy']).toBe('no-referrer');
   expect(response.headers()['content-security-policy']).toContain("default-src 'self'");
   expect(response.headers()['content-security-policy']).toContain("base-uri 'self'");
   expect(response.headers()['content-security-policy']).not.toContain("'unsafe-inline'");
@@ -392,10 +392,50 @@ test('sends security headers and gives generic invalid-login errors', async ({ p
   expect(response.headers()['cross-origin-resource-policy']).toBe('same-origin');
   expect(response.headers()['x-powered-by']).toBeUndefined();
   expect(response.headers()['cache-control']).toContain('no-store');
+  expect(response.headers()['cache-control']).toContain('private');
+  expect(response.headersArray().filter(
+    ({ name }) => name.toLowerCase() === 'referrer-policy'
+  )).toHaveLength(1);
 
   const stylesheet = await page.request.get('/assets/css/style.css');
+  expect(stylesheet.headers()['content-type']).toBe('text/css; charset=utf-8');
   expect(stylesheet.headers()['x-content-type-options']).toBe('nosniff');
   expect(stylesheet.headers()['cross-origin-resource-policy']).toBe('same-origin');
+  expect(stylesheet.headers()['cache-control']).toContain('public');
+  expect(stylesheet.headers()['cache-control']).not.toContain('no-store');
+  await page.goto('/login.php');
+  expect(await page.locator('body').evaluate(
+    (body) => getComputedStyle(body).marginTop
+  )).toBe('0px');
+  expect(await page.locator('.ms-nav').evaluate(
+    (nav) => getComputedStyle(nav).backgroundColor
+  )).toBe('rgb(11, 110, 153)');
+
+  for (const target of [
+    '/README.md',
+    '/.htaccess',
+    '/router.php',
+    '/assets/README.md',
+    '/assets/css/style.css.map',
+    '/login.php.bak',
+    '/manifest.json',
+    '/src/Auth/AuthService.php',
+    '/config/config.php',
+    '/assets/%2e%2e/router.php'
+  ]) {
+    const denied = await page.request.get(target, { maxRedirects: 0 });
+    expect(denied.status(), target).toBe(403);
+    await expect(denied.text()).resolves.toBe('Forbidden.\n');
+    expect(denied.headers()['referrer-policy'], target).toBe('no-referrer');
+    expect(denied.headers()['x-content-type-options'], target).toBe('nosniff');
+  }
+
+  for (const target of ['/not-a-route.php', '/login', '/assets/css/']) {
+    const missing = await page.request.get(target, { maxRedirects: 0 });
+    expect(missing.status(), target).toBe(404);
+    await expect(missing.text()).resolves.toBe('Not found.\n');
+    expect(missing.headers()['referrer-policy'], target).toBe('no-referrer');
+  }
 
   const attempts = [
     ['ui.receptionist@medishield.test', 'Incorrect!2026'],
@@ -416,6 +456,28 @@ test('sends security headers and gives generic invalid-login errors', async ({ p
     await expect(page.getByText(/temporarily locked/i)).toHaveCount(0);
     await expect(page.getByText(/account .* does not exist/i)).toHaveCount(0);
   }
+});
+
+test('array-shaped read parameters fail closed without PHP diagnostics', async ({ page }) => {
+  await loginWithOtp(page, 'ui.nurse@medishield.test');
+
+  const vitals = await page.request.get('/nurse/view_vitals.php?patient_id[]=1', {
+    maxRedirects: 0
+  });
+  expect(vitals.status()).toBe(403);
+  expect(vitals.headers().location).toBeUndefined();
+  await expect(vitals.text()).resolves.toContain('Access denied');
+
+  const patients = await page.request.get('/patients.php?q[]=patient');
+  expect(patients.status()).toBe(200);
+  await expect(patients.text()).resolves.not.toContain('TypeError');
+
+  await page.context().clearCookies();
+  await page.goto('/login.php');
+  await loginWithOtp(page, 'ui.receptionist@medishield.test');
+  const reception = await page.request.get('/reception/dashboard.php?q[]=patient');
+  expect(reception.status()).toBe(200);
+  await expect(reception.text()).resolves.not.toContain('TypeError');
 });
 
 test('rejects an attacker-chosen session id and ignores URL session ids', async ({ page }) => {

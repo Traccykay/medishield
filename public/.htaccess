@@ -1,16 +1,36 @@
-Options -Indexes
+Options -Indexes -MultiViews
+AcceptPathInfo Off
 
 RewriteEngine On
+RewriteRule "(^|/)\." - [F,L]
+RewriteRule ^assets/css/style\.css$ - [L]
+RewriteRule ^assets(?:/|$) - [F,L,NC]
 RewriteRule ^partials(?:/|$) - [F,L,NC]
 
-<FilesMatch "(?i)(^\.|^README(?:\..*)?$|^router\.php$|\.(?:bak|conf|dist|ini|log|map|md|old|orig|save|sql|swp|tmp|ya?ml)$|~$)">
+<FilesMatch "(?i)(^\.|^README(?:\..*)?$|^router\.php$|^(?:composer|package)(?:-lock)?\.json$|^manifest\.(?:json|webmanifest)$|\.(?:bak|conf|dist|env|ini|json|log|map|md|old|orig|save|sql|swp|tmp|xml|ya?ml)$|~$)">
     Require all denied
 </FilesMatch>
 
 <IfModule mod_headers.c>
+    Header onsuccess unset X-Frame-Options
+    Header onsuccess unset X-Content-Type-Options
+    Header onsuccess unset Referrer-Policy
+    Header onsuccess unset Content-Security-Policy
+    Header onsuccess unset Permissions-Policy
+    Header onsuccess unset Cross-Origin-Embedder-Policy
+    Header onsuccess unset Cross-Origin-Opener-Policy
+    Header onsuccess unset Cross-Origin-Resource-Policy
+    Header always unset X-Frame-Options
+    Header always unset X-Content-Type-Options
+    Header always unset Referrer-Policy
+    Header always unset Content-Security-Policy
+    Header always unset Permissions-Policy
+    Header always unset Cross-Origin-Embedder-Policy
+    Header always unset Cross-Origin-Opener-Policy
+    Header always unset Cross-Origin-Resource-Policy
     Header always set X-Frame-Options "DENY"
     Header always set X-Content-Type-Options "nosniff"
-    Header always set Referrer-Policy "no-referrer-when-downgrade"
+    Header always set Referrer-Policy "no-referrer"
     Header always set Content-Security-Policy "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'"
     Header always set Permissions-Policy "geolocation=(), camera=(), microphone=()"
     Header always set Cross-Origin-Embedder-Policy "require-corp"
@@ -18,3 +38,14 @@ RewriteRule ^partials(?:/|$) - [F,L,NC]
     Header always set Cross-Origin-Resource-Policy "same-origin"
     Header always unset X-Powered-By
 </IfModule>
+
+<Files "style.css">
+    <IfModule mod_headers.c>
+        Header onsuccess unset Content-Type
+        Header onsuccess unset Cache-Control
+        Header always unset Content-Type
+        Header always unset Cache-Control
+        Header always set Content-Type "text/css; charset=utf-8"
+        Header always set Cache-Control "public, max-age=3600"
+    </IfModule>
+</Files>

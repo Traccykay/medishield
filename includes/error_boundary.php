@@ -60,8 +60,13 @@ if (!defined('MEDISHIELD_ERROR_BOUNDARY_LOADED')) {
 
             http_response_code(500);
             if (!headers_sent()) {
-                header('Content-Type: text/html; charset=utf-8');
-                header('Cache-Control: no-store');
+                header('Content-Type: text/html; charset=utf-8', true);
+                header('X-Frame-Options: DENY', true);
+                header('X-Content-Type-Options: nosniff', true);
+                header('Referrer-Policy: no-referrer', true);
+                header("Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none'", true);
+                header('Cache-Control: no-store, private, max-age=0, must-revalidate', true);
+                header_remove('X-Powered-By');
             }
 
             echo '<!doctype html><html lang="en"><head><meta charset="utf-8">'

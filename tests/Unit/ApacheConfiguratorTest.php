@@ -73,10 +73,17 @@ $virtualHosts = New-ApacheVirtualHostsBody `
     -PublicRoot 'C:\repo\medishield\public' `
     -ApplicationHostName 'medishield.local' `
     -Port 8765
+$remoteVirtualHosts = New-ApacheVirtualHostsBody `
+    -DefaultRoot 'C:\xampp\htdocs' `
+    -PublicRoot 'C:\repo\medishield\public' `
+    -ApplicationHostName 'medishield.local' `
+    -Port 8765 `
+    -AllowRemoteAccess
 [pscustomobject]@{
     CustomPortHardening = $customPortHardening
     ExistingPortHardening = $existingPortHardening
     VirtualHosts = $virtualHosts
+    RemoteVirtualHosts = $remoteVirtualHosts
 } | ConvertTo-Json -Compress
 POWERSHELL
         );
@@ -93,6 +100,16 @@ POWERSHELL
             'DocumentRoot "C:/repo/medishield/public"',
             $payload['VirtualHosts']
         );
+        self::assertStringContainsString('Options -Indexes -MultiViews', $payload['VirtualHosts']);
+        self::assertStringContainsString('AcceptPathInfo Off', $payload['VirtualHosts']);
+        self::assertStringContainsString('Require local', $payload['VirtualHosts']);
+        self::assertStringNotContainsString('Require all granted', $payload['VirtualHosts']);
+        self::assertStringContainsString(
+            'Header always set Referrer-Policy "no-referrer"',
+            $payload['VirtualHosts']
+        );
+        self::assertStringContainsString('Require all granted', $payload['RemoteVirtualHosts']);
+        self::assertStringNotContainsString('Require local', $payload['RemoteVirtualHosts']);
 
         $defaultHost = strpos($payload['VirtualHosts'], 'ServerName localhost');
         $medishieldHost = strpos($payload['VirtualHosts'], 'ServerName medishield.local');
@@ -167,6 +184,38 @@ POWERSHELL
         );
         self::assertStringContainsString(
             'Runtime verification failed; Apache, hosts, and process state were restored.',
+            $this->contents
+        );
+    }
+
+    public function testRuntimeVerification_CoversExposureProtocolAndHeaderBoundary(): void
+    {
+        foreach ([
+            '/README.md',
+            '/.htaccess',
+            '/router.php',
+            '/assets/README.md',
+            '/assets/css/style.css',
+            '/assets/css/style.css.map',
+            '/assets/css/',
+            '/login.php.bak',
+            '/manifest.json',
+            '/runtime-probe-missing',
+            "'TRACE'",
+            "Host = 'unexpected.invalid'",
+            'ExpectedContentType',
+            'RequireSecurityHeaders',
+            'AllowCaching',
+        ] as $probe) {
+            self::assertStringContainsString($probe, $this->contents);
+        }
+
+        self::assertStringContainsString(
+            'returned non-unique or unexpected',
+            $this->contents
+        );
+        self::assertStringContainsString(
+            "'Referrer-Policy' = 'no-referrer'",
             $this->contents
         );
     }

@@ -35,11 +35,15 @@ Run the reusable Windows runner:
 .\scripts\run-ui-tests.ps1
 ```
 
-The runner checks that Node.js, PHP, and MySQL are available. If MySQL/MariaDB
+The runner checks that Node.js, PHP, and MySQL are available. It always runs
+`npm ci --ignore-scripts` from the official registry with strict SSL, rejects
+custom Playwright download-host overrides, and invokes the repository-local
+Playwright command. If MySQL/MariaDB
 is stopped, its shared `scripts\ensure-mysql.ps1` bootstrap tries a Windows
 service, default XAMPP, then Scoop MariaDB and waits for a real SQL connection.
-On the first run, it downloads the versions of Playwright and Chromium specified by this project;
-later runs reuse them. It then starts a temporary local web server, recreates
+On the first run, it downloads the exact Playwright and Chromium versions specified by this project;
+later browser downloads may be reused, while npm dependencies are cleanly
+reconciled every time. It then starts a temporary local web server, recreates
 only the `medishield_ui_test` database, and seeds deterministic role-specific
 test accounts, including the forced-password fixture used by account tests.
 Those credentials live only in the CLI-guarded test seeder, whose database
@@ -85,9 +89,12 @@ asserts the safe result:
 | Authenticated form POST has no CSRF token | The request is rejected and no patient is created. |
 | Every state-changing controller receives missing, wrong, and array-shaped CSRF tokens | All 21 mutation controllers return the same generic 403, write exactly one safe `CSRF_REJECTED` / `BLOCKED` / `SUSPICIOUS` event, and leave every non-audit table unchanged. |
 | Object identifiers are submitted as arrays with a valid CSRF token | The request fails closed without a 500 response, array-to-ID-1 coercion, or domain mutation. |
+| Read-route identifiers/search values are submitted as arrays | Vitals access fails closed and list/search routes remain scalar-safe without PHP diagnostics. |
 | Logout or administrator reset is requested with GET | Both action-only routes return 405; rendered logout navigation remains usable through a tokenized POST form. |
+| A valid logout POST completes | The response is 303 See Other with a local path, and the ended session cannot reopen the protected page. |
 | Stored patient value contains HTML markup | The value is rendered as text, not executable DOM. |
-| Login request and invalid credentials | Required security/no-store headers are sent; attacker-chosen and URL session IDs are ignored; unknown, inactive, wrong-password, fifth-attempt, and locked errors do not reveal account state. |
+| Runtime file, directory, traversal, and missing-route probes | Only enumerated PHP routes and the stylesheet are exposed; controlled 403/404 responses carry core headers without diagnostics or directory listings. |
+| Login request, stylesheet, and invalid credentials | Dynamic responses have unique security/private-no-store headers, the CSS MIME/cache policy permits the stylesheet to apply in Chromium, attacker-chosen and URL session IDs are ignored, and account failures do not reveal state. |
 | Account changes between factors or during a session | Pending MFA and authenticated sessions are revoked after a deactivate/reactivate cycle, cannot regain access, and write a safe blocked audit event. |
 | Repeated password-reset submissions from one address | The server throttles the request storm and does not send more reset mail after blocking it. |
 
@@ -117,7 +124,7 @@ To iterate on only the hostile-path checks after Node, PHP, and MySQL/MariaDB
 are ready, use:
 
 ```powershell
-npx.cmd playwright test request-boundary security-hostile
+.\node_modules\.bin\playwright.cmd test request-boundary security-hostile
 ```
 
 The complete feature-to-test inventory is in [COVERAGE.md](COVERAGE.md).

@@ -72,15 +72,16 @@ for users to edit phpMyAdmin manually.
 The environment is reproduced entirely by the scripts in `scripts/` — never hand-edit
 `php.ini`. Run, from the repo root, in order:
 
-1. `scripts\install-dependencies.ps1` (Administrator) — installs XAMPP 8.1 + Composer, then calls `configure-php-ini.ps1`, then `composer install`.
-2. `scripts\configure-php-ini.ps1` — **the single source of truth for PHP runtime config.** Idempotent; resolves the real PHP binary (follows Scoop shims via `PHP_BINARY`), creates `php.ini` from `php.ini-production` if missing, fixes `extension_dir`, enables every required extension, sets `date.timezone=UTC` / `memory_limit=256M`, and verifies with `php -m`.
-3. `scripts\setup-db.ps1` — creates `medishield_db`, loads `sql\schema.sql` + `sql\seed.sql`, applies every idempotent script in `sql\migrations\`, and generates `config\config.php` from the sample.
+1. `scripts\install-dependencies.ps1 -MachinePackages` (Administrator) — installs only the exact pinned XAMPP 8.1 package from the approved Chocolatey HTTPS source. It never bootstraps Chocolatey or runs Composer.
+2. `scripts\install-dependencies.ps1 -ProjectDependencies` (standard user) — configures PHP, then performs a bounded locked Composer install with plugins/scripts disabled. It refuses elevation.
+3. `scripts\configure-php-ini.ps1` — **the single source of truth for PHP runtime config.** Idempotent; resolves the real PHP binary (follows Scoop shims via `PHP_BINARY`), creates `php.ini` from `php.ini-production` if missing, fixes `extension_dir`, enables every required extension, sets `date.timezone=UTC` / `memory_limit=256M`, and verifies with `php -m`.
+4. `scripts\setup-db.ps1` — creates `medishield_db`, loads `sql\schema.sql` + `sql\seed.sql`, applies every idempotent script in `sql\migrations\`, and generates `config\config.php` from the sample.
 
 **Required PHP extensions** (canonical list lives in `$RequiredExtensions` inside `configure-php-ini.ps1`): `openssl`, `mbstring`, `pdo_mysql`, `mysqli`, `pdo_sqlite`, `sqlite3`, `fileinfo`, `zip`.
 
 - **When you add a new PHP dependency/extension, add it to `$RequiredExtensions` in `configure-php-ini.ps1`** (and the table in `scripts/README.md`) — do NOT just edit a local `php.ini`, or teammates will hit config drift.
 - **No-admin machines:** XAMPP needs Administrator. Where elevation is unavailable, PHP + Composer + MariaDB are installed at user level via **Scoop** (MariaDB is the same engine XAMPP ships). `configure-php-ini.ps1` works against both the Scoop PHP and a real XAMPP PHP.
-- Local runtime is **PHP 8.5** (bleeding edge); production target is PHP 8.1. PHPUnit is pinned `^11.5 || ^12.0` so it runs on both. Keep code compatible with PHP 8.1.
+- Local runtime is **PHP 8.5** (bleeding edge); production target remains PHP 8.1. Composer resolves the lock with `config.platform.php = 8.1.0`, and PHPUnit is pinned to the maintained PHP-8.1-compatible `^10.5` line. Keep code compatible with PHP 8.1.
 - Scoop's PHP ships with **no active `php.ini`** (every extension off) — running PHP/PHPUnit before `configure-php-ini.ps1` will fail with "class not found" / "could not find driver". Always configure first.
 
 ## 6. Documentation conventions

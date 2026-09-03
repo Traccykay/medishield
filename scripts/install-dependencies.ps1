@@ -1,311 +1,381 @@
 <#
 .SYNOPSIS
-Installs MediShield development dependencies on Windows.
+Installs workstation machine packages or project dependencies at separate privilege levels.
 
 .DESCRIPTION
-Run this from an elevated PowerShell prompt. The script bootstraps every prerequisite it needs using a check-then-install pattern: it installs Chocolatey if it is missing, then installs XAMPP 8.1, Git, 7-Zip and Composer (via Chocolatey) when they are not already present, configures php.ini through configure-php-ini.ps1, and runs composer install from the repository root. It also fixes the Composer/GitHub issues seen during setup by allowing source fallback, disabling HTTP/2 for Composer curl downloads in the current session, clearing Composer cache, and retrying with --prefer-source if normal ZIP download fails. Re-running is safe: anything already installed is detected and skipped.
+An elevated invocation may install only the exact reviewed XAMPP 8.1 package
+from the approved Chocolatey community source. A standard-user invocation may
+configure PHP and install the locked Composer project dependencies. Composer
+plugins and scripts are disabled, every attempt is time-bounded, and no global
+Composer or user environment configuration is changed.
 
-.USAGE
-powershell -ExecutionPolicy Bypass -File scripts\install-dependencies.ps1
+Chocolatey is deliberately not bootstrapped. If it is absent, install it
+manually using the instructions at https://chocolatey.org/install, inspect the
+publisher and command, then rerun the machine-package phase.
+
+.EXAMPLE
+.\scripts\install-dependencies.ps1 -MachinePackages
+
+.EXAMPLE
+.\scripts\install-dependencies.ps1 -ProjectDependencies
 #>
+[CmdletBinding()]
+param(
+    [switch]$MachinePackages,
+
+    [switch]$ProjectDependencies,
+
+    [ValidateRange(60, 1800)]
+    [int]$ComposerTimeoutSeconds = 600
+)
 
 $ErrorActionPreference = 'Stop'
+$script:ApprovedChocolateySource = 'https://community.chocolatey.org/api/v2/'
+$script:XamppPackageVersion = '8.1.6'
+$script:ChocolateyPath = 'C:\ProgramData\chocolatey\bin\choco.exe'
 
 function Test-Administrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = [Security.Principal.WindowsPrincipal]::new($identity)
-    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    return $principal.IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator
+    )
 }
 
-function Get-XamppToolPath {
+function Resolve-InstallPhase {
     param(
         [Parameter(Mandatory = $true)]
-        [string[]]$Candidates,
+        [bool]$IsAdministrator,
 
         [Parameter(Mandatory = $true)]
-        [string]$ToolName
+        [bool]$MachinePackages,
+
+        [Parameter(Mandatory = $true)]
+        [bool]$ProjectDependencies
     )
 
-    foreach ($candidate in $Candidates) {
-        if (Test-Path -LiteralPath $candidate) {
-            return $candidate
-        }
+    if ($MachinePackages -and $ProjectDependencies) {
+        throw 'MachinePackages and ProjectDependencies cannot run in the same process.'
+    }
+    if ($IsAdministrator -and $ProjectDependencies) {
+        throw 'Project dependency installation refuses Administrator privileges. Open a standard PowerShell window.'
+    }
+    if (-not $IsAdministrator -and $MachinePackages) {
+        throw 'Machine package installation requires an elevated PowerShell window.'
     }
 
-    throw "$ToolName was not found. Checked: $($Candidates -join ', '). Install XAMPP 8.1 and verify the installation path."
+    if ($MachinePackages -or $IsAdministrator) {
+        return 'MachinePackages'
+    }
+
+    return 'ProjectDependencies'
 }
 
-function Find-XamppToolPath {
+function Assert-ApprovedPackageSource {
     param(
         [Parameter(Mandatory = $true)]
-        [string[]]$Candidates
+        [string]$Source
     )
 
-    foreach ($candidate in $Candidates) {
-        if (Test-Path -LiteralPath $candidate) {
-            return $candidate
+    $uri = $null
+    if (-not [Uri]::TryCreate($Source, [UriKind]::Absolute, [ref]$uri)) {
+        throw "Package source '$Source' is not an absolute URI."
+    }
+    if ($uri.Scheme -ne 'https' -or $Source -cne $script:ApprovedChocolateySource) {
+        throw "Package source '$Source' is not the approved HTTPS Chocolatey source."
+    }
+}
+
+function Get-XamppInstallation {
+    $roots = @(
+        'C:\xampp',
+        'C:\tools\xampp'
+    )
+
+    foreach ($root in $roots) {
+        $php = Join-Path $root 'php\php.exe'
+        $mysql = Join-Path $root 'mysql\bin\mysql.exe'
+        if ((Test-Path -LiteralPath $php) -and (Test-Path -LiteralPath $mysql)) {
+            return [pscustomobject]@{
+                Root = $root
+                Php = $php
+                MySql = $mysql
+            }
         }
     }
 
     return $null
 }
 
-function Refresh-PathFromEnvironment {
-    $machinePath = [System.Environment]::GetEnvironmentVariable('Path', 'Machine')
-    $userPath = [System.Environment]::GetEnvironmentVariable('Path', 'User')
-    $env:Path = "$machinePath;$userPath"
-}
-
-function Get-ChocolateyCommand {
-    # Resolve the choco command if Chocolatey is installed, or return $null.
-    # We check PATH first, then fall back to the default install location in case
-    # PATH has not been refreshed in the current process yet.
-    $choco = Get-Command choco -ErrorAction SilentlyContinue
-    if (-not $choco) {
-        $default = 'C:\ProgramData\chocolatey\bin\choco.exe'
-        if (Test-Path -LiteralPath $default) {
-            $choco = Get-Command $default -ErrorAction SilentlyContinue
-        }
-    }
-    return $choco
-}
-
-
-function Ensure-ChocoPackage {
+function Assert-XamppPhpVersion {
     param(
         [Parameter(Mandatory = $true)]
-        [object]$ChocoCommand,
-
-        [Parameter(Mandatory = $true)]
-        [string]$PackageName,
-
-        [Parameter(Mandatory = $true)]
-        [string]$CheckCommand,
-
-        [string]$FriendlyName = $PackageName
+        [string]$PhpPath
     )
 
-    $existing = Get-Command $CheckCommand -ErrorAction SilentlyContinue
-    if ($existing) {
-        Write-Host "$FriendlyName already found at: $($existing.Source)"
-        return $existing
+    $version = & $PhpPath -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;'
+    if ($LASTEXITCODE -ne 0 -or ([string]$version).Trim() -ne '8.1') {
+        throw "XAMPP PHP at '$PhpPath' is not the required PHP 8.1 runtime."
     }
 
-    Write-Host "Installing $FriendlyName with Chocolatey..."
-    & $ChocoCommand.Source install $PackageName -y --no-progress
-    if ($LASTEXITCODE -ne 0) {
-        throw "Chocolatey failed to install $PackageName (exit code $LASTEXITCODE)."
-    }
-
-    Refresh-PathFromEnvironment
-    $installed = Get-Command $CheckCommand -ErrorAction SilentlyContinue
-    if (-not $installed) {
-        throw "$FriendlyName was installed, but '$CheckCommand' is still not on PATH. Open a new elevated PowerShell prompt and rerun this script."
-    }
-
-    Write-Host "$FriendlyName installed at: $($installed.Source)" -ForegroundColor Green
-    return $installed
+    Write-Host "Validated XAMPP PHP $(& $PhpPath -r 'echo PHP_VERSION;')."
 }
 
-function Invoke-ComposerInstallWithRetry {
+function Assert-KnownPublisherWhenSigned {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$RepositoryRoot
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$SubjectPattern
     )
 
-    # Composer was previously failing with:
-    #   HTTP/2 504 from api.github.com
-    #   Source fallback is disabled. Not trying alternative sources.
-    # The lines below make Composer resilient by allowing source fallback, forcing
-    # GitHub downloads to have a Git fallback path, and disabling HTTP/2 for this
-    # PowerShell session because some networks/proxies break GitHub HTTP/2 ZIP downloads.
-    $env:COMPOSER_CURL_DISABLE_HTTP2 = '1'
-    [Environment]::SetEnvironmentVariable('COMPOSER_CURL_DISABLE_HTTP2', '1', 'User')
-
-    Write-Host 'Configuring Composer to allow source fallback...'
-    & composer config --global preferred-install auto
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning 'Could not set global Composer preferred-install. Continuing and will retry with --prefer-source if needed.'
+    $signature = Get-AuthenticodeSignature -LiteralPath $Path
+    if ($signature.Status -eq [System.Management.Automation.SignatureStatus]::NotSigned) {
+        Write-Warning "'$Path' is unsigned; provenance relies on the approved package source and its checksum."
+        return
     }
-
-    Write-Host 'Clearing Composer cache...'
-    & composer clear-cache
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning 'Composer cache clear failed, continuing anyway.'
+    if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+        throw "Authenticode validation failed for '$Path': $($signature.Status)."
     }
+    if ($signature.SignerCertificate.Subject -notmatch $SubjectPattern) {
+        throw "The signer for '$Path' is not an approved publisher."
+    }
+}
 
-    Write-Host "Running composer install in $RepositoryRoot..."
-    Push-Location $RepositoryRoot
-    try {
-        & composer install
-        if ($LASTEXITCODE -eq 0) {
-            return
-        }
+function Install-MachinePackages {
+    Assert-ApprovedPackageSource -Source $script:ApprovedChocolateySource
 
-        Write-Warning "composer install failed with exit code $LASTEXITCODE. Retrying with Git source fallback..."
-        & composer install --prefer-source
+    if (-not (Test-Path -LiteralPath $script:ChocolateyPath)) {
+        throw 'Chocolatey is missing. Automatic remote bootstrap is prohibited. Follow https://chocolatey.org/install in a separate reviewed Administrator session, then rerun this command.'
+    }
+    Assert-KnownPublisherWhenSigned `
+        -Path $script:ChocolateyPath `
+        -SubjectPattern 'Chocolatey Software'
+
+    $xampp = Get-XamppInstallation
+    if ($null -eq $xampp) {
+        Write-Host "Installing exact XAMPP package xampp-81 $script:XamppPackageVersion..."
+        & $script:ChocolateyPath install xampp-81 `
+            --version $script:XamppPackageVersion `
+            --source $script:ApprovedChocolateySource `
+            --yes `
+            --no-progress `
+            --limit-output
         if ($LASTEXITCODE -ne 0) {
-            throw "composer install failed even after retrying with --prefer-source (exit code $LASTEXITCODE). Check internet/proxy access to github.com, api.github.com, codeload.github.com, packagist.org and repo.packagist.org."
+            throw "Chocolatey failed to install xampp-81 $script:XamppPackageVersion (exit code $LASTEXITCODE)."
+        }
+        $xampp = Get-XamppInstallation
+    }
+
+    if ($null -eq $xampp) {
+        throw 'XAMPP installation completed, but approved application paths contain no complete installation.'
+    }
+
+    Assert-XamppPhpVersion -PhpPath $xampp.Php
+    Assert-KnownPublisherWhenSigned -Path $xampp.Php -SubjectPattern 'Apache Friends|BitRock'
+    & $xampp.MySql --version
+    if ($LASTEXITCODE -ne 0) {
+        throw "MySQL version validation failed for '$($xampp.MySql)'."
+    }
+
+    Write-Host 'Machine package phase complete.' -ForegroundColor Green
+    Write-Host 'Open a standard PowerShell window and run:'
+    Write-Host '  .\scripts\install-dependencies.ps1 -ProjectDependencies'
+}
+
+function Resolve-ProjectPhp {
+    foreach ($candidate in @(
+        'C:\xampp\php\php.exe',
+        'C:\tools\xampp\php\php.exe',
+        'C:\tools\php85\php.exe'
+    )) {
+        if (Test-Path -LiteralPath $candidate) {
+            return $candidate
         }
     }
-    finally {
-        Pop-Location
+
+    $command = Get-Command php.exe -ErrorAction SilentlyContinue
+    if ($null -ne $command -and (Test-Path -LiteralPath $command.Source)) {
+        return $command.Source
     }
+
+    throw 'php.exe was not found. Complete the reviewed machine prerequisite installation first.'
 }
 
-function Install-Chocolatey {
-    # Bootstrap Chocolatey using the official install script. Chocolatey is the
-    # package manager every other dependency (XAMPP, Composer) is installed with,
-    # so it must exist before anything else. Requires Administrator (already
-    # enforced by the caller). Returns the resolved choco command.
-    Write-Host 'Chocolatey was not found. Installing Chocolatey...' -ForegroundColor Yellow
+function Resolve-ComposerPhar {
+    $candidates = @(
+        'C:\ProgramData\ComposerSetup\bin\composer.phar',
+        (Join-Path $env:USERPROFILE 'scoop\apps\composer\current\composer.phar'),
+        (Join-Path $env:APPDATA 'Composer\composer.phar')
+    )
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate) {
+            return $candidate
+        }
+    }
 
-    $previousExecutionPolicy = Get-ExecutionPolicy -Scope Process
+    throw 'composer.phar was not found at an application path. Install Composer manually from https://getcomposer.org/download/ as a standard user, verify its installer checksum, then rerun.'
+}
+
+function ConvertTo-ProcessArgument {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Value
+    )
+
+    if ($Value -notmatch '[\s"]') {
+        return $Value
+    }
+
+    return '"' + $Value.Replace('"', '\"') + '"'
+}
+
+function Invoke-BoundedApplication {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$ArgumentList,
+
+        [Parameter(Mandatory = $true)]
+        [string]$WorkingDirectory,
+
+        [Parameter(Mandatory = $true)]
+        [int]$TimeoutSeconds
+    )
+
+    $argumentLine = ($ArgumentList | ForEach-Object {
+        ConvertTo-ProcessArgument -Value $_
+    }) -join ' '
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $FilePath
+    $startInfo.Arguments = $argumentLine
+    $startInfo.WorkingDirectory = $WorkingDirectory
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
     try {
-        # The official one-liner from https://chocolatey.org/install.
-        Set-ExecutionPolicy Bypass -Scope Process -Force
-        # Force TLS 1.2 (3072) so the HTTPS download succeeds on stock Windows
-        # PowerShell 5.1, which still negotiates older protocols by default.
-        [System.Net.ServicePointManager]::SecurityProtocol =
-            [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        if (-not $process.Start()) {
+            throw "Process '$FilePath' could not be started."
+        }
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        $timedOut = -not $process.WaitForExit($TimeoutSeconds * 1000)
+        if ($timedOut) {
+            Stop-Process -Id $process.Id -Force
+        }
 
-        $installScript = (New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1')
-        Invoke-Expression $installScript
+        $process.WaitForExit()
+        $process.Refresh()
+        [Console]::Out.Write($stdout.GetAwaiter().GetResult())
+        [Console]::Error.Write($stderr.GetAwaiter().GetResult())
+        if ($timedOut) {
+            throw "Process '$FilePath' exceeded the $TimeoutSeconds second timeout."
+        }
+
+        return [int]$process.ExitCode
+    } finally {
+        $process.Dispose()
     }
-    finally {
-        # Restore the process execution policy we changed above.
-        Set-ExecutionPolicy $previousExecutionPolicy -Scope Process -Force -ErrorAction SilentlyContinue
-    }
-
-    # choco was just added to the machine PATH; make it visible to this process.
-    Refresh-PathFromEnvironment
-
-    $choco = Get-ChocolateyCommand
-    if (-not $choco) {
-        throw 'Chocolatey installation completed but the choco command is still not available. Open a NEW elevated PowerShell prompt and rerun this script.'
-    }
-
-    Write-Host "Chocolatey installed at: $($choco.Source)" -ForegroundColor Green
-    return $choco
 }
 
-try {
-    Write-Host 'MediShield dependency installation starting...' -ForegroundColor Cyan
+function Invoke-ProjectDependencies {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$TimeoutSeconds
+    )
 
-    if (-not (Test-Administrator)) {
-        Write-Error 'This script must be run from an elevated PowerShell prompt because Chocolatey installs require Administrator privileges.'
+    $root = Split-Path -Parent $PSScriptRoot
+    $php = Resolve-ProjectPhp
+    $composerPhar = Resolve-ComposerPhar
+    $powerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $configureScript = Join-Path $PSScriptRoot 'configure-php-ini.ps1'
+
+    $configureExit = Invoke-BoundedApplication `
+        -FilePath $powerShell `
+        -ArgumentList @(
+            '-NoLogo',
+            '-NoProfile',
+            '-NonInteractive',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-File',
+            $configureScript,
+            '-PhpExe',
+            $php
+        ) `
+        -WorkingDirectory $root `
+        -TimeoutSeconds 180
+    if ($configureExit -ne 0) {
+        throw "PHP configuration failed with exit code $configureExit."
+    }
+
+    $versionExit = Invoke-BoundedApplication `
+        -FilePath $php `
+        -ArgumentList @($composerPhar, '--version', '--no-ansi') `
+        -WorkingDirectory $root `
+        -TimeoutSeconds 30
+    if ($versionExit -ne 0) {
+        throw "Composer version validation failed with exit code $versionExit."
+    }
+
+    $installArguments = @(
+        $composerPhar,
+        'install',
+        '--no-interaction',
+        '--no-progress',
+        '--prefer-dist',
+        '--no-plugins',
+        '--no-scripts'
+    )
+    $installExit = Invoke-BoundedApplication `
+        -FilePath $php `
+        -ArgumentList $installArguments `
+        -WorkingDirectory $root `
+        -TimeoutSeconds $TimeoutSeconds
+    if ($installExit -ne 0) {
+        Write-Warning "The first locked Composer install failed with exit code $installExit. Retrying once after a bounded delay."
+        Start-Sleep -Seconds 5
+        $installExit = Invoke-BoundedApplication `
+            -FilePath $php `
+            -ArgumentList $installArguments `
+            -WorkingDirectory $root `
+            -TimeoutSeconds $TimeoutSeconds
+    }
+    if ($installExit -ne 0) {
+        throw "Locked Composer installation failed twice; final exit code $installExit."
+    }
+
+    Write-Host 'Project dependency phase complete without Composer plugins or scripts.' -ForegroundColor Green
+}
+
+function Invoke-MediShieldDependencyInstall {
+    $isAdministrator = Test-Administrator
+    $phase = Resolve-InstallPhase `
+        -IsAdministrator $isAdministrator `
+        -MachinePackages $MachinePackages.IsPresent `
+        -ProjectDependencies $ProjectDependencies.IsPresent
+
+    if ($phase -eq 'MachinePackages') {
+        Install-MachinePackages
+        return
+    }
+
+    Invoke-ProjectDependencies -TimeoutSeconds $ComposerTimeoutSeconds
+}
+
+if ($MyInvocation.InvocationName -ne '.') {
+    try {
+        Invoke-MediShieldDependencyInstall
+        exit 0
+    } catch {
+        Write-Error "Dependency installation failed: $($_.Exception.Message)"
         exit 1
     }
-
-    $repoRoot = Split-Path -Parent $PSScriptRoot
-    $phpCandidates = @(
-        'C:\tools\php85\php.exe',
-        'C:\xampp\php\php.exe',
-        'C:\tools\xampp\php\php.exe'
-    )
-    $mysqlCandidates = @(
-        'C:\xampp\mysql\bin\mysql.exe',
-        'C:\tools\xampp\mysql\bin\mysql.exe'
-    )
-
-    # Ensure Chocolatey (the package manager every other dependency relies on) is
-    # present. If it is missing we install it automatically rather than failing.
-    $choco = Get-ChocolateyCommand
-    if ($choco) {
-        Write-Host "Chocolatey already found at: $($choco.Source)"
-    }
-    else {
-        $choco = Install-Chocolatey
-    }
-
-    $php = Find-XamppToolPath -Candidates $phpCandidates
-    $mysql = Find-XamppToolPath -Candidates $mysqlCandidates
-    if ($php) {
-        Write-Host "PHP already found at: $php"
-    }
-    if ($mysql) {
-        Write-Host "MySQL already found at: $mysql"
-    }
-    if (-not $php -or -not $mysql) {
-        Write-Host 'Installing XAMPP 8.1 with Chocolatey because PHP or MySQL is missing...'
-        & $choco.Source install xampp-81 -y --no-progress
-        if ($LASTEXITCODE -ne 0) {
-            throw "Chocolatey failed to install xampp-81 (exit code $LASTEXITCODE)."
-        }
-        Refresh-PathFromEnvironment
-    }
-
-    $composer = Get-Command composer -ErrorAction SilentlyContinue
-    if ($composer) {
-        Write-Host "Composer already found at: $($composer.Source)"
-    }
-    else {
-        Write-Host 'Installing Composer with Chocolatey...'
-        & $choco.Source install composer -y --no-progress
-        if ($LASTEXITCODE -ne 0) {
-            throw "Chocolatey failed to install composer (exit code $LASTEXITCODE)."
-        }
-        Refresh-PathFromEnvironment
-        $composer = Get-Command composer -ErrorAction SilentlyContinue
-        if (-not $composer) {
-            throw 'Composer was installed, but the composer command is still not on PATH. Open a new elevated PowerShell prompt and rerun this script.'
-        }
-    }
-
-    $php = Get-XamppToolPath -Candidates $phpCandidates -ToolName 'php.exe'
-    $mysql = Get-XamppToolPath -Candidates $mysqlCandidates -ToolName 'mysql.exe'
-
-    Write-Host "Discovered PHP:   $php" -ForegroundColor Green
-    Write-Host "Discovered MySQL: $mysql" -ForegroundColor Green
-
-    # Make Composer use the same PHP binary we just configured. This avoids the
-    # situation where php -m looks correct in one PHP install, but Composer runs
-    # against another PHP install with zip missing.
-    $selectedPhpDir = Split-Path -Parent $php
-    if ($env:Path -notlike "*$selectedPhpDir*") {
-        $env:Path = "$selectedPhpDir;$env:Path"
-    }
-
-    # Configure php.ini to the canonical MediShield baseline (enables every
-    # required extension + timezone/memory settings). This is the single source
-    # of truth for the PHP runtime config so all engineers share one environment.
-    Write-Host 'Configuring php.ini (extensions, timezone, memory_limit)...'
-    $configureScript = Join-Path $PSScriptRoot 'configure-php-ini.ps1'
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $configureScript -PhpExe $php
-    if ($LASTEXITCODE -ne 0) {
-        throw "configure-php-ini.ps1 failed (exit code $LASTEXITCODE). Review the output above."
-    }
-
-    $composer = Get-Command composer -ErrorAction SilentlyContinue
-    if (-not $composer) {
-        Refresh-PathFromEnvironment
-        $composer = Get-Command composer -ErrorAction SilentlyContinue
-    }
-    if (-not $composer) {
-        throw 'Composer is not available on PATH after refresh.'
-    }
-
-    # Git is required for Composer source fallback. 7-Zip is useful if a package
-    # still arrives as an archive and PHP zip/unzip support is unavailable.
-    Ensure-ChocoPackage -ChocoCommand $choco -PackageName 'git' -CheckCommand 'git' -FriendlyName 'Git' | Out-Null
-    Ensure-ChocoPackage -ChocoCommand $choco -PackageName '7zip' -CheckCommand '7z' -FriendlyName '7-Zip' | Out-Null
-
-    # Ensure package installs did not refresh PATH back to a different PHP.
-    if ($env:Path -notlike "*$selectedPhpDir*") {
-        $env:Path = "$selectedPhpDir;$env:Path"
-    }
-
-    Invoke-ComposerInstallWithRetry -RepositoryRoot $repoRoot
-
-    Write-Host ''
-    Write-Host 'NEXT STEPS' -ForegroundColor Cyan
-    Write-Host '1. Start Apache and MySQL from the XAMPP Control Panel.'
-    Write-Host '2. Initialize the database:'
-    Write-Host '   powershell -ExecutionPolicy Bypass -File scripts\setup-db.ps1'
-    Write-Host ''
-    Write-Host 'Dependency installation completed successfully.' -ForegroundColor Green
-}
-catch {
-    Write-Error "Dependency installation failed: $($_.Exception.Message)"
-    exit 1
 }

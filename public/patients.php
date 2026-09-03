@@ -25,7 +25,7 @@ if ($role === 'patient') {
     }
 }
 
-$query = trim((string) ($_GET['q'] ?? ''));
+$query = trim(request_string($_GET['q'] ?? null));
 $patients = [];
 
 if (in_array($role, ['admin', 'receptionist'], true)) {

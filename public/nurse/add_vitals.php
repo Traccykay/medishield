@@ -31,7 +31,7 @@ if ($isPost) {
     $result = ms_clinical_service()->recordVitals($patientId, (int) $user['user_id'], $values);
     if ($result['ok']) {
         ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'nurse', 'action' => 'VITALS_RECORDED', 'module' => 'nurse', 'affected_record_id' => (string) $patientId, 'status' => 'SUCCESS']);
-        redirect('/nurse/view_vitals.php?patient_id=' . $patientId);
+        redirect('/nurse/view_vitals.php?patient_id=' . $patientId, 303);
     }
     $errors = $result['errors'];
 }

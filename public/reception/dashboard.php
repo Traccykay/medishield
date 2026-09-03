@@ -6,7 +6,7 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('reception');
-$query = trim((string) ($_GET['q'] ?? ''));
+$query = trim(request_string($_GET['q'] ?? null));
 $patients = $query === '' ? [] : ms_patient_repo()->search($query);
 $queue = ms_visit_service()->triageQueue();
 

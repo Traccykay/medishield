@@ -52,6 +52,10 @@ Cybersecurity is central to the project: authentication, role-based access contr
   maintenance identity can clear only retention-approved audit PII. Setup
   verifies exact metadata grants and empirical rollback-only denial probes.
 - **Production transport boundary:** production rejects plaintext HTTP and trusts `X-Forwarded-Proto` only from explicitly configured TLS proxies.
+- **Fail-closed HTTP boundary:** the development router executes only enumerated
+  page routes and serves only the enumerated stylesheet; Apache disables content
+  negotiation, path info, indexing, and TRACE while applying the same exposure
+  and response-header policy.
 - **STRIDE threat modelling:** used to identify and reduce spoofing, tampering, repudiation, information disclosure, denial-of-service, and elevation-of-privilege risks.
 
 ## Tech Stack
@@ -113,18 +117,34 @@ extracted `medishield` folder instead.
 
 ### 2. Install the application requirements
 
-Open **PowerShell as Administrator**: search for PowerShell in the Start menu,
-right-click it, then select **Run as administrator**. Change to the cloned
-folder and run:
+The workstation bootstrap has a strict privilege boundary. It never downloads
+and executes a remote package-manager bootstrap. If Chocolatey is missing,
+install it separately from <https://chocolatey.org/install>, inspect the
+publisher and command, then continue.
+
+First open **PowerShell as Administrator**, change to the cloned folder, and
+run only the machine-package phase:
 
 ```powershell
 cd $HOME\Documents\medishield
-.\scripts\install-dependencies.ps1
+.\scripts\install-dependencies.ps1 -MachinePackages
 ```
 
-This may take several minutes. It installs missing XAMPP, PHP, Composer, and
-other PHP requirements, then downloads the PHP libraries. A successful run
-returns you to the prompt without an error.
+This installs the exact reviewed XAMPP 8.1 Chocolatey package from the explicit
+community HTTPS source. It does not run Composer or project code while elevated.
+
+Install Composer manually from <https://getcomposer.org/download/> as a
+standard user and verify the installer checksum. Then close the Administrator
+window, open a normal PowerShell window, return to the repository, and run:
+
+```powershell
+.\scripts\install-dependencies.ps1 -ProjectDependencies
+```
+
+The standard-user phase configures PHP and performs a bounded install from
+`composer.lock` with Composer plugins and scripts disabled. Production hosts
+must not run either workstation bootstrap phase; provision production runtimes
+through a separately reviewed deployment/image pipeline.
 
 Install Node.js LTS separately if it is not already installed, then open a new
 PowerShell window and check it:
@@ -187,7 +207,13 @@ php -S 127.0.0.1:8000 -t public public/router.php
 
 Leave that window open; it is the local web server. Open
 <http://127.0.0.1:8000/> in a browser. To stop the server later, return to that
-window and press `Ctrl+C`.
+window and press `Ctrl+C`. `public/router.php` is a fail-closed development front
+controller: `/` and the enumerated PHP page files may execute, and only
+`/assets/css/style.css` is served as a static file. Unknown routes return a
+controlled 404; documentation, dotfiles, the router itself, maps, backups,
+manifests, source/configuration paths, and traversal-shaped requests return a
+controlled 403. Dynamic responses are centrally `no-store, private`; the
+stylesheet remains cacheable and is sent as `text/css; charset=utf-8`.
 
 #### Apache/XAMPP document root
 
@@ -197,15 +223,33 @@ root: it also contains configuration, source, logs, SQL, tests, and maintenance
 scripts that are not web resources.
 
 If the repository is temporarily copied to `C:\xampp\htdocs\medishield`, the
-checked-in root `.htaccess` denies every request except the `/public` subtree,
-and `public\.htaccess` additionally denies include-only partials, documentation,
-dotfiles, backups, and development-only files. This fallback requires Apache's
-`mod_rewrite` module and `AllowOverride All`. A dedicated virtual host targeting
-`C:\xampp\htdocs\medishield\public` remains the recommended arrangement.
+checked-in root `.htaccess` denies every request except the `/public` subtree.
+That root fallback is not the primary deployment model and remains a runtime
+unknown until it is exercised on the target XAMPP installation. The supported
+`public\.htaccess` additionally denies non-allowlisted assets, include-only
+partials, documentation, dotfiles, backups, and development-only files. The
+fallback requires `mod_rewrite`, `mod_headers`, and `AllowOverride All`. A
+dedicated virtual host targeting `C:\xampp\htdocs\medishield\public` remains the
+recommended arrangement.
+
+The elevated `scripts\configure-xampp-apache.ps1` workflow enables and verifies
+`mod_rewrite` and `mod_headers` with `httpd.exe -M`, disables directory indexes,
+MultiViews, path info, and TRACE, and makes the MediShield vhost local-only with
+`Require local`. Remote development access is an explicit
+`-AllowRemoteAccess` opt-in and must be paired with deliberate firewall/network
+configuration. The first/default localhost vhost remains separate, so an
+unexpected `Host` value must not route into MediShield.
 
 After changing Apache configuration, restart Apache and perform the exposure
 checks in [`SECURITY_TESTING.md`](SECURITY_TESTING.md). Passing tests against
 PHP's built-in server does not prove that Apache applies these restrictions.
+
+This repository does not claim that the local HTTP setup exercises TLS or HSTS.
+A production TLS virtual host must set
+`Strict-Transport-Security: max-age=31536000; includeSubDomains` at the web
+server so static files and server-generated errors receive HSTS too; enable it
+only after HTTPS is working for every covered host. PHP sends HSTS on dynamic
+responses only when the trusted transport check confirms HTTPS.
 
 ### 6. Activate and sign in for the first time
 
@@ -264,8 +308,9 @@ composer install
 | All PHP tests | Runs both PHPUnit suites. It does not need MySQL or change local application data. | `composer test` |
 | MariaDB forensic integration | Opt-in destructive test against the allowlisted `medishield_ui_account_test`: applies the audit migration twice, preserves v1 hashes, and runs two concurrent append processes. | `$env:MEDISHIELD_MARIADB_AUDIT_TEST='1'; vendor\bin\phpunit tests\Integration\MariaDbAuditConcurrencyTest.php` |
 | Playwright workflow | Exercises the real browser-based hospital workflow using disposable role-specific accounts. | `.\scripts\run-ui-tests.ps1` |
-| Playwright security harness | Exercises hostile browser requests: role/object-reference denial, live doctor-assignment revocation with nurse-queue recovery and released doctor capacity, deterministic method/CSRF rejection across all mutation controllers, malformed-array no-mutation checks, stored-XSS encoding, security headers, and generic authentication failures. The standard UI runner executes it with the workflow tests. | `.\scripts\run-ui-tests.ps1` |
+| Playwright security harness | Exercises hostile browser requests: role/object-reference denial, live doctor-assignment revocation with nurse-queue recovery and released doctor capacity, deterministic method/CSRF rejection across all mutation controllers, malformed arrays on mutation and read routes, fail-closed router exposure, applied CSS/MIME/cache behavior, unique security headers, 303 POST redirects, stored-XSS encoding, and generic authentication failures. The standard UI runner executes it with the workflow tests. | `.\scripts\run-ui-tests.ps1` |
 | OWASP ZAP passive baseline | Scans the disposable local application for passive OWASP-style HTTP findings and writes HTML, JSON, and XML reports. Requires Docker Desktop. | `.\scripts\run-zap-baseline.ps1` |
+| Locked dependency audit | Validates the Composer lock and PHP 8.1 graph, reconciles npm without lifecycle scripts from the official strict-TLS registry, audits advisories, and checks npm registry signatures. | `.\scripts\audit-dependencies.ps1` |
 
 The browser and ZAP runners both call `scripts\ensure-mysql.ps1`: it checks a
 live SQL connection first, then supports Windows services, default XAMPP, and
@@ -273,7 +318,7 @@ Scoop MariaDB before recreating **only** `medishield_ui_test`. They never
 change the normal `medishield_db` database. To run just the security harness after its prerequisites are available, use:
 
 ```powershell
-npx.cmd playwright test request-boundary security-hostile
+.\node_modules\.bin\playwright.cmd test request-boundary security-hostile
 ```
 
 On failure, inspect `test-results` for the screenshot, video, and trace. See
@@ -285,14 +330,22 @@ ZAP reports, and the safe active-scan boundary.
 ### OWASP ZAP context
 
 The ZAP runner is a repeatable **passive** scan, not an authorization to attack
-the application. It rebuilds only `medishield_ui_test`, starts a local PHP
-server, and scans it from a disposable Docker container. It installs or starts
-Docker Desktop when needed, tries the ZAP stable GHCR image with bounded
-retries, then falls back to the official Docker Hub stable image if GHCR is
-unavailable.
+the application. It rebuilds only `medishield_ui_test`, rejects an occupied
+port, proves its own PHP server with a unique nonce, and scans from a disposable
+Docker container. Docker Desktop must be preinstalled and signed by Docker Inc.;
+the helper does not perform an unpinned automatic installation. The runner uses
+only reviewed immutable image digest
+`sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef`;
+there is no tag or registry fallback.
 
-The command fails on ZAP `WARN` or `FAIL` alerts and writes reviewable evidence
-to `test-results\zap\zap-baseline.html`, `.json`, and `.xml`. Treat a warning as
+Each command gets unique container/network names and a unique
+`test-results\zap\runs\<run-id>\` directory. Its `zap-run-manifest.json`
+records the run ID, target, image digest/version, exact command, report
+validation, cleanup, and exit codes; HTML/JSON/XML reports live in the
+`reports\` child. The container drops every capability, enables
+`no-new-privileges`, uses a read-only root filesystem and bounded tmpfs mounts,
+and cleanup targets only that run's exact names. A ZAP `WARN`/`FAIL`, malformed
+or empty report, or cleanup failure makes the command fail. Treat a warning as
 a finding to investigate and regression-test, not as a result to suppress merely
 to make the command green. Active scans can submit state-changing payloads and
 must be separately authorized against an explicitly disposable environment.

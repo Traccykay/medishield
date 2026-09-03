@@ -23,7 +23,9 @@ angles:
 - **Unit** checks isolated controls such as encryption integrity, password
   rules, CSRF verification, RBAC decisions, audit hashes, local mail delivery,
   fail-closed production bootstrap/mail configuration, credential-free setup,
-  disposable-database allowlisting, and checked-in Apache/CLI boundaries.
+  disposable-database allowlisting, local URL validation, the router allowlist,
+  a raw-socket PHP development-server subprocess, and checked-in Apache/CLI
+  boundaries.
 - **Integration** checks stateful services and SQL with a clean SQLite
   database: account activation and OTP, login lockout, IP-scoped request
   throttling, replay-safe initial-admin provisioning, session revocation, audit
@@ -39,8 +41,10 @@ because they need PHP, MySQL/MariaDB, and Chromium:
   the safe outcome: authorization denial without patient disclosure, centralized
   method/CSRF rejection across every mutation controller without a write,
   malformed array rejection without coercion or a 500 response, hostile markup
-  rendered as text, required response headers, generic login failures that do
-  not enumerate accounts, and password-reset throttling with no follow-on email.
+  rendered as text, applied stylesheet/MIME/cache behavior, router exposure and
+  traversal denial, unique required response headers, 303 POST redirects,
+  generic login failures that do not enumerate accounts, and password-reset
+  throttling with no follow-on email.
 - **OWASP ZAP passive baseline** independently spiders the disposable UI site
   and reports passive HTTP findings. It needs Docker Desktop; see
   [`../SECURITY_TESTING.md`](../SECURITY_TESTING.md).
@@ -83,13 +87,19 @@ To focus only on the hostile-path harness after its browser prerequisites are
 available:
 
 ```powershell
-npx.cmd playwright test request-boundary security-hostile
+.\node_modules\.bin\playwright.cmd test request-boundary security-hostile
 ```
 
 To run OWASP ZAP after Docker Desktop is running:
 
 ```powershell
 npm run test:zap
+```
+
+Audit both exact lock files without executing npm lifecycle scripts:
+
+```powershell
+.\scripts\audit-dependencies.ps1
 ```
 
 ## Conventions for contributors

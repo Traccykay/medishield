@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/error_boundary.php';
+require_once __DIR__ . '/headers.php';
 
 /**
  * bootstrap.php
@@ -54,6 +55,7 @@ use MediShield\Security\RequestThrottle;
 use MediShield\Security\TransportSecurity;
 use MediShield\Support\BootstrapConfigValidator;
 use MediShield\Support\Clock;
+use MediShield\Support\LocalUrl;
 use MediShield\Visit\VisitRepository;
 use MediShield\Visit\VisitService;
 
@@ -127,7 +129,10 @@ BootstrapConfigValidator::validate(ms_config());
         (array) ($cfg['transport']['trusted_proxy_ips'] ?? [])
     );
     if (($cfg['environment'] ?? 'development') === 'production' && !$https) {
+        ms_send_security_headers();
+        ms_send_no_store_headers();
         http_response_code(403);
+        header('Content-Type: text/plain; charset=utf-8', true);
         exit('HTTPS is required.');
     }
 
@@ -155,11 +160,11 @@ BootstrapConfigValidator::validate(ms_config());
     }
 })();
 
-require_once __DIR__ . '/headers.php';
 ms_send_security_headers(TransportSecurity::isHttps(
     $_SERVER,
     (array) (ms_config()['transport']['trusted_proxy_ips'] ?? [])
 ));
+ms_send_no_store_headers();
 
 /* ---------------------------------------------------------------------------
  * 4. Lazy service container
@@ -428,15 +433,17 @@ if (!function_exists('e')) {
 }
 
 if (!function_exists('redirect')) {
-    /** Send a Location redirect (app-relative path) and stop. */
-    function redirect(string $path): never
+    /** Send a validated local redirect and stop. POST defaults to See Other. */
+    function redirect(string $path, ?int $status = null): never
     {
-        // App-relative paths ("/login.php") are rewritten to include the base path
-        // so redirects work whether the app is served from the web root or from a
-        // sub-folder such as http://localhost/medishield/public/.
-        $target = (isset($path[0]) && $path[0] === '/') ? ms_url($path) : $path;
+        $requestMethod = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+        $status ??= is_string($requestMethod) && strtoupper($requestMethod) === 'POST'
+            ? 303
+            : 302;
+        $status = LocalUrl::assertRedirectStatus($status);
+        $target = ms_url($path);
         if (!headers_sent()) {
-            header('Location: ' . $target);
+            header('Location: ' . $target, true, $status);
         }
         exit;
     }
@@ -480,13 +487,10 @@ if (!function_exists('ms_base')) {
 }
 
 if (!function_exists('ms_url')) {
-    /** Build an app-absolute URL for a "/path", honouring the base path. */
+    /** Build a validated app-absolute local URL, honouring the base path. */
     function ms_url(string $path): string
     {
-        if ($path === '' || $path[0] !== '/') {
-            return $path; // already relative/absolute; leave it alone
-        }
-        return ms_base() . $path;
+        return LocalUrl::build($path, ms_base());
     }
 }
 

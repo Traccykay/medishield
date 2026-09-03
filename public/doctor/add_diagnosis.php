@@ -123,7 +123,7 @@ if ($isPost) {
             }
         }
         if ($errors === []) {
-            redirect($redirectPath);
+            redirect($redirectPath, 303);
         }
     } else {
         $errors = $result['errors'];
