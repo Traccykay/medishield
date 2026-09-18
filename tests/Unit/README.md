@@ -24,6 +24,10 @@ temporary mail-dump directory to verify the local delivery adapter:
 | `ApacheConfiguratorTest.php` | PowerShell 5.1/7 native-command compatibility, generated vhost/listener boundaries, denied-response inspection, and rollback command routing. |
 | `ErrorBoundaryTest.php` | Subprocess failures prove early bootstrap/configuration diagnostics are logged but never rendered, while scalar secret arguments are omitted from exception traces. |
 | `ToolchainHardeningTest.php` | PHP 8.1 Composer lock compatibility, exact npm provenance, locked audits, installer privilege/source boundaries, local Playwright invocation, and pinned/isolated ZAP lifecycle behavior. |
+| `SharedUiShellTest.php` | Shared authenticated shell accessibility, responsive navigation, keyboard focus, reduced-motion, and print contracts. |
+| `VisitProgressTest.php` | Safe mapping from visit workflow states to the shared patient-journey tracker. |
+| `ListPageTest.php` | Allowlisted page-size parsing, safe page clamping, and authorized result-set slicing. |
+| `ActionConfirmationTest.php` | Exact acknowledgement requirements for refusal and revocation actions. |
 
 These tests need no `config.php` and no running database. Run the whole suite
 with `composer test`, or just this group with `composer test:unit`.

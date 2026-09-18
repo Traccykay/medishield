@@ -1,14 +1,11 @@
-<table class="ms-table">
-    <thead><tr><th>Charge</th><th>Unit price</th><th>Quantity</th><th>Line total</th></tr></thead>
-    <tbody>
+<div class="ms-invoice-lines" aria-label="Invoice charges">
     <?php foreach ($bill['charges'] as $charge) { ?>
-        <tr>
-            <td><?= e((string) $charge['description_snapshot']) ?></td>
-            <td>KES <?= e(number_format((int) $charge['unit_price_snapshot'])) ?></td>
-            <td><?= e((string) $charge['quantity']) ?></td>
-            <td>KES <?= e(number_format((int) $charge['line_total'])) ?></td>
-        </tr>
+        <div class="ms-invoice-line">
+            <div class="ms-invoice-line-label"><?= e((string) $charge['description_snapshot']) ?></div>
+            <div class="ms-invoice-line-value">KES <?= e(number_format((int) $charge['unit_price_snapshot'])) ?> each</div>
+            <div class="ms-invoice-line-value">Qty <?= e((string) $charge['quantity']) ?></div>
+            <div class="ms-invoice-line-value"><strong>KES <?= e(number_format((int) $charge['line_total'])) ?></strong></div>
+        </div>
     <?php } ?>
-    </tbody>
-</table>
-<p><strong>Total: KES <?= e(number_format((int) $bill['total_amount'])) ?></strong></p>
+</div>
+<div class="ms-invoice-total"><span>Total</span><span>KES <?= e(number_format((int) $bill['total_amount'])) ?></span></div>

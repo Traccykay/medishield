@@ -32,6 +32,7 @@ if ($isPost) {
 
 $patient = $patientId > 0 ? ms_patient_repo()->findById($patientId) : null;
 $token = Csrf::token($_SESSION);
+ms_audit_read($user, 'reception.intake', $patient === null ? [] : [(int) $patient['patient_id']]);
 layout_app_header('Patient arrival', $user, 'reception');
 ?>
 <section class="ms-card ms-card-narrow">

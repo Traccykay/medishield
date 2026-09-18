@@ -106,6 +106,8 @@ final class Rbac
         // Clinical/operational staff (everyone except patients) see reports.
         'reports'   => [
             self::ROLE_ADMIN,
+            self::ROLE_RECEPTIONIST,
+            self::ROLE_PATIENT,
             self::ROLE_NURSE,
             self::ROLE_DOCTOR,
             self::ROLE_LAB,

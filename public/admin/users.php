@@ -19,6 +19,7 @@ declare(strict_types=1);
  */
 
 use MediShield\Security\Csrf;
+use MediShield\Support\ListPage;
 
 require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
@@ -60,7 +61,19 @@ if ($isPost) {
     }
 }
 
-$users = ms_user_repo()->listAll();
+$query = trim(request_string($_GET['q'] ?? null));
+$roleFilter = request_string($_GET['role'] ?? null);
+$statusFilter = request_string($_GET['user_status'] ?? null);
+$users = array_values(array_filter(ms_user_repo()->listAll(), static function (array $account) use ($query, $roleFilter, $statusFilter): bool {
+    $needle = mb_strtolower($query);
+    $matchesQuery = $needle === '' || str_contains(mb_strtolower((string) $account['full_name']), $needle)
+        || str_contains(mb_strtolower((string) $account['email']), $needle);
+    return $matchesQuery
+        && ($roleFilter === '' || (string) $account['role'] === $roleFilter)
+        && ($statusFilter === '' || (string) $account['status'] === $statusFilter);
+}));
+$userPage = ListPage::fromRows($users, $_GET['page'] ?? null, $_GET['per_page'] ?? null);
+$users = $userPage['rows'];
 $token = Csrf::token($_SESSION);
 
 layout_app_header('Manage users', $admin, 'users');
@@ -74,11 +87,23 @@ layout_app_header('Manage users', $admin, 'users');
     <?php if ($success !== null) { layout_alert('success', $success); } ?>
     <?php foreach ($errors as $msg) { layout_alert('danger', $msg); } ?>
 
+    <form method="get" class="ms-filter-bar">
+        <label class="ms-sr-only" for="user-search">Search users</label>
+        <input class="ms-input" id="user-search" type="search" name="q" value="<?= e($query) ?>" placeholder="Search name or email">
+        <label class="ms-sr-only" for="user-role">Role</label>
+        <select class="ms-input" id="user-role" name="role"><option value="">All roles</option><?php foreach (['patient','receptionist','nurse','doctor','lab','pharmacist','admin'] as $role) { ?><option value="<?= e($role) ?>" <?= $roleFilter === $role ? 'selected' : '' ?>><?= e(ucfirst($role)) ?></option><?php } ?></select>
+        <label class="ms-sr-only" for="user-status">Account status</label>
+        <select class="ms-input" id="user-status" name="user_status"><option value="">All statuses</option><option value="active" <?= $statusFilter === 'active' ? 'selected' : '' ?>>Active</option><option value="inactive" <?= $statusFilter === 'inactive' ? 'selected' : '' ?>>Inactive</option></select>
+        <label class="ms-sr-only" for="user-page-size">Results per page</label>
+        <select class="ms-input" id="user-page-size" name="per_page"><?php foreach (ListPage::SIZES as $size) { ?><option value="<?= e((string) $size) ?>" <?= $userPage['per_page'] === $size ? 'selected' : '' ?>><?= e((string) $size) ?> per page</option><?php } ?></select>
+        <button class="ms-btn ms-btn-primary" type="submit">Apply filters</button><a class="ms-btn" href="<?= e(ms_url('/admin/users.php')) ?>">Clear</a>
+    </form>
+
     <?php if ($users === []) { ?>
         <p class="ms-muted">No users yet.</p>
     <?php } else { ?>
         <div class="ms-table-wrap">
-            <table class="ms-table">
+            <table class="ms-table ms-table-users">
                 <thead>
                     <tr>
                         <th>ID</th>
@@ -132,6 +157,7 @@ layout_app_header('Manage users', $admin, 'users');
                 </tbody>
             </table>
         </div>
+        <?php layout_pagination($userPage, '/admin/users.php', ['q' => $query, 'role' => $roleFilter, 'user_status' => $statusFilter]); ?>
     <?php } ?>
 </section>
 <?php

@@ -9,7 +9,7 @@ $user = require_area('doctor');
 $patientId = request_positive_int($_GET['patient_id'] ?? null);
 $visitId = request_positive_int($_GET['visit_id'] ?? null);
 require_doctor_patient_access($user, $patientId, $visitId, 'doctor:view_patient');
-ms_audit_log([
+ms_audit_read_event([
     'user_id' => (int) $user['user_id'],
     'user_role' => 'doctor',
     'action' => 'PATIENT_VIEW',
@@ -19,12 +19,14 @@ ms_audit_log([
     'anomaly_flag' => 'NORMAL',
 ]);
 $patient = ms_patient_repo()->findById($patientId);
+$visit = ms_visit_repo()->findById($visitId);
 $vitals = ms_clinical_service()->decryptVitals(ms_clinical_repo()->vitalsForPatient($patientId));
 $records = ms_clinical_repo()->recordsForPatient($patientId);
 $labs = ms_clinical_repo()->labResultsForPatient($patientId);
 $pharmacyOutcomes = ms_clinical_repo()->pharmacyOutcomesForVisit($visitId);
 
 layout_app_header('Doctor patient view', $user, 'patients');
+layout_patient_context($patient ?? [], $visit ?? []);
 ?>
 <section class="ms-card">
     <div class="ms-card-head">
@@ -64,8 +66,8 @@ layout_app_header('Doctor patient view', $user, 'patients');
 <section class="ms-card">
     <h2 class="ms-h2">Completed lab results</h2>
     <?php if ($labs === []) { ?><p class="ms-muted">No completed lab results.</p><?php } else { ?>
-        <div class="ms-table-wrap"><table class="ms-table"><thead><tr><th>Test</th><th>Result</th><th>UTC</th></tr></thead><tbody>
-        <?php foreach ($labs as $lab) { ?><tr><td><?= e((string) $lab['test_name']) ?></td><td><?= e(ms_clinical_service()->decrypt((string) $lab['result_encrypted'])) ?></td><td><?= e((string) $lab['created_at']) ?></td></tr><?php } ?>
+        <div class="ms-table-wrap"><table class="ms-table ms-table-readable"><thead><tr><th>Test</th><th>Result</th><th>Completed (UTC)</th></tr></thead><tbody>
+        <?php foreach ($labs as $lab) { ?><tr><td><?= e((string) $lab['test_name']) ?></td><td class="ms-clinical-text"><?= nl2br(e(ms_clinical_service()->decrypt((string) $lab['result_encrypted']))) ?></td><td><?= e((string) $lab['created_at']) ?></td></tr><?php } ?>
         </tbody></table></div>
     <?php } ?>
 </section>

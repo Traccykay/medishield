@@ -28,6 +28,10 @@ Cybersecurity is central to the project: authentication, role-based access contr
 
 ## Key Security Features
 
+For the academic HIPAA benchmark, see [the access-control review](HIPAA_ACCESS_REVIEW.md)
+for current role boundaries, the nursing revocation fix, and unresolved policy
+and operational requirements. This project does not claim HIPAA compliance.
+
 - **Role-Based Access Control (RBAC):** server-side authorization for patient, receptionist, nurse, doctor, lab, pharmacist, and admin roles.
 - **Object-level authorization:** nurses require an active patient assignment;
   doctors require both that assignment and ownership of the current active

@@ -16,6 +16,7 @@ $request = $requestId > 0 ? ms_clinical_repo()->findLabRequest($requestId) : nul
 if ($request === null || (string) $request['status'] !== 'pending') {
     redirect('/lab/requests.php', 303);
 }
+$visit = ms_visit_repo()->findById((int) ($request['visit_id'] ?? 0));
 $errors = [];
 $resultText = '';
 if ($isPost) {
@@ -41,7 +42,7 @@ if ($isPost) {
     ]);
     $errors = $result['errors'];
 }
-ms_audit_log([
+ms_audit_read_event([
     'user_id' => (int) $user['user_id'],
     'user_role' => 'lab',
     'action' => 'PATIENT_VIEW',
@@ -51,15 +52,17 @@ ms_audit_log([
 ]);
 $token = Csrf::token($_SESSION);
 layout_app_header('Upload lab result', $user, 'reports');
+layout_patient_context($request, $visit ?? []);
 ?>
 <section class="ms-card ms-card-narrow">
     <h1 class="ms-h1">Upload lab result</h1>
     <p class="ms-muted"><?= e((string) $request['test_name']) ?> for <?= e((string) $request['patient_name']) ?> (<?= e((string) $request['patient_number']) ?>)</p>
     <?php foreach ($errors as $msg) { layout_alert('danger', $msg); } ?>
-    <form method="post" action="<?= e(ms_url('/lab/upload_result.php')) ?>">
+    <form method="post" action="<?= e(ms_url('/lab/upload_result.php')) ?>" class="ms-form-stack">
         <input type="hidden" name="<?= e(Csrf::FIELD) ?>" value="<?= e($token) ?>">
         <input type="hidden" name="lab_request_id" value="<?= e((string) $requestId) ?>">
-        <label class="ms-label" for="result">Result</label>
+        <label class="ms-label" for="result">Result <span class="ms-required">Required</span></label>
+        <p class="ms-help">Use one line per measurement where practical. Formatting is preserved for clinical review.</p>
         <textarea class="ms-input" id="result" name="result" rows="8" required><?= e($resultText) ?></textarea>
         <button class="ms-btn ms-btn-primary ms-btn-block" type="submit">Complete request</button>
     </form>

@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use MediShield\Support\ListPage;
+
 /**
  * patients.php
  * ------------
@@ -56,6 +58,9 @@ if (in_array($role, ['admin', 'receptionist'], true)) {
     }
 }
 
+$patientPage = ListPage::fromRows($patients, $_GET['page'] ?? null, $_GET['per_page'] ?? null);
+$patients = $patientPage['rows'];
+ms_audit_read($user, 'patients.list', array_column($patients, 'patient_id'));
 layout_app_header('Patients', $user, 'patients');
 ?>
 <section class="ms-card">
@@ -73,14 +78,18 @@ layout_app_header('Patients', $user, 'patients');
         <?php layout_alert('warning', 'No patient record is linked to your login yet. Please contact an administrator.'); ?>
     <?php } ?>
 
-    <?php if (in_array($role, ['admin', 'receptionist'], true)) { ?>
-        <form method="get" action="<?= e(ms_url('/patients.php')) ?>" class="ms-actions">
-            <input class="ms-input" type="search" name="q" value="<?= e($query) ?>"
+    <?php if ($role !== 'patient') { ?>
+        <form method="get" action="<?= e(ms_url('/patients.php')) ?>" class="ms-filter-bar">
+            <label class="ms-sr-only" for="patient-search">Search patients</label>
+            <input class="ms-input" id="patient-search" type="search" name="q" value="<?= e($query) ?>"
                    placeholder="Search by name, patient number, or phone">
-            <button class="ms-btn" type="submit">Search</button>
+            <label class="ms-sr-only" for="patient-page-size">Results per page</label>
+            <select class="ms-input" id="patient-page-size" name="per_page"><?php foreach (ListPage::SIZES as $size) { ?><option value="<?= e((string) $size) ?>" <?= $patientPage['per_page'] === $size ? 'selected' : '' ?>><?= e((string) $size) ?> per page</option><?php } ?></select>
+            <button class="ms-btn ms-btn-primary" type="submit">Search</button>
             <a class="ms-btn" href="<?= e(ms_url('/patients.php')) ?>">Clear</a>
         </form>
-    <?php } elseif (in_array($role, ['nurse', 'doctor'], true)) { ?>
+    <?php } ?>
+    <?php if (in_array($role, ['nurse', 'doctor'], true)) { ?>
         <p class="ms-muted"><?= e($role === 'doctor'
             ? 'This list is limited to your authorized current consultations.'
             : 'This list is limited to patients actively assigned to you.') ?></p>
@@ -122,6 +131,7 @@ layout_app_header('Patients', $user, 'patients');
                 </tbody>
             </table>
         </div>
+        <?php layout_pagination($patientPage, '/patients.php', ['q' => $query]); ?>
     </section>
 <?php } elseif ($role !== 'patient') { ?>
     <section class="ms-card">

@@ -4,9 +4,11 @@ Clinical workflow classes live here. They cover the demo flow after patient
 assignment:
 
 - nurses record vitals and can route an assigned patient to a doctor
+  (recent authored vitals also require an active assignment after revocation)
 - doctors submit an encounter-bound encrypted diagnosis/treatment with multiple
   catalog lab tests and medications in one consultation; the server snapshots
-  each catalog price and encrypts prescription details
+  each catalog price and encrypts prescription details. A post-laboratory review
+  can likewise issue multiple medications as one validated atomic batch
 - lab users work from the request queue and upload encrypted results; the
   transaction must first claim the exact request from `pending` to `completed`,
   so concurrent submissions cannot both create a result

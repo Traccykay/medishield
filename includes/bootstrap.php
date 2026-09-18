@@ -48,6 +48,7 @@ use MediShield\Mail\Mailer;
 use MediShield\Mail\MailerFactory;
 use MediShield\Patient\PatientRepository;
 use MediShield\Patient\PatientService;
+use MediShield\Reporting\ActivityReportRepository;
 use MediShield\Security\AuditChain;
 use MediShield\Security\Crypto;
 use MediShield\Security\PasswordPolicy;
@@ -537,6 +538,40 @@ if (!function_exists('ms_audit_log')) {
             ], JSON_UNESCAPED_SLASHES));
             return false;
         }
+    }
+}
+
+if (!function_exists('ms_emergency_access')) {
+    function ms_emergency_access(): \MediShield\Auth\EmergencyAccess
+    {
+        static $service = null;
+        return $service ??= new \MediShield\Auth\EmergencyAccess(
+            ms_db(), ms_clock(), ms_crypto(),
+            (string) ms_config()['request_throttle_hmac_key_hex'],
+            \Closure::fromCallable('ms_audit_log')
+        );
+    }
+}
+
+if (!function_exists('ms_activity_reports')) {
+    function ms_activity_reports(): ActivityReportRepository
+    {
+        static $repo = null;
+        return $repo ??= new ActivityReportRepository(ms_db());
+    }
+}
+
+if (!function_exists('ms_audit_read')) {
+    /** Mandatory read auditing runs before any protected response is rendered. */
+    function ms_audit_read(array $actor, string $module, array $ids, string $action = 'PATIENT_VIEW'): void
+    {
+        (new \MediShield\Audit\ReadAudit(\Closure::fromCallable('ms_audit_log')))
+            ->records($actor, $module, $ids, $action);
+    }
+
+    function ms_audit_read_event(array $event): void
+    {
+        (new \MediShield\Audit\ReadAudit(\Closure::fromCallable('ms_audit_log')))->event($event);
     }
 }
 

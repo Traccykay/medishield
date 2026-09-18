@@ -37,13 +37,15 @@ if ($isPost) {
 }
 
 $token = Csrf::token($_SESSION);
+ms_audit_read($user, 'nurse.add_vitals', [$patientId]);
 layout_app_header('Record vitals', $user, 'patients');
+layout_patient_context($patient ?? [], $visit ?? []);
 ?>
 <section class="ms-card ms-card-narrow">
     <h1 class="ms-h1">Record vitals</h1>
     <p class="ms-muted"><?= e((string) $patient['full_name']) ?> (<?= e((string) $patient['patient_number']) ?>)</p>
     <?php foreach ($errors as $msg) { layout_alert('danger', $msg); } ?>
-    <form method="post" action="<?= e(ms_url('/nurse/add_vitals.php')) ?>">
+    <form method="post" action="<?= e(ms_url('/nurse/add_vitals.php')) ?>" class="ms-form-stack">
         <input type="hidden" name="<?= e(Csrf::FIELD) ?>" value="<?= e($token) ?>">
         <input type="hidden" name="patient_id" value="<?= e((string) $patientId) ?>">
         <input type="hidden" name="visit_id" value="<?= e((string) $visitId) ?>">

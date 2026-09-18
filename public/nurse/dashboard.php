@@ -11,15 +11,19 @@ $recentVitals = ms_clinical_service()->decryptVitals(
     ms_clinical_repo()->recentVitalsByNurse((int) $user['user_id'])
 );
 
+ms_audit_read($user, 'nurse.dashboard', array_column(array_merge($patients, $recentVitals), 'patient_id'));
+
 layout_app_header('Nurse dashboard', $user, 'dashboard');
 ?>
-<section class="ms-card">
-    <h1 class="ms-h1">Nurse dashboard</h1>
-    <p class="ms-muted">Record vitals and symptoms for triaged patients, then route them to an available doctor.</p>
-    <a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/nurse/triage.php')) ?>">Open triage queue</a>
+<section class="ms-card ms-dashboard-hero">
+    <p class="ms-dashboard-kicker">Triage workspace</p>
+    <div class="ms-dashboard-heading">
+        <div><h1 class="ms-h1">Nurse dashboard</h1><p class="ms-muted">Record vitals and route triaged patients to an available doctor.</p></div>
+        <div class="ms-actions"><a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/nurse/triage.php')) ?>">Open triage queue</a></div>
+    </div>
 </section>
 <section class="ms-grid">
-    <div class="ms-card ms-stat">
+    <div class="ms-card ms-stat <?= $patients === [] ? 'ms-stat-complete' : 'ms-stat-attention' ?>">
         <div class="ms-stat-num" data-testid="nurse-triage-count"><?= e((string) count($patients)) ?></div>
         <div class="ms-stat-label">Patients in triage</div>
     </div>
@@ -32,7 +36,7 @@ layout_app_header('Nurse dashboard', $user, 'dashboard');
 <section class="ms-card">
     <h2 class="ms-h2">Patients in triage</h2>
     <?php if ($patients === []) { ?>
-        <p class="ms-muted">No assigned patients yet.</p>
+        <div class="ms-empty-state">No assigned patients yet.</div>
     <?php } else { ?>
         <div class="ms-table-wrap">
             <table class="ms-table">

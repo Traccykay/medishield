@@ -6,7 +6,8 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('pharmacy');
-$prescriptions = ms_clinical_repo()->prescriptions('dispensed');
+$prescriptions = ms_clinical_repo()->dispensedByPharmacist((int) $user['user_id']);
+ms_audit_read($user, 'pharmacy.history', array_column($prescriptions, 'patient_id'));
 layout_app_header('Dispensed medication', $user, 'payments');
 ?>
 <section class="ms-card"><h1 class="ms-h1">Dispensed medication history</h1>

@@ -6,7 +6,8 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('lab');
-$requests = ms_clinical_repo()->labRequests('completed');
+$requests = ms_clinical_repo()->completedByLabTechnician((int) $user['user_id']);
+ms_audit_read($user, 'lab.history', array_column($requests, 'patient_id'));
 layout_app_header('Completed tests', $user, 'reports');
 ?>
 <section class="ms-card"><h1 class="ms-h1">Completed test history</h1>

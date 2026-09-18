@@ -22,6 +22,7 @@ if ($isPost) {
 }
 $queue = ms_visit_service()->triageQueue();
 $token = Csrf::token($_SESSION);
+ms_audit_read($user, 'nurse.triage', array_column($queue, 'patient_id'));
 layout_app_header('Triage queue', $user, 'dashboard');
 ?>
 <section class="ms-card">

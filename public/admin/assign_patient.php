@@ -70,6 +70,7 @@ $staff = ms_user_repo()->listByRoles(['nurse', 'doctor']);
 $assignments = $selectedPatient !== null ? ms_patient_repo()->assignmentsForPatient($selectedPatientId) : [];
 $token = Csrf::token($_SESSION);
 
+ms_audit_read($admin, 'admin.assign_patient', array_column($patients, 'patient_id'));
 layout_app_header('Assign patient', $admin, 'patients');
 ?>
 <section class="ms-card">

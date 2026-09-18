@@ -15,7 +15,7 @@ if ($patientId === null) {
 $pending = ms_clinical_repo()->prescriptions('pending', null, $patientId);
 $dispensed = ms_clinical_repo()->prescriptions('dispensed', null, $patientId);
 $history = ms_clinical_repo()->dispensingForPatient($patientId);
-ms_audit_log([
+ms_audit_read_event([
     'user_id' => (int) $user['user_id'],
     'user_role' => 'patient',
     'action' => 'PATIENT_VIEW',
@@ -30,10 +30,13 @@ layout_app_header('My prescriptions', $user, 'payments');
     <h1 class="ms-h1">My prescriptions</h1>
     <?php foreach (['Pending' => $pending, 'Dispensed' => $dispensed] as $label => $rows) { ?>
         <h2 class="ms-h2"><?= e($label) ?></h2>
-        <?php if ($rows === []) { ?><p class="ms-muted">No <?= e(mb_strtolower($label)) ?> prescriptions.</p><?php } else { ?>
-            <div class="ms-table-wrap"><table class="ms-table"><thead><tr><th>Medication</th><th>Cost</th><th>Dosage</th><th>Instructions</th><th>Doctor</th><th>UTC</th></tr></thead><tbody>
-            <?php foreach ($rows as $rx) { $medication = ms_clinical_service()->decrypt((string) $rx['medication_encrypted']) ?? ''; ?><tr><td><?= e($medication) ?></td><td>KES <?= e(number_format(ClinicalCatalog::priceForMedication($medication) ?? 0)) ?></td><td><?= e(ms_clinical_service()->decrypt((string) $rx['dosage_encrypted'])) ?></td><td><?= e(ms_clinical_service()->decrypt($rx['instructions_encrypted'] ?? null) ?? '') ?></td><td><?= e((string) $rx['doctor_name']) ?></td><td><?= e((string) $rx['created_at']) ?></td></tr><?php } ?>
-            </tbody></table></div>
+        <?php if ($rows === []) { ?><div class="ms-empty-state">No <?= e(mb_strtolower($label)) ?> prescriptions.</div><?php } else { ?>
+            <div class="ms-clinical-grid">
+            <?php foreach ($rows as $rx) { $medication = ms_clinical_service()->decrypt((string) $rx['medication_encrypted']) ?? ''; $status = (string) $rx['status']; ?><article class="ms-prescription-card">
+                <header class="ms-clinical-card-head"><div><h3 class="ms-clinical-card-title"><?= e($medication) ?></h3><p class="ms-clinical-card-meta">Issued <?= e((string) $rx['created_at']) ?> UTC</p></div><span class="ms-status-pill ms-status-pill-<?= e($status) ?>"><?= e($status) ?></span></header>
+                <dl class="ms-detail-list"><dt>Dosage</dt><dd><?= e(ms_clinical_service()->decrypt((string) $rx['dosage_encrypted'])) ?></dd><dt>Instructions</dt><dd><?= e(ms_clinical_service()->decrypt($rx['instructions_encrypted'] ?? null) ?? '—') ?></dd><dt>Prescriber</dt><dd><?= e((string) $rx['doctor_name']) ?></dd><dt>Charge</dt><dd>KES <?= e(number_format(ClinicalCatalog::priceForMedication($medication) ?? 0)) ?></dd></dl>
+            </article><?php } ?>
+            </div>
         <?php } ?>
     <?php } ?>
 </section>

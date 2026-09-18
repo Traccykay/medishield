@@ -13,6 +13,15 @@ if ($patientId <= 0 || !ms_patient_service()->canViewPatient($user, $patientId))
 $patient = ms_patient_repo()->findById($patientId);
 $vitals = ms_clinical_service()->decryptVitals(ms_clinical_repo()->vitalsForPatient($patientId));
 
+ms_audit_read_event([
+    'user_id' => (int) $user['user_id'],
+    'user_role' => 'nurse',
+    'action' => 'PATIENT_VIEW',
+    'module' => 'nurse',
+    'affected_record_id' => (string) $patientId,
+    'status' => 'SUCCESS',
+]);
+
 layout_app_header('Vitals history', $user, 'patients');
 ?>
 <section class="ms-card">

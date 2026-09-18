@@ -75,6 +75,7 @@ final class ClinicalRepository
         return $stmt->fetchAll();
     }
 
+    /** Authorship does not preserve access after the nurse assignment is revoked. */
     public function recentVitalsByNurse(int $nurseId, int $limit = 10): array
     {
         $stmt = $this->pdo->prepare(
@@ -82,6 +83,12 @@ final class ClinicalRepository
                FROM vitals v
                JOIN patients p ON p.patient_id = v.patient_id
               WHERE v.nurse_id = :nurse_id
+                AND EXISTS (
+                    SELECT 1 FROM patient_assignments pa
+                     WHERE pa.patient_id = v.patient_id
+                       AND pa.staff_user_id = v.nurse_id
+                       AND pa.active = 1
+                )
               ORDER BY v.created_at DESC, v.vitals_id DESC
               LIMIT :limit'
         );
@@ -166,6 +173,40 @@ final class ClinicalRepository
             ':created_at' => $this->clock->nowString(),
         ]);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    /** Completed history is scoped to the technician who actually produced the result. */
+    public function completedByLabTechnician(int $technicianId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT lr.*, p.full_name AS patient_name, u.full_name AS doctor_name
+               FROM lab_requests lr
+               JOIN patients p ON p.patient_id = lr.patient_id
+               JOIN users u ON u.user_id = lr.doctor_id
+              WHERE lr.status = :status AND EXISTS (
+                  SELECT 1 FROM lab_results res WHERE res.lab_request_id = lr.lab_request_id
+                    AND res.lab_technician_id = :technician_id
+              ) ORDER BY lr.created_at DESC, lr.lab_request_id DESC'
+        );
+        $stmt->execute([':status' => 'completed', ':technician_id' => $technicianId]);
+        return $stmt->fetchAll();
+    }
+
+    /** Historical dispensing is personal; pending work remains a shared queue. */
+    public function dispensedByPharmacist(int $pharmacistId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT rx.*, p.full_name AS patient_name, u.full_name AS doctor_name
+               FROM prescriptions rx
+               JOIN patients p ON p.patient_id = rx.patient_id
+               JOIN users u ON u.user_id = rx.doctor_id
+              WHERE rx.status = :status AND EXISTS (
+                  SELECT 1 FROM dispensing_records dr WHERE dr.prescription_id = rx.prescription_id
+                    AND dr.pharmacist_id = :pharmacist_id
+              ) ORDER BY rx.created_at DESC, rx.prescription_id DESC'
+        );
+        $stmt->execute([':status' => 'dispensed', ':pharmacist_id' => $pharmacistId]);
+        return $stmt->fetchAll();
     }
 
     public function labRequests(string $status = 'pending', ?int $doctorId = null, ?int $patientId = null): array

@@ -21,14 +21,15 @@ if ($patientId !== null) {
     );
 }
 
+ms_audit_read($user, 'patient.dashboard', $patientId === null ? [] : [$patientId]);
 layout_app_header('Patient dashboard', $user, 'dashboard');
 ?>
-<section class="ms-card">
-    <h1 class="ms-h1">Patient dashboard</h1>
+<section class="ms-card ms-dashboard-hero">
+    <p class="ms-dashboard-kicker">My health record</p>
+    <div class="ms-dashboard-heading"><div><h1 class="ms-h1">Patient dashboard</h1><p class="ms-muted">A private summary of services available through your account.</p></div></div>
     <?php if ($patientId === null) { ?>
         <?php layout_alert('warning', 'No patient record is linked to your login yet. Please contact the administrator.'); ?>
     <?php } else { ?>
-        <p class="ms-muted">View your profile and clinical records.</p>
         <div class="ms-actions">
             <a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/patient/profile.php')) ?>">Profile</a>
             <a class="ms-btn" href="<?= e(ms_url('/patient/records.php')) ?>">Records</a>
@@ -36,10 +37,10 @@ layout_app_header('Patient dashboard', $user, 'dashboard');
             <a class="ms-btn" href="<?= e(ms_url('/patient/prescriptions.php')) ?>">Prescriptions</a>
         </div>
         <section class="ms-grid ms-mt">
-            <div class="ms-card ms-stat"><div class="ms-stat-num" data-testid="patient-vitals-count"><?= e((string) count($vitals)) ?></div><div class="ms-stat-label">Vitals recorded</div></div>
-            <div class="ms-card ms-stat"><div class="ms-stat-num" data-testid="patient-records-count"><?= e((string) count($records)) ?></div><div class="ms-stat-label">Diagnosis records</div></div>
-            <div class="ms-card ms-stat"><div class="ms-stat-num" data-testid="patient-lab-results-count"><?= e((string) count($labResults)) ?></div><div class="ms-stat-label">Lab results available</div></div>
-            <div class="ms-card ms-stat"><div class="ms-stat-num" data-testid="patient-prescriptions-count"><?= e((string) count($prescriptions)) ?></div><div class="ms-stat-label">Prescriptions</div></div>
+            <div class="ms-card ms-stat ms-stat-action"><div class="ms-stat-num" data-testid="patient-vitals-count"><?= e((string) count($vitals)) ?></div><div class="ms-stat-label">Vitals recorded</div></div>
+            <div class="ms-card ms-stat ms-stat-action"><div class="ms-stat-num" data-testid="patient-records-count"><?= e((string) count($records)) ?></div><div class="ms-stat-label">Diagnosis records</div></div>
+            <div class="ms-card ms-stat ms-stat-action"><div class="ms-stat-num" data-testid="patient-lab-results-count"><?= e((string) count($labResults)) ?></div><div class="ms-stat-label">Lab results available</div></div>
+            <div class="ms-card ms-stat ms-stat-action"><div class="ms-stat-num" data-testid="patient-prescriptions-count"><?= e((string) count($prescriptions)) ?></div><div class="ms-stat-label">Prescriptions</div></div>
         </section>
     <?php } ?>
 </section>

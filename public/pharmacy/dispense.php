@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use MediShield\Security\Csrf;
 use MediShield\Clinical\ClinicalCatalog;
+use MediShield\Support\ActionConfirmation;
 
 require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
@@ -24,14 +25,18 @@ $status = 'dispensed';
 if ($isPost) {
     $status = request_string($_POST['status'] ?? 'dispensed');
     $remarks = request_string($_POST['remarks'] ?? null);
-    $result = ms_clinical_service()->dispense($rxId, (int) $user['user_id'], $status, $remarks);
+    if (!ActionConfirmation::allows($status, $_POST['confirm_consequence'] ?? null)) {
+        $result = ['ok' => false, 'errors' => ['Confirm that you understand a refusal returns the encounter to the doctor.']];
+    } else {
+        $result = ms_clinical_service()->dispense($rxId, (int) $user['user_id'], $status, $remarks);
+    }
     if ($result['ok']) {
         ms_audit_log(['user_id' => (int) $user['user_id'], 'user_role' => 'pharmacist', 'action' => $status === 'refused' ? 'MEDICATION_REFUSED' : 'MEDICATION_DISPENSED', 'module' => 'pharmacy', 'affected_record_id' => (string) $rxId, 'status' => 'SUCCESS']);
         redirect('/pharmacy/prescriptions.php');
     }
     $errors = $result['errors'];
 }
-ms_audit_log([
+ms_audit_read_event([
     'user_id' => (int) $user['user_id'],
     'user_role' => 'pharmacist',
     'action' => 'PATIENT_VIEW',
@@ -41,6 +46,7 @@ ms_audit_log([
 ]);
 $token = Csrf::token($_SESSION);
 layout_app_header('Dispense medication', $user, 'payments');
+layout_patient_context($rx, $visit);
 ?>
 <section class="ms-card ms-card-narrow">
     <h1 class="ms-h1">Dispense medication</h1>
@@ -51,16 +57,19 @@ layout_app_header('Dispense medication', $user, 'payments');
     <p><strong>Dosage:</strong> <?= e(ms_clinical_service()->decrypt((string) $rx['dosage_encrypted'])) ?></p>
     <p><strong>Instructions:</strong> <?= e(ms_clinical_service()->decrypt($rx['instructions_encrypted'] ?? null) ?? '') ?></p>
     <?php foreach ($errors as $msg) { layout_alert('danger', $msg); } ?>
-    <form method="post" action="<?= e(ms_url('/pharmacy/dispense.php')) ?>">
+    <form method="post" action="<?= e(ms_url('/pharmacy/dispense.php')) ?>" class="ms-form-stack">
         <input type="hidden" name="<?= e(Csrf::FIELD) ?>" value="<?= e($token) ?>">
         <input type="hidden" name="prescription_id" value="<?= e((string) $rxId) ?>">
-        <label class="ms-label" for="status">Outcome</label>
+        <fieldset class="ms-form-section"><legend>Dispensing outcome</legend>
+        <label class="ms-label" for="status">Outcome <span class="ms-required">Required</span></label>
         <select class="ms-input" id="status" name="status">
             <option value="dispensed" <?= $status === 'dispensed' ? 'selected' : '' ?>>Dispensed</option>
             <option value="refused" <?= $status === 'refused' ? 'selected' : '' ?>>Refused</option>
         </select>
-        <label class="ms-label" for="remarks">Remarks</label>
+        <label class="ms-label" for="remarks">Remarks <span class="ms-optional">Optional when dispensed</span></label>
         <textarea class="ms-input" id="remarks" name="remarks" rows="4"><?= e($remarks) ?></textarea>
+        <label class="ms-confirmation"><input type="checkbox" name="confirm_consequence" value="1"> <span>I understand that refusing this medication is final and returns the encounter to the doctor.</span></label>
+        </fieldset>
         <button class="ms-btn ms-btn-primary ms-btn-block" type="submit">Record outcome</button>
     </form>
 </section>

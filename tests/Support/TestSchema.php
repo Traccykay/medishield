@@ -310,6 +310,21 @@ final class TestSchema
         $pdo->exec(self::REQUEST_THROTTLES_DDL);
         $pdo->exec(self::ACCOUNT_ACTIVATIONS_DDL);
         $pdo->exec(self::PATIENTS_DDL);
+        $pdo->exec('CREATE TABLE emergency_access_grants (
+            grant_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            doctor_id INTEGER NOT NULL REFERENCES users(user_id),
+            patient_id INTEGER NOT NULL REFERENCES patients(patient_id),
+            auth_version INTEGER NOT NULL,
+            session_hash TEXT NOT NULL,
+            reason_encrypted TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            authorized_at TEXT NULL,
+            revoked_at TEXT NULL,
+            reviewed_at TEXT NULL,
+            reviewed_by INTEGER NULL REFERENCES users(user_id)
+        )');
+        $pdo->exec('CREATE INDEX idx_emergency_review ON emergency_access_grants (reviewed_at, grant_id)');
         $pdo->exec(self::PATIENT_ASSIGNMENTS_DDL);
         $pdo->exec(self::VISITS_DDL);
         $pdo->exec(self::BILLING_BILLS_DDL);

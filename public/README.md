@@ -30,6 +30,7 @@ without a web server.
 | `patient_profile.php` | Patient demographic profile guarded by ownership/assignment/admin checks. Audits PATIENT_VIEW. | Authenticated + object check |
 | `register_patient.php` | Patient registration form for admin, nurse, and doctor. Audits PATIENT_REGISTERED. | Admin, nurse, doctor |
 | `unauthorized.php` | 403 page shown when a role is denied an area. | Authenticated |
+| `reports.php` | Aggregate activity counts scoped to the signed-in user. Workforce reports exclude patient identities and clinical contents; patients see only counts of their own received services. | Authenticated |
 | `admin/` | Administrator user-management + security monitoring. | Admin only |
 | `nurse/` | Nurse dashboard, vitals recording/history, and doctor routing for assigned patients. | Nurse only |
 | `doctor/` | Doctor dashboard, patient review, encrypted diagnosis, lab requests, and prescriptions. | Doctor only |

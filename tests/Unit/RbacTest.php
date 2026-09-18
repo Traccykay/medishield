@@ -68,11 +68,11 @@ final class RbacTest extends TestCase
         }
     }
 
-    public function testPatientCannotSeeReports(): void
+    public function testEveryAuthenticatedRoleCanSeeItsOwnScopedReport(): void
     {
-        self::assertFalse(Rbac::canAccessNav('patient', 'reports'));
-        self::assertTrue(Rbac::canAccessNav('doctor', 'reports'));
-        self::assertTrue(Rbac::canAccessNav('admin', 'reports'));
+        foreach (Rbac::ROLES as $role) {
+            self::assertTrue(Rbac::canAccessNav($role, 'reports'), "$role should see reports");
+        }
     }
 
     public function testPatientWorkspaceNavMatchesClinicalAccessRoles(): void

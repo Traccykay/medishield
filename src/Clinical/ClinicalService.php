@@ -359,6 +359,101 @@ final class ClinicalService
         return ['ok' => true, 'errors' => [], 'prescription_id' => $created['id']];
     }
 
+    /**
+     * Issue every medication selected during a post-laboratory review as one
+     * transaction. Validation completes before the transaction begins, so one
+     * invalid item cannot leave a partial prescription set behind.
+     *
+     * @param array<int,array{medication:mixed,dosage:mixed,instructions:mixed}> $medications
+     * @return array{ok:bool,errors:string[],prescription_ids:int[]}
+     */
+    public function issuePrescriptions(
+        int $patientId,
+        int $doctorId,
+        int $visitId,
+        int $recordId,
+        array $medications
+    ): array {
+        if (!$this->doctorAuthorizer->canAccess($doctorId, $patientId, $visitId)) {
+            return ['ok' => false, 'errors' => [self::DOCTOR_AUTHORIZATION_ERROR], 'prescription_ids' => []];
+        }
+
+        $errors = [];
+        $validated = [];
+        if ($medications === []) {
+            $errors[] = 'Select at least one medication.';
+        }
+        foreach ($medications as $position => $item) {
+            $medication = trim(is_string($item['medication'] ?? null) ? $item['medication'] : '');
+            $dosage = trim(is_string($item['dosage'] ?? null) ? $item['dosage'] : '');
+            $instructions = $this->trimOrNull(
+                is_string($item['instructions'] ?? null) ? $item['instructions'] : null
+            );
+            $price = ClinicalCatalog::priceForMedication($medication);
+            $label = 'Medication ' . ($position + 1);
+            if ($medication === '' || $price === null) {
+                $errors[] = $label . ' must be selected from the catalog.';
+            }
+            if ($dosage === '') {
+                $errors[] = $label . ' dosage is required.';
+            }
+            if (mb_strlen($medication) > 1000 || mb_strlen($dosage) > 1000
+                || ($instructions !== null && mb_strlen($instructions) > 2000)) {
+                $errors[] = $label . ' fields are too long.';
+            }
+            if ($price !== null) {
+                $validated[] = [
+                    'medication' => $medication,
+                    'dosage' => $dosage,
+                    'instructions' => $instructions,
+                    'catalog_price_kes' => $price,
+                ];
+            }
+        }
+        if ($errors !== []) {
+            return ['ok' => false, 'errors' => array_values(array_unique($errors)), 'prescription_ids' => []];
+        }
+
+        $created = $this->clinical->transactional(function () use (
+            $patientId,
+            $doctorId,
+            $visitId,
+            $recordId,
+            $validated
+        ): array {
+            if (!$this->doctorAuthorizer->canAccess($doctorId, $patientId, $visitId, true)) {
+                return ['error' => self::DOCTOR_AUTHORIZATION_ERROR, 'ids' => []];
+            }
+            $record = $this->clinical->findRecord($recordId, true);
+            if ($record === null
+                || (int) $record['patient_id'] !== $patientId
+                || (int) $record['doctor_id'] !== $doctorId
+                || (int) $record['visit_id'] !== $visitId) {
+                return ['error' => 'Diagnosis record not found for this patient.', 'ids' => []];
+            }
+
+            $ids = [];
+            foreach ($validated as $item) {
+                $ids[] = $this->clinical->createPrescription(
+                    $visitId,
+                    $patientId,
+                    $recordId,
+                    $doctorId,
+                    $this->crypto->encrypt($item['medication']),
+                    $this->crypto->encrypt($item['dosage']),
+                    $item['instructions'] !== null ? $this->crypto->encrypt($item['instructions']) : null,
+                    $item['catalog_price_kes']
+                );
+            }
+            return ['error' => null, 'ids' => $ids];
+        });
+
+        if ($created['error'] !== null) {
+            return ['ok' => false, 'errors' => [$created['error']], 'prescription_ids' => []];
+        }
+        return ['ok' => true, 'errors' => [], 'prescription_ids' => $created['ids']];
+    }
+
     public function uploadLabResult(int $labRequestId, int $labTechId, string $result): array
     {
         $request = $this->clinical->findLabRequest($labRequestId);

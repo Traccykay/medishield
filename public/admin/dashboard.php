@@ -48,11 +48,22 @@ try {
     ], JSON_UNESCAPED_SLASHES));
 }
 $integrityState = (string) ($integrity['state'] ?? 'UNKNOWN');
-$integrityClass = match ($integrityState) {
+$localIntegrityState = (string) ($integrity['local_state'] ?? $integrityState);
+$integrityClass = match ($localIntegrityState) {
     'PASS' => 'ms-stat-ok',
     'FAIL' => 'ms-stat-bad',
     default => 'ms-stat-warn',
 };
+$anchorState = match (true) {
+    $integrityState === 'PASS' => 'CURRENT',
+    $integrityState === 'FAIL' => 'FAIL',
+    ($integrity['reason'] ?? '') === 'EXTERNAL_ANCHOR_MISSING' => 'MISSING',
+    ($integrity['reason'] ?? '') === 'UNANCHORED_SUFFIX' => 'STALE',
+    default => 'UNKNOWN',
+};
+$anchorClass = $anchorState === 'CURRENT'
+    ? 'ms-stat-ok'
+    : ($anchorState === 'FAIL' ? 'ms-stat-bad' : 'ms-stat-warn');
 
 $auditSummary = AuditDashboardSummary::fromRows($recent);
 $failedEvents = $auditSummary['failed_events'];
@@ -64,16 +75,18 @@ foreach (ms_user_repo()->listAll() as $account) {
     }
 }
 
+$emergencyPending = ms_emergency_access()->pendingReviewCount($user);
 layout_app_header('Admin dashboard', $user, 'dashboard');
 ?>
-<section class="ms-card">
-    <h1 class="ms-h1">Administrator dashboard</h1>
-    <p class="ms-muted">Manage users and monitor security activity.</p>
-
-    <div class="ms-actions">
-        <a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/admin/create_user.php')) ?>">Create user</a>
-        <a class="ms-btn" href="<?= e(ms_url('/admin/users.php')) ?>">Manage users</a>
-        <a class="ms-btn" href="<?= e(ms_url('/admin/audit.php')) ?>">Forensic auditing</a>
+<section class="ms-card ms-dashboard-hero">
+    <p class="ms-dashboard-kicker">Security and operations</p>
+    <div class="ms-dashboard-heading">
+        <div><h1 class="ms-h1">Administrator dashboard</h1><p class="ms-muted">Manage access, supervise operations, and monitor security activity.</p></div>
+        <div class="ms-actions">
+            <a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/admin/create_user.php')) ?>">Create user</a>
+            <a class="ms-btn" href="<?= e(ms_url('/admin/users.php')) ?>">Manage users</a>
+            <a class="ms-btn" href="<?= e(ms_url('/admin/audit.php')) ?>">Forensic auditing</a>
+        </div>
     </div>
 </section>
 
@@ -86,19 +99,31 @@ layout_app_header('Admin dashboard', $user, 'dashboard');
         <div class="ms-stat-num" data-testid="admin-active-users-count"><?= e((string) $activeUsers) ?></div>
         <div class="ms-stat-label">Active accounts</div>
     </div>
-    <div class="ms-card ms-stat <?= $failedEvents > 0 ? 'ms-stat-warn' : '' ?>">
+    <div class="ms-card ms-stat <?= $failedEvents > 0 ? 'ms-stat-attention' : 'ms-stat-complete' ?>">
         <div class="ms-stat-num" data-testid="admin-failed-events-count"><?= e((string) $failedEvents) ?></div>
         <div class="ms-stat-label">Failed events (recent)</div>
     </div>
-    <div class="ms-card ms-stat <?= $anomalies > 0 ? 'ms-stat-warn' : '' ?>">
+    <div class="ms-card ms-stat <?= $anomalies > 0 ? 'ms-stat-attention' : 'ms-stat-complete' ?>">
         <div class="ms-stat-num" data-testid="admin-anomaly-count"><?= e((string) $anomalies) ?></div>
         <div class="ms-stat-label">Anomaly flags (recent)</div>
     </div>
     <div class="ms-card ms-stat <?= e($integrityClass) ?>">
-        <div class="ms-stat-num"><?= e($integrityState) ?></div>
-        <div class="ms-stat-label">Audit chain integrity</div>
+        <div class="ms-stat-num"><?= e($localIntegrityState) ?></div>
+        <div class="ms-stat-label">Local audit chain</div>
+    </div>
+    <div class="ms-card ms-stat <?= e($anchorClass) ?>">
+        <div class="ms-stat-num"><?= e($anchorState) ?></div>
+        <div class="ms-stat-label">External rollback anchor</div>
     </div>
 </section>
+
+<?php if ($emergencyPending > 0) { ?>
+<section class="ms-card ms-stat-attention">
+    <div class="ms-card-head"><div><p class="ms-dashboard-kicker">Needs review</p><h2 class="ms-h2">Emergency access grants</h2></div><span class="ms-badge ms-badge-muted"><?= e((string) $emergencyPending) ?> pending</span></div>
+    <p>Review temporary clinical-access grants and revoke any access that is no longer justified.</p>
+    <a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/admin/emergency_access.php')) ?>">Review emergency access</a>
+</section>
+<?php } ?>
 
 <section class="ms-card">
     <h2 class="ms-h2">Security monitoring</h2>

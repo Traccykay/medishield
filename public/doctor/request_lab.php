@@ -20,6 +20,8 @@ $visitId = request_positive_int(
     $isPost ? ($_POST['visit_id'] ?? null) : ($_GET['visit_id'] ?? null)
 );
 require_doctor_patient_access($user, $patientId, $visitId, 'doctor:request_lab');
+$patient = ms_patient_repo()->findById($patientId);
+$visit = ms_visit_repo()->findById($visitId);
 $errors = [];
 $testName = '';
 $reason = '';
@@ -66,6 +68,7 @@ if ($isPost) {
 }
 $token = Csrf::token($_SESSION);
 layout_app_header('Request lab', $user, 'patients');
+layout_patient_context($patient ?? [], $visit ?? []);
 ?>
 <section class="ms-card ms-card-narrow">
     <h1 class="ms-h1">Request lab test</h1>

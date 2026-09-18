@@ -62,6 +62,22 @@ final class AuditLoggerTest extends TestCase
         self::assertSame($rows[1]['current_hash'], $rows[2]['previous_hash']);
     }
 
+    public function testVerifiedPageReturnsNewestRowsAndAccuratePaginationMetadata(): void
+    {
+        foreach (range(1, 25) as $number) {
+            $this->logger->log($this->sampleEvent('EVENT_' . $number));
+        }
+
+        $page = $this->logger->page(2, 10);
+
+        self::assertSame(25, $page['total']);
+        self::assertSame(2, $page['page']);
+        self::assertSame(3, $page['page_count']);
+        self::assertCount(10, $page['rows']);
+        self::assertSame('EVENT_15', $page['rows'][0]['action']);
+        self::assertSame('EVENT_6', $page['rows'][9]['action']);
+    }
+
     public function testVerifyChainPassesForUntamperedLog(): void
     {
         $this->logger->log($this->sampleEvent('LOGIN_SUCCESS'));

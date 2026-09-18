@@ -46,6 +46,26 @@ final class ClinicalWorkflowTest extends TestCase
         );
     }
 
+    public function testRecentNurseVitalsDisappearAfterAssignmentRevocation(): void
+    {
+        [$patientId, $nurseId] = $this->assignedPatientAndStaff('nurse');
+        $result = $this->clinical->recordVitals($patientId, $nurseId, [
+            'temperature_c' => '37.2',
+            'systolic_mmhg' => '120',
+            'diastolic_mmhg' => '80',
+            'pulse_bpm' => '72',
+            'weight_kg' => '66.5',
+        ]);
+        self::assertTrue($result['ok']);
+        self::assertCount(1, $this->clinicalRepo->recentVitalsByNurse($nurseId));
+
+        $this->patientRepo->unassign($patientId, $nurseId);
+
+        self::assertSame([], $this->clinicalRepo->recentVitalsByNurse($nurseId));
+        // Revocation removes visibility, not the patient's clinical history.
+        self::assertCount(1, $this->clinicalRepo->vitalsForPatient($patientId));
+    }
+
     public function testNurseRecordsValidatedVitalsForAssignedPatient(): void
     {
         [$patientId, $nurseId] = $this->assignedPatientAndStaff('nurse');
@@ -740,6 +760,71 @@ final class ClinicalWorkflowTest extends TestCase
         self::assertSame($pendingId, (int) $history[1]['prescription_id']);
         self::assertSame('pending', $history[1]['status']);
         self::assertSame([], $this->clinicalRepo->prescriptionsForPatient($patientId + 999));
+        self::assertCount(1, $this->clinicalRepo->dispensedByPharmacist($pharmacistId));
+        self::assertSame([], $this->clinicalRepo->dispensedByPharmacist($doctorId));
+        self::assertSame([], $this->clinicalRepo->dispensedByPharmacist(0));
+    }
+
+    public function testDoctorCanIssueMultiplePrescriptionsAfterLabReviewAsOneAtomicBatch(): void
+    {
+        [$patientId, $doctorId, $visitId] = $this->doctorConsultation();
+        $record = $this->clinical->addDiagnosis(
+            $patientId,
+            $doctorId,
+            $visitId,
+            'Confirmed infection',
+            'Treat after laboratory review'
+        );
+
+        $result = $this->clinical->issuePrescriptions(
+            $patientId,
+            $doctorId,
+            $visitId,
+            (int) $record['record_id'],
+            [
+                ['medication' => 'Paracetamol 500 mg', 'dosage' => 'Twice daily', 'instructions' => 'After meals'],
+                ['medication' => 'Cetirizine 10 mg', 'dosage' => 'Once nightly', 'instructions' => null],
+            ]
+        );
+
+        self::assertTrue($result['ok']);
+        self::assertCount(2, $result['prescription_ids']);
+        self::assertCount(2, $this->clinicalRepo->prescriptions('pending'));
+    }
+
+    public function testDoctorPrescriptionBatchRejectsEveryItemWhenOneMedicationIsInvalid(): void
+    {
+        [$patientId, $doctorId, $visitId] = $this->doctorConsultation();
+        $record = $this->clinical->addDiagnosis($patientId, $doctorId, $visitId, 'Diagnosis', null);
+
+        $result = $this->clinical->issuePrescriptions(
+            $patientId,
+            $doctorId,
+            $visitId,
+            (int) $record['record_id'],
+            [
+                ['medication' => 'Paracetamol 500 mg', 'dosage' => 'Daily', 'instructions' => null],
+                ['medication' => 'Not in catalog', 'dosage' => 'Daily', 'instructions' => null],
+            ]
+        );
+
+        self::assertFalse($result['ok']);
+        self::assertSame([], $this->clinicalRepo->prescriptions('pending'));
+    }
+
+    public function testCompletedLabHistoryBelongsToProcessingTechnician(): void
+    {
+        [$patientId, $doctorId, $visitId] = $this->doctorConsultation();
+        $labId = $this->users->create('Lab', 'history-lab@example.com', 'hash', 'lab');
+        $otherLabId = $this->users->create('Other Lab', 'other-lab@example.com', 'hash', 'lab');
+        $recordId = $this->clinicalRepo->createMedicalRecord($visitId, $patientId, $doctorId, 'encrypted', null);
+        $requestId = $this->clinicalRepo->createLabRequest($visitId, $patientId, $recordId, $doctorId, 'Test', null, 100);
+        self::assertCount(1, $this->clinicalRepo->labRequests('pending'));
+        self::assertSame([], $this->clinicalRepo->completedByLabTechnician($labId));
+        $this->clinicalRepo->createLabResult($requestId, $patientId, $labId, 'encrypted');
+        self::assertCount(1, $this->clinicalRepo->completedByLabTechnician($labId));
+        self::assertSame([], $this->clinicalRepo->completedByLabTechnician($otherLabId));
+        self::assertSame([], $this->clinicalRepo->completedByLabTechnician(0));
     }
 
     /**

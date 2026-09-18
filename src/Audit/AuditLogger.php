@@ -746,19 +746,41 @@ final class AuditLogger
      */
     public function recent(int $limit = 50): array
     {
-        $limit = max(1, min($limit, 500));
+        return $this->page(1, $limit)['rows'];
+    }
+
+    /**
+     * Return one newest-first page only after complete local verification of the
+     * same database snapshot. Counts are bounded by the authenticated chain head.
+     *
+     * @return array{rows:list<array<string,mixed>>,total:int,page:int,page_count:int,per_page:int}
+     */
+    public function page(int $page = 1, int $perPage = 25): array
+    {
+        $perPage = max(1, min($perPage, 500));
+        $page = max(1, $page);
         if ($this->pdo->inTransaction()) {
-            return [];
+            return ['rows' => [], 'total' => 0, 'page' => 1, 'page_count' => 1, 'per_page' => $perPage];
         }
 
         try {
             $this->beginConsistentReadSnapshot();
         } catch (\Throwable) {
-            return [];
+            return ['rows' => [], 'total' => 0, 'page' => 1, 'page_count' => 1, 'per_page' => $perPage];
         }
 
         try {
             $verification = $this->verifyLocalFullSnapshot();
+            $total = $verification['state'] === 'PASS'
+                ? (int) $this->pdo->query(
+                    'SELECT COUNT(*) FROM audit_logs AS logs
+                       JOIN audit_chain_head AS head ON head.singleton_id = 1
+                      WHERE logs.seq BETWEEN 1 AND head.last_seq'
+                )->fetchColumn()
+                : 0;
+            $pageCount = max(1, (int) ceil($total / $perPage));
+            $page = min($page, $pageCount);
+            $offset = ($page - 1) * $perPage;
             $rows = $verification['state'] === 'PASS'
                 ? $this->pdo->query(
                     'SELECT logs.log_id, logs.seq, logs.event_id, logs.key_id,
@@ -770,12 +792,18 @@ final class AuditLogger
                        JOIN audit_chain_head AS head ON head.singleton_id = 1
                       WHERE logs.seq BETWEEN 1 AND head.last_seq
                       ORDER BY logs.seq DESC
-                      LIMIT ' . $limit
+                      LIMIT ' . $perPage . ' OFFSET ' . $offset
                 )->fetchAll()
                 : [];
             $this->pdo->commit();
 
-            return $rows;
+            return [
+                'rows' => $rows,
+                'total' => $total,
+                'page' => $page,
+                'page_count' => $pageCount,
+                'per_page' => $perPage,
+            ];
         } catch (\Throwable $error) {
             if ($this->pdo->inTransaction()) {
                 $this->pdo->rollBack();

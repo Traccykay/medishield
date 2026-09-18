@@ -28,7 +28,7 @@ if ($patient === null) {
     redirect('/patients.php');
 }
 
-ms_audit_log([
+ms_audit_read_event([
     'user_id' => (int) $user['user_id'],
     'user_role' => (string) $user['role'],
     'action' => 'PATIENT_VIEW',

@@ -35,7 +35,9 @@ if ($isPost) {
 $doctors = ms_visit_service()->availableDoctors();
 $assignments = ms_patient_repo()->assignmentsForPatient($patientId);
 $token = Csrf::token($_SESSION);
+ms_audit_read($user, 'nurse.assign_doctor', [$patientId]);
 layout_app_header('Assign doctor', $user, 'patients');
+layout_patient_context($patient ?? [], $visit ?? []);
 ?>
 <section class="ms-card ms-card-narrow">
     <h1 class="ms-h1">Assign doctor</h1>

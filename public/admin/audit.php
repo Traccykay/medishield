@@ -23,10 +23,13 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 $user = require_area('admin');
+$requestedPage = request_positive_int($_GET['page'] ?? null) ?: 1;
+$perPage = 25;
 
 // Read-only views that must never take the page down.
 $recent    = [];
 $recentQuarantined = false;
+$pagination = ['total' => 0, 'page' => 1, 'page_count' => 1, 'per_page' => $perPage];
 $integrity = [
     'state' => 'UNKNOWN',
     'ok' => false,
@@ -35,7 +38,9 @@ $integrity = [
     'head_seq' => null,
 ];
 try {
-    $recent    = ms_audit()->recent(100);
+    $auditPage = ms_audit()->page($requestedPage, $perPage);
+    $recent = $auditPage['rows'];
+    $pagination = $auditPage;
     $integrity = ms_audit()->verifyChain(ms_audit_anchors());
     $localState = (string) ($integrity['local_state'] ?? $integrity['state'] ?? 'UNKNOWN');
     if ($localState !== 'PASS') {
@@ -54,13 +59,18 @@ try {
 // Evidence is appended after the assessed tip is fixed. A normal unanchored
 // suffix suppresses its integrity row so verification does not extend the
 // condition it just reported; the access event itself remains auditable.
-ms_audit_log([
+// Preserve non-PHI integrity diagnostics during an outage, but suppress unaudited rows.
+$readAuditAvailable = ms_audit_log([
     'user_id'   => (int) $user['user_id'],
     'user_role' => (string) $user['role'],
     'action'    => 'AUDIT_LOGS_VIEWED',
     'module'    => 'admin',
     'status'    => 'SUCCESS',
 ]);
+if (!$readAuditAvailable) {
+    $recent = [];
+    $recentQuarantined = true;
+}
 $verificationEvidence = AuditVerificationEventPolicy::classify($integrity);
 if ($verificationEvidence['should_record']) {
     ms_audit_log([
@@ -77,7 +87,8 @@ if ($verificationEvidence['should_record']) {
 }
 
 $integrityState = (string) ($integrity['state'] ?? 'UNKNOWN');
-$integrityClass = match ($integrityState) {
+$localIntegrityState = (string) ($integrity['local_state'] ?? $integrityState);
+$integrityClass = match ($localIntegrityState) {
     'PASS' => 'ms-stat-ok',
     'FAIL' => 'ms-stat-bad',
     default => 'ms-stat-warn',
@@ -88,12 +99,13 @@ layout_app_header('Forensic Auditing', $user, 'audit');
     <div class="ms-card-head">
         <div>
             <h1 class="ms-h1">Forensic auditing</h1>
+            <?php if (!$readAuditAvailable) { layout_alert('danger', 'Audit logging is unavailable. Sensitive audit rows are hidden. Investigate the server audit error log.'); } ?>
             <p class="ms-muted">Tamper-evident record of security activity: logins,
                 failed attempts, OTP and activation events, and access denials.</p>
         </div>
         <div class="ms-stat <?= e($integrityClass) ?>">
-            <div class="ms-stat-num"><?= e($integrityState) ?></div>
-            <div class="ms-stat-label">Chain integrity</div>
+            <div class="ms-stat-num"><?= e($localIntegrityState) ?></div>
+            <div class="ms-stat-label">Local chain integrity</div>
         </div>
     </div>
 
@@ -101,9 +113,16 @@ layout_app_header('Forensic Auditing', $user, 'audit');
         layout_alert('danger', 'Audit chain integrity check FAILED. The log may have been tampered with from log #'
             . (string) ($integrity['first_bad_log_id'] ?? '?') . '.');
     } elseif ($integrityState === 'UNKNOWN') {
+        $unknownReason = match ((string) ($integrity['reason'] ?? '')) {
+            'EXTERNAL_ANCHOR_MISSING' => 'No external audit anchor exists yet.',
+            'UNANCHORED_SUFFIX' => 'New audit events exist after the most recent external anchor.',
+            'AUDIT_KEY_MISMATCH', 'AUDIT_KEY_ID_MISMATCH' => 'The configured audit key does not match the initialized chain.',
+            default => 'The external rollback check could not establish a trusted result.',
+        };
         layout_alert(
             'warning',
-            'Audit rollback status is UNKNOWN. Check the configured external anchor and maintenance logs.'
+            'Audit rollback status is UNKNOWN. ' . $unknownReason
+            . ' Run the trusted audit-anchor maintenance task and check its logs.'
         );
     } ?>
 
@@ -157,6 +176,17 @@ layout_app_header('Forensic Auditing', $user, 'audit');
                 </tbody>
             </table>
         </div>
+        <nav class="ms-pagination" aria-label="Audit log pages">
+            <span>Page <?= e((string) $pagination['page']) ?> of <?= e((string) $pagination['page_count']) ?> · <?= e((string) $pagination['total']) ?> verified events</span>
+            <span class="ms-actions">
+                <?php if ($pagination['page'] > 1) { ?>
+                    <a class="ms-btn ms-btn-sm" href="<?= e(ms_url('/admin/audit.php?page=' . ($pagination['page'] - 1))) ?>">Previous</a>
+                <?php } ?>
+                <?php if ($pagination['page'] < $pagination['page_count']) { ?>
+                    <a class="ms-btn ms-btn-sm" href="<?= e(ms_url('/admin/audit.php?page=' . ($pagination['page'] + 1))) ?>">Next</a>
+                <?php } ?>
+            </span>
+        </nav>
     <?php } ?>
 </section>
 <?php

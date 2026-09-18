@@ -10,15 +10,18 @@ $query = trim(request_string($_GET['q'] ?? null));
 $patients = $query === '' ? [] : ms_patient_repo()->search($query);
 $queue = ms_visit_service()->triageQueue();
 
+ms_audit_read($user, 'reception.dashboard', array_column(array_merge($patients, $queue), 'patient_id'));
 layout_app_header('Reception dashboard', $user, 'reception');
 ?>
 <section class="ms-card ms-dashboard-hero">
-    <h1 class="ms-h1">Reception dashboard</h1>
-    <p class="ms-muted">Search demographics, register arrivals, record payment choice, and send patients to triage.</p>
-    <a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/register_patient.php')) ?>">Register new patient</a>
+    <p class="ms-dashboard-kicker">Front desk workspace</p>
+    <div class="ms-dashboard-heading">
+        <div><h1 class="ms-h1">Reception dashboard</h1><p class="ms-muted">Find patients, register arrivals, and prepare visits for triage.</p></div>
+        <div class="ms-actions"><a class="ms-btn ms-btn-primary" href="<?= e(ms_url('/register_patient.php')) ?>">Register new patient</a></div>
+    </div>
 </section>
 <section class="ms-grid">
-    <div class="ms-card ms-stat">
+    <div class="ms-card ms-stat <?= $queue === [] ? 'ms-stat-complete' : 'ms-stat-attention' ?>">
         <div class="ms-stat-num" data-testid="reception-triage-count"><?= e((string) count($queue)) ?></div>
         <div class="ms-stat-label">Waiting for triage</div>
     </div>
@@ -39,7 +42,7 @@ layout_app_header('Reception dashboard', $user, 'reception');
 </section>
 <section class="ms-card">
     <h2 class="ms-h2">Waiting for triage</h2>
-    <?php if ($queue === []) { ?><p class="ms-muted">No patients waiting.</p><?php } else { ?>
+    <?php if ($queue === []) { ?><div class="ms-empty-state">No patients waiting.</div><?php } else { ?>
         <div class="ms-table-wrap"><table class="ms-table"><thead><tr><th>Patient</th><th>Payment</th><th>Insurance</th><th>Arrived (UTC)</th></tr></thead><tbody>
         <?php foreach ($queue as $visit) { ?><tr><td><?= e((string) $visit['patient_name']) ?></td><td><?= e((string) $visit['payment_method']) ?></td><td><?= e((string) ($visit['insurer'] ?? '')) ?></td><td><?= e((string) $visit['created_at']) ?></td></tr><?php } ?>
         </tbody></table></div>

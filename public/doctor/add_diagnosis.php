@@ -18,6 +18,7 @@ $visitId = request_positive_int(
 );
 require_doctor_patient_access($user, $patientId, $visitId, 'doctor:add_diagnosis');
 $patient = ms_patient_repo()->findById($patientId);
+$visit = ms_visit_repo()->findById($visitId);
 $errors = [];
 $diagnosis = '';
 $treatment = '';
@@ -130,7 +131,9 @@ if ($isPost) {
     }
 }
 $token = Csrf::token($_SESSION);
+ms_audit_read($user, 'doctor.add_diagnosis', [$patientId]);
 layout_app_header('Add diagnosis', $user, 'patients');
+layout_patient_context($patient ?? [], $visit ?? []);
 ?>
 <section class="ms-card ms-card-narrow">
     <h1 class="ms-h1">Add diagnosis</h1>

@@ -70,18 +70,12 @@ if ($isPost) {
 }
 
 $token = Csrf::token($_SESSION);
-layout_app_header($isStaff ? 'Billing and payments' : 'My billing', $user, 'payments');
+
 
 if (!$isStaff) {
     $bills = ms_billing_service()->billsForPatientUser((int) $user['user_id']);
-    ms_audit_log([
-        'user_id' => (int) $user['user_id'],
-        'user_role' => (string) $user['role'],
-        'action' => 'BILLING_VIEWED',
-        'module' => 'billing',
-        'affected_record_id' => $visitId > 0 ? (string) $visitId : null,
-        'status' => 'SUCCESS',
-    ]);
+    ms_audit_read($user, 'billing.patient', array_column($bills, 'visit_id'), 'BILLING_VIEWED');
+    layout_app_header('My billing', $user, 'payments');
     ?>
     <section class="ms-card">
         <h1 class="ms-h1">My billing</h1>
@@ -91,7 +85,7 @@ if (!$isStaff) {
         <?php foreach ($bills as $bill) { ?>
             <section class="ms-card ms-mt">
                 <h2 class="ms-h2"><?= e((string) $bill['patient_name']) ?> · Visit #<?= e((string) $bill['visit_id']) ?></h2>
-                <p><strong>Payment status:</strong> <?= e((string) $bill['payment_status']) ?></p>
+                <p><strong>Payment status:</strong> <span class="ms-status-pill ms-status-pill-<?= e((string) $bill['payment_status']) ?>"><?= e((string) $bill['payment_status']) ?></span></p>
                 <p><strong>Payment method:</strong> <?= e((string) $bill['payment_method']) ?><?php if ($bill['insurer'] !== null) { ?> · <?= e((string) $bill['insurer']) ?><?php } ?></p>
                 <?php if ($bill['payment_reference'] !== null) { ?><p><strong>Payment reference:</strong> <?= e((string) $bill['payment_reference']) ?></p><?php } ?>
                 <?php if ($bill['receipt_number'] !== null) { ?><p><strong>Receipt number:</strong> <?= e((string) $bill['receipt_number']) ?></p><?php } ?>
@@ -107,23 +101,17 @@ if (!$isStaff) {
 $visit = $visitId > 0 ? ms_billing_service()->visitForStaff($visitId, $user) : null;
 $bill = $visit === null ? null : ms_billing_service()->billForStaffVisit($visitId, $user);
 $visits = ms_billing_service()->visitsForStaff($user);
-ms_audit_log([
-    'user_id' => (int) $user['user_id'],
-    'user_role' => (string) $user['role'],
-    'action' => 'BILLING_VIEWED',
-    'module' => 'billing',
-    'affected_record_id' => $visitId > 0 ? (string) $visitId : null,
-    'status' => 'SUCCESS',
-]);
+ms_audit_read($user, 'billing.staff', $visit === null ? array_column($visits, 'visit_id') : [$visitId], 'BILLING_VIEWED');
+layout_app_header('Billing and payments', $user, 'payments');
 ?>
 <section class="ms-card">
     <h1 class="ms-h1">Billing and payments</h1>
-    <p class="ms-muted">Select a visit to add catalogue charges or record its cash or insurance payment.</p>
+    <p class="ms-muted">Reception staff handle day-to-day charges and payments. Administrators have the same screen for billing supervision and corrections.</p>
     <?php foreach ($errors as $error) { layout_alert('danger', $error); } ?>
     <?php if ($success !== '') { layout_alert('success', $success); } ?>
 
     <?php if ($visit === null) { ?>
-        <table class="ms-table">
+        <div class="ms-table-wrap"><table class="ms-table">
             <thead><tr><th>Patient</th><th>Visit status</th><th>Method</th><th>Total</th><th>Payment</th><th></th></tr></thead>
             <tbody>
             <?php foreach ($visits as $listedVisit) { ?>
@@ -138,7 +126,7 @@ ms_audit_log([
             <?php } ?>
             <?php if ($visits === []) { ?><tr><td colspan="6">No visits are available for billing.</td></tr><?php } ?>
             </tbody>
-        </table>
+        </table></div>
     <?php } else { ?>
         <div class="ms-actions"><a class="ms-btn" href="<?= e(ms_url('/payments.php')) ?>">Back to visits</a></div>
         <section class="ms-card ms-mt">
@@ -147,7 +135,7 @@ ms_audit_log([
             <p><strong>Visit payment method:</strong> <?= e((string) $visit['payment_method']) ?><?php if ($visit['insurer'] !== null) { ?> · <?= e((string) $visit['insurer']) ?><?php } ?></p>
 
             <?php if ($bill !== null) { ?>
-                <p><strong>Payment status:</strong> <?= e((string) $bill['payment_status']) ?></p>
+                <p><strong>Payment status:</strong> <span class="ms-status-pill ms-status-pill-<?= e((string) $bill['payment_status']) ?>"><?= e((string) $bill['payment_status']) ?></span></p>
                 <?php if ($bill['payment_reference'] !== null) { ?><p><strong>Payment reference:</strong> <?= e((string) $bill['payment_reference']) ?></p><?php } ?>
                 <?php if ($bill['receipt_number'] !== null) { ?><p><strong>Receipt number:</strong> <?= e((string) $bill['receipt_number']) ?></p><?php } ?>
                 <?php require __DIR__ . '/../includes/partials/bill_charges.php'; ?>

@@ -15,6 +15,10 @@ that
   markup self-documenting.
 - Colours, spacing and radii are defined once as CSS custom properties in
   `:root` and reused, so the theme can be retuned in one place.
+- The shared shell provides a keyboard skip link, visible `:focus-visible`
+  treatment, 44-pixel interaction targets, reduced-motion support, sticky
+  desktop navigation, horizontally scrollable mobile navigation, and a
+  print-safe layout.
 - The HTML that uses these classes is produced by `includes/layout.php` and the
   individual pages in `public/`. When you add a new `ms-*` class in a page, add
   its rule here.
