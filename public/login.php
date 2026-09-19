@@ -136,7 +136,13 @@ if ($isPost) {
             'attempted_identifier' => $email !== '' ? $email : null,
         ]);
 
-        $error = 'Invalid email or password.';
+        if (($result['internal_status'] ?? '') === 'locked_account_confirmed') {
+            $lockMinutes = max(1, (int) (ms_config()['auth']['lock_minutes'] ?? 15));
+            $error = 'Your account is temporarily locked. Wait ' . $lockMinutes
+                . ' minutes or contact an administrator.';
+        } else {
+            $error = 'Invalid email or password.';
+        }
     }
 }
 
@@ -156,7 +162,7 @@ layout_header('Login');
 
         <label class="ms-label" for="email">Email</label>
         <input class="ms-input" type="email" id="email" name="email"
-               value="<?= e($email) ?>" required autofocus>
+               value="<?= e($email) ?>" required>
 
         <label class="ms-label" for="password">Password</label>
         <input class="ms-input" type="password" id="password" name="password" required>

@@ -60,7 +60,7 @@ return [
 
     // --- Session / security policy ---
     'session' => [
-        'idle_timeout_seconds'     => 1200,   // 20 minutes of inactivity
+        'idle_timeout_seconds'     => 300,    // 5 minutes of inactivity
         'absolute_timeout_seconds' => 28800,  // 8 hours since login
         'pending_login_timeout_seconds' => 600, // first factor must reach MFA within 10 minutes
         'cookie_name'              => 'MEDISHIELD_SID',

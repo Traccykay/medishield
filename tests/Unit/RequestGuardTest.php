@@ -57,6 +57,26 @@ final class RequestGuardTest extends TestCase
         self::assertCount(1, $result['audit_events']);
     }
 
+    #[DataProvider('attackProvider')]
+    public function testRequestPostGuard_AttackPayload_RejectsAndAuditsHighRisk(string $variant, string $action): void
+    {
+        $result = $this->runProbe($variant, 'authenticated', 'audit-ok');
+
+        self::assertSame(403, $result['status']);
+        self::assertFalse($result['mutated']);
+        self::assertCount(1, $result['audit_events']);
+        self::assertSame($action, $result['audit_events'][0]['action']);
+        self::assertSame('BLOCKED', $result['audit_events'][0]['status']);
+        self::assertSame('HIGH_RISK', $result['audit_events'][0]['anomaly_flag']);
+    }
+
+    /** @return iterable<string,array{string,string}> */
+    public static function attackProvider(): iterable
+    {
+        yield 'SQL injection' => ['sql-attack', 'SQL_INJECTION_ATTEMPT'];
+        yield 'cross-site scripting' => ['xss-attack', 'XSS_ATTEMPT'];
+    }
+
     public function testRequestPostGuard_PostOnlyGet_RejectsWithoutCsrfAudit(): void
     {
         $result = $this->runProbe('get', 'authenticated', 'audit-ok');

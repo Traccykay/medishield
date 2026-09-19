@@ -37,7 +37,8 @@ use MediShield\Support\Clock;
  *   [
  *     'status'  => 'success' | 'invalid',
  *     'internal_status' => 'authenticated' | 'unknown_account' |
- *                          'inactive_account' | 'wrong_password' | 'locked_account',
+     *                          'inactive_account' | 'wrong_password' | 'locked_account' |
+     *                          'locked_account_confirmed',
  *     'audit_action' => 'LOGIN_SUCCESS' | 'LOGIN_FAILED' | 'ACCOUNT_LOCKED',
  *     'user'    => array|null,            // the authenticated user row, success only
  *     'anomaly' => 'NORMAL' | 'SUSPICIOUS' | 'HIGH_RISK',
@@ -93,9 +94,9 @@ final class AuthService
         }
 
         if ($this->isLocked($user)) {
-            password_verify($password, $this->verificationHash($user));
+            $passwordMatches = password_verify($password, $this->verificationHash($user));
             return $this->result(
-                'locked_account',
+                $passwordMatches ? 'locked_account_confirmed' : 'locked_account',
                 'NORMAL',
                 (int) ($user['failed_login_count'] ?? 0),
                 $user

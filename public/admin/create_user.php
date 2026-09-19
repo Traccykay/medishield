@@ -116,7 +116,7 @@ layout_app_header('Create user', $admin, 'users');
 
         <label class="ms-label" for="full_name">Full name</label>
         <input class="ms-input" type="text" id="full_name" name="full_name"
-               value="<?= e($fullName) ?>" required autofocus>
+               value="<?= e($fullName) ?>" required>
 
         <label class="ms-label" for="email">Email</label>
         <input class="ms-input" type="email" id="email" name="email"

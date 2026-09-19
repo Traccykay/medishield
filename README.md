@@ -43,10 +43,10 @@ and operational requirements. This project does not claim HIPAA compliance.
   sequence gaps, and suffix/full deletion by a database-only attacker. An
   independently keyed append-only JSONL anchor is required to turn
   whole-database rollback from `UNKNOWN` into `PASS` or `FAIL`.
-- **Anomaly detection:** suspicious and high-risk activity is flagged, including repeated failed logins, unauthorized access, IDOR attempts, CSRF failures, and integrity failures.
+- **Anomaly detection:** suspicious and high-risk activity is flagged, including repeated failed logins, high-confidence SQL-injection/XSS attempts, unauthorized access, IDOR attempts, CSRF failures, and integrity failures.
 - **CSRF protection:** state-changing forms use CSRF tokens.
 - **Secure sessions:** strict cookie-only session IDs, post-MFA regeneration,
-  fail-closed pending/idle/absolute timeouts, and a monotonic account epoch that
+  fail-closed five-minute idle and separate absolute timeouts, and a monotonic account epoch that
   revokes pending and authenticated sessions after password, status, or role changes.
 - **Request throttling:** HMAC-scoped fixed-window budgets use a key distinct
   from the audit key and limit login, OTP, and password-reset storms without

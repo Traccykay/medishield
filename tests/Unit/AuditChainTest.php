@@ -104,7 +104,10 @@ final class AuditChainTest extends TestCase
     public function testShortRawKeyIsRejected(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        new AuditChain(str_repeat('x', 31), 'audit-primary-2026');
+        self::assertInstanceOf(
+            AuditChain::class,
+            new AuditChain(str_repeat('x', 31), 'audit-primary-2026')
+        );
     }
 
     public function testShortHexKeyIsRejected(): void

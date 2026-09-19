@@ -119,7 +119,7 @@ final class ActivationService
 
             $status = (string) $user['status'];
             $isPending = $status === 'inactive'
-                && (string) $user['password_hash'] === UserService::PENDING_PASSWORD_SENTINEL
+                && (string) $user['password_hash'] === UserService::PENDING_ACTIVATION_SENTINEL
                 && (int) $user['must_change_password'] === 0;
             if ($status !== 'active' && !$isPending) {
                 return ['ok' => false, 'errors' => ['This activation link is invalid or has already been used.'], 'user_id' => null];

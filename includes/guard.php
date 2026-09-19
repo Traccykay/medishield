@@ -21,6 +21,7 @@ declare(strict_types=1);
  */
 
 use MediShield\Auth\Rbac;
+use MediShield\Security\AttackPatternClassifier;
 use MediShield\Security\Csrf;
 
 require_once __DIR__ . '/bootstrap.php';
@@ -144,7 +145,7 @@ if (!function_exists('enforce_timeouts')) {
         }
 
         $cfg      = ms_config()['session'];
-        $idleMax  = (int) ($cfg['idle_timeout_seconds'] ?? 1200);
+        $idleMax  = (int) ($cfg['idle_timeout_seconds'] ?? 300);
         $absMax   = (int) ($cfg['absolute_timeout_seconds'] ?? 28800);
         $timingStatus = ms_session_validator()->validateSessionTiming(
             [
@@ -325,10 +326,6 @@ if (!function_exists('request_post_guard')) {
             exit('Request method not allowed.');
         }
 
-        if (Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
-            return true;
-        }
-
         $allowedModules = [
             'admin',
             'auth',
@@ -352,6 +349,29 @@ if (!function_exists('request_post_guard')) {
         $userId = $role !== 'guest' && is_int($candidateId) && $candidateId > 0
             ? $candidateId
             : null;
+
+        $attackAction = AttackPatternClassifier::classify($_POST);
+        if ($attackAction !== null) {
+            try {
+                ms_audit_log([
+                    'user_id' => $userId,
+                    'user_role' => $role,
+                    'action' => $attackAction,
+                    'module' => $auditModule,
+                    'status' => 'BLOCKED',
+                    'anomaly_flag' => 'HIGH_RISK',
+                ]);
+            } catch (\Throwable $exception) {
+                error_log('[request-guard] Attack audit failed: ' . $exception->getMessage());
+            }
+
+            http_response_code(403);
+            exit('Request could not be processed.');
+        }
+
+        if (Csrf::check($_SESSION, $_POST[Csrf::FIELD] ?? null)) {
+            return true;
+        }
 
         try {
             ms_audit_log([

@@ -86,7 +86,8 @@ layout_app_header('Assign patient', $admin, 'patients');
     <?php foreach ($errors as $msg) { layout_alert('danger', $msg); } ?>
 
     <form method="get" action="<?= e(ms_url('/admin/assign_patient.php')) ?>" class="ms-actions">
-        <select class="ms-input" name="patient_id" required>
+        <label class="ms-sr-only" for="assignment-patient">Patient</label>
+        <select class="ms-input" id="assignment-patient" name="patient_id" required>
             <option value="">Select patient</option>
             <?php foreach ($patients as $patient) { ?>
                 <option value="<?= e((string) $patient['patient_id']) ?>" <?= $selectedPatientId === (int) $patient['patient_id'] ? 'selected' : '' ?>>

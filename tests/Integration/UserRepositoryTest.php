@@ -129,7 +129,7 @@ final class UserRepositoryTest extends TestCase
         $pendingId = $this->repo->create(
             'Pending Epoch',
             'pending-epoch@example.com',
-            UserService::PENDING_PASSWORD_SENTINEL,
+            UserService::PENDING_ACTIVATION_SENTINEL,
             'doctor',
             false,
             'inactive'

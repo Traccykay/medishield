@@ -59,12 +59,12 @@ function Get-MySqlBaseArgs {
         [string]$Password
     )
 
-    $args = @("--host=$HostName", "--user=$UserName")
+    $connectionArguments = @("--host=$HostName", "--user=$UserName")
     if ($Password -ne '') {
-        $args += "--password=$Password"
+        $connectionArguments += "--password=$Password"
     }
 
-    return $args
+    return $connectionArguments
 }
 
 function Invoke-MySqlCommand {

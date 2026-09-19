@@ -29,7 +29,8 @@ layout_app_header('Reception dashboard', $user, 'reception');
 <section class="ms-card">
     <h2 class="ms-h2">Find patient</h2>
     <form method="get" class="ms-actions">
-        <input class="ms-input" type="search" name="q" value="<?= e($query) ?>" placeholder="Name, patient number, or phone">
+        <label class="ms-sr-only" for="reception-patient-search">Search patients</label>
+        <input class="ms-input" id="reception-patient-search" type="search" name="q" value="<?= e($query) ?>" placeholder="Name, patient number, or phone">
         <button class="ms-btn" type="submit">Search</button>
     </form>
     <?php if ($query !== '') { ?>

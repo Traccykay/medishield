@@ -14,6 +14,8 @@ Both files simply `return` a PHP associative array. The application loads it via
 Account activation and password reset have independent token lifetimes:
 `activation.ttl_hours` defaults to 48 hours for inactive accounts, while
 `password_reset.ttl_minutes` defaults to 60 minutes for active accounts.
+Authenticated sessions expire after five minutes without activity by default;
+the separate absolute session lifetime remains eight hours.
 
 Database setup treats the persistent web/maintenance database names separately
 from disposable UI-test execution. Normal setup aligns only the maintenance

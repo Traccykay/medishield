@@ -32,7 +32,7 @@ final class UserService
      * user follows the emailed link and {@see UserRepository::activate()} replaces
      * this sentinel with a real hash.
      */
-    public const PENDING_PASSWORD_SENTINEL = 'PENDING_ACTIVATION';
+    public const PENDING_ACTIVATION_SENTINEL = 'PENDING_ACTIVATION';
 
     public function __construct(
         private UserRepository $users,
@@ -134,7 +134,7 @@ final class UserService
         $userId = $this->users->create(
             $fullName,
             $email,
-            self::PENDING_PASSWORD_SENTINEL,
+            self::PENDING_ACTIVATION_SENTINEL,
             $role,
             false,        // must_change_password — activation sets the password instead
             'inactive'

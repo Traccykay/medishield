@@ -193,6 +193,29 @@ final class SetupConfigUpgradeTest extends TestCase
     /**
      * @param array<string,string> $replacements
      */
+    public function testUpgrade_ReplacesOnlyThePreviousTwentyMinuteIdleDefault(): void
+    {
+        $configPath = $this->newTestConfigPath();
+        $legacy = $this->configuredSample($this->knownSecrets());
+        $legacy = str_replace(
+            "'idle_timeout_seconds'     => 300,",
+            "'idle_timeout_seconds'     => 1200,",
+            $legacy
+        );
+        file_put_contents($configPath, $legacy);
+
+        try {
+            $result = $this->runConfigUpgrade($configPath, 'medishield_db', false);
+
+            self::assertSame(0, $result['exitCode'], $result['stderr']);
+            $config = require $configPath;
+            self::assertSame(300, $config['session']['idle_timeout_seconds']);
+        } finally {
+            @unlink($configPath);
+            @unlink($configPath . '.pre-hardening.bak');
+        }
+    }
+
     private function configuredSample(array $replacements): string
     {
         return str_replace(

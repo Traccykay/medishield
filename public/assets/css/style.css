@@ -491,7 +491,6 @@ a:hover { color: var(--ms-primary-dark); }
     text-transform: uppercase;
 }
 .ms-sidebar-link {
-    display: block;
     padding: 0.55rem 0.8rem;
     border-radius: var(--ms-radius);
     color: var(--ms-ink);

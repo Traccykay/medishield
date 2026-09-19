@@ -316,6 +316,29 @@ test('rejects a forged CSRF form POST without creating a patient', async ({ page
   await expect(page.getByText('No matching patients found.')).toBeVisible();
 });
 
+test('rejects SQL-injection-shaped login credentials without authenticating', async ({ page }) => {
+  const emailPayload = "admin@example.test' OR '1'='1' -- ";
+  const passwordPayload = "' OR '1'='1";
+
+  await page.goto('/login.php');
+  await page.locator('#email').evaluate((input, payload) => {
+    input.type = 'text';
+    input.value = payload;
+  }, emailPayload);
+  await page.getByLabel('Password').fill(passwordPayload);
+  const rejection = page.waitForResponse((response) =>
+    response.url().endsWith('/login.php') && response.request().method() === 'POST'
+  );
+  await page.getByRole('button', { name: 'Sign in' }).click();
+
+  expect((await rejection).status()).toBe(403);
+  await expect(page).toHaveURL(/\/login\.php$/);
+  await expect(page.locator('body')).toHaveText('Request could not be processed.');
+  await expect(page.getByRole('heading', { name: 'Enter your code' })).toHaveCount(0);
+  await expect(page.locator('body')).not.toContainText(/SQLSTATE|syntax error|PDOException/i);
+  await page.screenshot({ path: 'test-results/sql-injection-rejected-proof.png', fullPage: true });
+});
+
 test('rejects a matching normalized emergency-contact number without creating a patient', async ({ page }) => {
   const patientName = 'Duplicate Emergency Contact Patient';
 
@@ -335,18 +358,27 @@ test('rejects a matching normalized emergency-contact number without creating a 
   await expect(page.getByText('No matching patients found.')).toBeVisible();
 });
 
-test('renders stored hostile input as text rather than executable markup', async ({ page }) => {
-  const payload = '<img src=x data-xss-probe="stored">';
+test('blocks and audits executable XSS-shaped input before storage', async ({ page }) => {
+  const payload = '<img src=x onerror="window.__medishieldXssExecuted=true" data-xss-probe="stored">';
 
   await loginWithOtp(page, 'ui.receptionist@medishield.test');
-  const patientNumber = await registerPatient(page, payload);
+  await page.goto('/register_patient.php');
+  const csrfToken = await page.locator('input[name="csrf_token"]').inputValue();
+  const response = await page.request.post('/register_patient.php', {
+    form: {
+      csrf_token: csrfToken,
+      full_name: payload,
+      date_of_birth: '1990-01-01',
+      gender: 'female',
+      phone: '0712345678',
+      emergency_contact: 'Security Test 0712345679'
+    }
+  });
 
-  await expect(page.locator('main .ms-muted').first()).toContainText(payload);
-  await expect(page.locator('img[data-xss-probe="stored"]')).toHaveCount(0);
-
-  await page.goto(`/patients.php?q=${encodeURIComponent(patientNumber)}`);
-  await expect(page.locator('td').filter({ hasText: payload })).toHaveText(payload);
-  await expect(page.locator('img[data-xss-probe="stored"]')).toHaveCount(0);
+  expect(response.status()).toBe(403);
+  await expect(response.text()).resolves.toBe('Request could not be processed.');
+  await page.goto(`/patients.php?q=${encodeURIComponent(payload)}`);
+  await expect(page.getByText('No matching patients found.')).toBeVisible();
 });
 
 test('locks the displayed number and ignores a tampered patient number on registration', async ({ page }) => {

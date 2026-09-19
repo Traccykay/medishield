@@ -755,10 +755,29 @@ final class AuditLogger
      *
      * @return array{rows:list<array<string,mixed>>,total:int,page:int,page_count:int,per_page:int}
      */
-    public function page(int $page = 1, int $perPage = 25): array
+    public function page(
+        int $page = 1,
+        int $perPage = 25,
+        ?string $anomaly = null,
+        ?string $search = null
+    ): array
     {
         $perPage = max(1, min($perPage, 500));
         $page = max(1, $page);
+        $anomaly = $anomaly === null ? null : trim($anomaly);
+        if ($anomaly === '') {
+            $anomaly = null;
+        }
+        if ($anomaly !== null && !in_array($anomaly, ['NORMAL', 'SUSPICIOUS', 'HIGH_RISK'], true)) {
+            throw new \InvalidArgumentException('Audit anomaly filter is invalid.');
+        }
+        $search = $search === null ? null : trim($search);
+        if ($search === '') {
+            $search = null;
+        }
+        if ($search !== null && mb_strlen($search) > 100) {
+            throw new \InvalidArgumentException('Audit search is too long.');
+        }
         if ($this->pdo->inTransaction()) {
             return ['rows' => [], 'total' => 0, 'page' => 1, 'page_count' => 1, 'per_page' => $perPage];
         }
@@ -771,18 +790,38 @@ final class AuditLogger
 
         try {
             $verification = $this->verifyLocalFullSnapshot();
-            $total = $verification['state'] === 'PASS'
-                ? (int) $this->pdo->query(
+            $where = ['logs.seq BETWEEN 1 AND head.last_seq'];
+            $parameters = [];
+            if ($anomaly !== null) {
+                $where[] = 'logs.anomaly_flag = :anomaly';
+                $parameters[':anomaly'] = $anomaly;
+            }
+            if ($search !== null) {
+                $where[] = '(LOWER(logs.action) LIKE :search
+                    OR LOWER(logs.module) LIKE :search
+                    OR LOWER(logs.status) LIKE :search
+                    OR LOWER(logs.user_role) LIKE :search
+                    OR LOWER(COALESCE(logs.attempted_identifier, \'\')) LIKE :search)';
+                $searchPattern = preg_replace('/\s+/', '%', mb_strtolower($search));
+                $parameters[':search'] = '%' . ($searchPattern ?? mb_strtolower($search)) . '%';
+            }
+            $whereSql = implode(' AND ', $where);
+            $total = 0;
+            if ($verification['state'] === 'PASS') {
+                $count = $this->pdo->prepare(
                     'SELECT COUNT(*) FROM audit_logs AS logs
                        JOIN audit_chain_head AS head ON head.singleton_id = 1
-                      WHERE logs.seq BETWEEN 1 AND head.last_seq'
-                )->fetchColumn()
-                : 0;
+                      WHERE ' . $whereSql
+                );
+                $count->execute($parameters);
+                $total = (int) $count->fetchColumn();
+            }
             $pageCount = max(1, (int) ceil($total / $perPage));
             $page = min($page, $pageCount);
             $offset = ($page - 1) * $perPage;
-            $rows = $verification['state'] === 'PASS'
-                ? $this->pdo->query(
+            $rows = [];
+            if ($verification['state'] === 'PASS') {
+                $select = $this->pdo->prepare(
                     'SELECT logs.log_id, logs.seq, logs.event_id, logs.key_id,
                             logs.format_version, logs.user_id, logs.user_role,
                             logs.action, logs.module, logs.affected_record_id,
@@ -790,11 +829,13 @@ final class AuditLogger
                             logs.anomaly_flag, logs.attempted_identifier, logs.created_at
                        FROM audit_logs AS logs
                        JOIN audit_chain_head AS head ON head.singleton_id = 1
-                      WHERE logs.seq BETWEEN 1 AND head.last_seq
+                      WHERE ' . $whereSql . '
                       ORDER BY logs.seq DESC
                       LIMIT ' . $perPage . ' OFFSET ' . $offset
-                )->fetchAll()
-                : [];
+                );
+                $select->execute($parameters);
+                $rows = $select->fetchAll();
+            }
             $this->pdo->commit();
 
             return [

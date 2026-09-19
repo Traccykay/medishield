@@ -25,6 +25,11 @@ require_once __DIR__ . '/../../includes/layout.php';
 $user = require_area('admin');
 $requestedPage = request_positive_int($_GET['page'] ?? null) ?: 1;
 $perPage = 25;
+$anomalyFilter = request_string($_GET['anomaly'] ?? null);
+if (!in_array($anomalyFilter, ['', 'NORMAL', 'SUSPICIOUS', 'HIGH_RISK'], true)) {
+    $anomalyFilter = '';
+}
+$auditSearch = mb_substr(trim(request_string($_GET['q'] ?? null)), 0, 100);
 
 // Read-only views that must never take the page down.
 $recent    = [];
@@ -38,7 +43,12 @@ $integrity = [
     'head_seq' => null,
 ];
 try {
-    $auditPage = ms_audit()->page($requestedPage, $perPage);
+    $auditPage = ms_audit()->page(
+        $requestedPage,
+        $perPage,
+        $anomalyFilter !== '' ? $anomalyFilter : null,
+        $auditSearch !== '' ? $auditSearch : null
+    );
     $recent = $auditPage['rows'];
     $pagination = $auditPage;
     $integrity = ms_audit()->verifyChain(ms_audit_anchors());
@@ -133,8 +143,25 @@ layout_app_header('Forensic Auditing', $user, 'audit');
         );
     } ?>
 
+    <form method="get" action="<?= e(ms_url('/admin/audit.php')) ?>" class="ms-filter-bar">
+        <label class="ms-sr-only" for="audit-search">Search forensic events</label>
+        <input class="ms-input" id="audit-search" type="search" name="q"
+               value="<?= e($auditSearch) ?>" placeholder="Action, module, status, role or attempted email">
+        <label class="ms-sr-only" for="audit-anomaly">Anomaly level</label>
+        <select class="ms-input" id="audit-anomaly" name="anomaly">
+            <option value="">All anomaly levels</option>
+            <?php foreach (['NORMAL', 'SUSPICIOUS', 'HIGH_RISK'] as $flag) { ?>
+                <option value="<?= e($flag) ?>" <?= $anomalyFilter === $flag ? 'selected' : '' ?>><?= e($flag) ?></option>
+            <?php } ?>
+        </select>
+        <button class="ms-btn ms-btn-primary" type="submit">Filter</button>
+        <a class="ms-btn" href="<?= e(ms_url('/admin/audit.php')) ?>">Clear</a>
+    </form>
+
     <?php if ($recent === [] && !$recentQuarantined) { ?>
-        <p class="ms-muted">No audit events recorded yet.</p>
+        <p class="ms-muted"><?= $anomalyFilter !== '' || $auditSearch !== ''
+            ? 'No matching audit events found.'
+            : 'No audit events recorded yet.' ?></p>
     <?php } elseif ($recent !== []) { ?>
         <div class="ms-table-wrap">
             <table class="ms-table">
@@ -180,10 +207,18 @@ layout_app_header('Forensic Auditing', $user, 'audit');
             <span>Page <?= e((string) $pagination['page']) ?> of <?= e((string) $pagination['page_count']) ?> · <?= e((string) $pagination['total']) ?> verified events</span>
             <span class="ms-actions">
                 <?php if ($pagination['page'] > 1) { ?>
-                    <a class="ms-btn ms-btn-sm" href="<?= e(ms_url('/admin/audit.php?page=' . ($pagination['page'] - 1))) ?>">Previous</a>
+                    <a class="ms-btn ms-btn-sm" href="<?= e(ms_url('/admin/audit.php?' . http_build_query([
+                        'page' => $pagination['page'] - 1,
+                        'q' => $auditSearch,
+                        'anomaly' => $anomalyFilter,
+                    ]))) ?>">Previous</a>
                 <?php } ?>
                 <?php if ($pagination['page'] < $pagination['page_count']) { ?>
-                    <a class="ms-btn ms-btn-sm" href="<?= e(ms_url('/admin/audit.php?page=' . ($pagination['page'] + 1))) ?>">Next</a>
+                    <a class="ms-btn ms-btn-sm" href="<?= e(ms_url('/admin/audit.php?' . http_build_query([
+                        'page' => $pagination['page'] + 1,
+                        'q' => $auditSearch,
+                        'anomaly' => $anomalyFilter,
+                    ]))) ?>">Next</a>
                 <?php } ?>
             </span>
         </nav>

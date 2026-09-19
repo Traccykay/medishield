@@ -19,7 +19,11 @@ final class MariaDbEmergencyMigrationTest extends TestCase
         if (getenv('MEDISHIELD_MARIADB_EMERGENCY_TEST') !== '1') {
             self::markTestSkipped('Real MariaDB migration test is opt-in.');
         }
-        $pdo = new \PDO('mysql:host=127.0.0.1;charset=utf8mb4', 'root', '', [
+        $databaseUser = trim((string) getenv('MEDISHIELD_MARIADB_TEST_USER'));
+        $databaseSecret = (string) getenv('MEDISHIELD_MARIADB_TEST_PASSWORD');
+        self::assertNotSame('', $databaseUser, 'Set MEDISHIELD_MARIADB_TEST_USER for the opt-in test.');
+        self::assertNotSame('', $databaseSecret, 'Set MEDISHIELD_MARIADB_TEST_PASSWORD for the opt-in test.');
+        $pdo = new \PDO('mysql:host=127.0.0.1;charset=utf8mb4', $databaseUser, $databaseSecret, [
             \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
             \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
         ]);

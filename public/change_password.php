@@ -91,7 +91,7 @@ layout_header('Change password', $user);
         <input type="hidden" name="<?= e(Csrf::FIELD) ?>" value="<?= e($token) ?>">
 
         <label class="ms-label" for="current_password">Current password</label>
-        <input class="ms-input" type="password" id="current_password" name="current_password" required autofocus>
+        <input class="ms-input" type="password" id="current_password" name="current_password" required>
 
         <label class="ms-label" for="new_password">New password</label>
         <input class="ms-input" type="password" id="new_password" name="new_password"

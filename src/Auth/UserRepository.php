@@ -145,7 +145,7 @@ final class UserRepository
                 ':now'    => $this->clock->nowString(),
                 ':id'     => $userId,
                 ':inactive_status' => 'inactive',
-                ':pending_password' => UserService::PENDING_PASSWORD_SENTINEL,
+                ':pending_password' => UserService::PENDING_ACTIVATION_SENTINEL,
             ]);
             if ($stmt->rowCount() !== 1) {
                 return false;

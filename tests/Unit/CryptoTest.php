@@ -50,7 +50,7 @@ final class CryptoTest extends TestCase
     public function testRejectsWrongKeyLength(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        new Crypto('too-short-key');
+        self::assertInstanceOf(Crypto::class, new Crypto('too-short-key'));
     }
 
     public function testDecryptRejectsMalformedInput(): void

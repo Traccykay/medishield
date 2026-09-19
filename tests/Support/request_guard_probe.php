@@ -49,6 +49,8 @@ if ($authenticated) {
 $_POST = match ($variant) {
     'wrong' => ['csrf_token' => 'wrong-token'],
     'array' => ['csrf_token' => ['attacker-controlled']],
+    'sql-attack' => ['csrf_token' => 'stored-token', 'q' => "x' OR '1'='1' -- "],
+    'xss-attack' => ['csrf_token' => 'stored-token', 'name' => '<script>alert(1)</script>'],
     default => [],
 };
 

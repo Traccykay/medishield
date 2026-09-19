@@ -315,7 +315,7 @@ final class ActivationServiceTest extends TestCase
 
         $user = $this->users->findById($userId);
         self::assertSame('inactive', $user['status']);
-        self::assertSame(UserService::PENDING_PASSWORD_SENTINEL, $user['password_hash']);
+        self::assertSame(UserService::PENDING_ACTIVATION_SENTINEL, $user['password_hash']);
         self::assertTrue($this->activation->validate($token)['ok']);
     }
 }

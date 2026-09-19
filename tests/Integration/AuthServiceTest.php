@@ -95,7 +95,7 @@ final class AuthServiceTest extends TestCase
         $result = $this->auth->attemptLogin('bob@example.com', 'Str0ng!Pass1');
 
         self::assertSame('invalid', $result['status']);
-        self::assertSame('locked_account', $result['internal_status']);
+        self::assertSame('locked_account_confirmed', $result['internal_status']);
         self::assertSame($id, $result['target_user_id']);
         self::assertSame('doctor', $result['target_user_role']);
     }
@@ -145,6 +145,19 @@ final class AuthServiceTest extends TestCase
         // Correct password, but still inside the lock window (same fixed clock).
         $result = $this->auth->attemptLogin('doc@example.com', 'Str0ng!Pass1');
         self::assertSame('invalid', $result['status']);
+        self::assertSame('locked_account_confirmed', $result['internal_status']);
+    }
+
+    public function testLockedAccountWithWrongPasswordRemainsGeneric(): void
+    {
+        $this->seedUser();
+        for ($i = 0; $i < 5; $i++) {
+            $this->auth->attemptLogin('doc@example.com', 'wrong');
+        }
+
+        $result = $this->auth->attemptLogin('doc@example.com', 'still-wrong');
+
+        self::assertSame('invalid', $result['status']);
         self::assertSame('locked_account', $result['internal_status']);
     }
 
@@ -161,7 +174,7 @@ final class AuthServiceTest extends TestCase
         $result = $this->auth->attemptLogin('malformed-lock@example.com', 'Str0ng!Pass1');
 
         self::assertSame('invalid', $result['status']);
-        self::assertSame('locked_account', $result['internal_status']);
+        self::assertSame('locked_account_confirmed', $result['internal_status']);
     }
 
     public function testLockExpiresAfterWindow(): void
@@ -178,7 +191,7 @@ final class AuthServiceTest extends TestCase
         }
         $locked = $auth->attemptLogin('doc@example.com', 'Str0ng!Pass1');
         self::assertSame('invalid', $locked['status']);
-        self::assertSame('locked_account', $locked['internal_status']);
+        self::assertSame('locked_account_confirmed', $locked['internal_status']);
 
         // Advance 16 minutes -> lock expired -> correct password now succeeds.
         $now = $now->add(new \DateInterval('PT16M'));
@@ -209,7 +222,7 @@ final class AuthServiceTest extends TestCase
             'Externally visible control flow must not disclose the account state.'
         );
         self::assertSame(
-            ['unknown_account', 'inactive_account', 'wrong_password', 'locked_account'],
+            ['unknown_account', 'inactive_account', 'wrong_password', 'locked_account_confirmed'],
             array_column($results, 'internal_status'),
             'Internal outcomes must remain precise for auditing and incident response.'
         );

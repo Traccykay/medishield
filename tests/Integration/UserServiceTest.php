@@ -149,7 +149,7 @@ final class UserServiceTest extends TestCase
         self::assertSame('inactive', $row['status']);
         self::assertSame(0, (int) $row['must_change_password']);
         // The sentinel must never be a hash that any password verifies against.
-        self::assertSame(UserService::PENDING_PASSWORD_SENTINEL, $row['password_hash']);
+        self::assertSame(UserService::PENDING_ACTIVATION_SENTINEL, $row['password_hash']);
         self::assertFalse(password_verify('anything', (string) $row['password_hash']));
     }
 

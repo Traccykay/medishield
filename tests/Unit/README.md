@@ -9,6 +9,7 @@ temporary mail-dump directory to verify the local delivery adapter:
 | `CryptoTest.php` | `Security/Crypto` — AES-256-GCM round-trip, tamper detection, key-length validation. |
 | `PasswordPolicyTest.php` | `Security/PasswordPolicy` — 12-character minimum, character-class rules, and email-equality rejection. |
 | `CsrfTest.php` | `Security/Csrf` — token generation and constant-time verification. |
+| `AttackPatternClassifierTest.php` | `Security/AttackPatternClassifier` — conservative SQL-injection/XSS detection and normal clinical-text non-matches. |
 | `RequestGuardTest.php` | `includes/guard.php` — terminating method/CSRF rejection, safe actor attribution, exactly-one audit attempts, and fail-closed behavior when audit storage fails. |
 | `RbacTest.php` | `Auth/Rbac` — role validity, area access, dashboard routing, admin-only user management. |
 | `AuditChainTest.php` | `Security/AuditChain` — stable v1/v2 vectors, domain-separated length-prefix ambiguity resistance, null/empty distinction, sequence/key/network/agent binding, a keyed-head MAC that authenticates `key_check`, and minimum key length. |

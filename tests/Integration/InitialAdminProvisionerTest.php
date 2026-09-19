@@ -67,7 +67,7 @@ final class InitialAdminProvisionerTest extends TestCase
         self::assertNotNull($admin);
         self::assertSame('admin', $admin['role']);
         self::assertSame('inactive', $admin['status']);
-        self::assertSame(UserService::PENDING_PASSWORD_SENTINEL, $admin['password_hash']);
+        self::assertSame(UserService::PENDING_ACTIVATION_SENTINEL, $admin['password_hash']);
         self::assertFalse(password_verify('anything', (string) $admin['password_hash']));
 
         self::assertCount(1, $this->mailer->sent);

@@ -101,7 +101,7 @@ layout_header('Activate account');
 
                 <label class="ms-label" for="password">New password</label>
                 <input class="ms-input" type="password" id="password" name="password"
-                       minlength="12" required autofocus>
+                       minlength="12" required>
                 <p class="ms-help">Minimum 12 characters with upper/lower case, a number and a symbol.</p>
 
                 <label class="ms-label" for="confirm_password">Confirm password</label>

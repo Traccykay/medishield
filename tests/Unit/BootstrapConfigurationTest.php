@@ -39,6 +39,14 @@ final class BootstrapConfigurationTest extends TestCase
         }
     }
 
+    public function testDefaultIdleTimeoutIsFiveMinutes(): void
+    {
+        $config = require $this->root . DIRECTORY_SEPARATOR . 'config'
+            . DIRECTORY_SEPARATOR . 'config.sample.php';
+
+        self::assertSame(300, $config['session']['idle_timeout_seconds']);
+    }
+
     public function testBootstrap_ValidationRunsImmediatelyAfterConfiguredErrorLogAndBeforeSessionOrServices(): void
     {
         $contents = (string) file_get_contents(

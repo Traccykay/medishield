@@ -78,6 +78,29 @@ final class AuditLoggerTest extends TestCase
         self::assertSame('EVENT_6', $page['rows'][9]['action']);
     }
 
+    public function testVerifiedPageFiltersByAnomalyAndSearchTerm(): void
+    {
+        $normal = $this->sampleEvent('LOGIN_SUCCESS');
+        $this->logger->log($normal);
+        $attack = $this->sampleEvent('SQL_INJECTION_ATTEMPT');
+        $attack['status'] = 'BLOCKED';
+        $attack['anomaly_flag'] = 'HIGH_RISK';
+        $attack['module'] = 'auth';
+        $this->logger->log($attack);
+
+        $filtered = $this->logger->page(1, 25, 'HIGH_RISK', 'sql injection');
+
+        self::assertSame(1, $filtered['total']);
+        self::assertCount(1, $filtered['rows']);
+        self::assertSame('SQL_INJECTION_ATTEMPT', $filtered['rows'][0]['action']);
+    }
+
+    public function testVerifiedPageRejectsUnknownAnomalyFilter(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->logger->page(1, 25, 'CRITICAL');
+    }
+
     public function testVerifyChainPassesForUntamperedLog(): void
     {
         $this->logger->log($this->sampleEvent('LOGIN_SUCCESS'));

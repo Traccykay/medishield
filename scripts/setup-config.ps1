@@ -50,12 +50,12 @@ function Get-MediShieldConfigBlockMatch {
         [Parameter(Mandatory = $true)][string]$BlockName
     )
 
-    $matches = @(Get-MediShieldConfigBlockMatches -ConfigContent $ConfigContent -BlockName $BlockName)
-    if ($matches.Count -ne 1) {
-        throw "Expected exactly one '$BlockName' configuration block; found $($matches.Count)."
+    $blockMatches = @(Get-MediShieldConfigBlockMatches -ConfigContent $ConfigContent -BlockName $BlockName)
+    if ($blockMatches.Count -ne 1) {
+        throw "Expected exactly one '$BlockName' configuration block; found $($blockMatches.Count)."
     }
 
-    return $matches[0]
+    return $blockMatches[0]
 }
 
 function Get-MediShieldConfigStringMatch {
@@ -69,12 +69,12 @@ function Get-MediShieldConfigStringMatch {
 
     $escapedKey = [regex]::Escape($Key)
     $pattern = "(?m)^(?<prefix>[\t ]*'$escapedKey'\s*=>\s*)'(?<value>[^']*)'(?<suffix>\s*,[\t ]*)\r?$"
-    $matches = [regex]::Matches($BlockMatch.Groups['body'].Value, $pattern)
-    if ($matches.Count -ne 1) {
-        throw "Expected exactly one '$Key' value in the configuration block; found $($matches.Count)."
+    $valueMatches = [regex]::Matches($BlockMatch.Groups['body'].Value, $pattern)
+    if ($valueMatches.Count -ne 1) {
+        throw "Expected exactly one '$Key' value in the configuration block; found $($valueMatches.Count)."
     }
 
-    return $matches[0]
+    return $valueMatches[0]
 }
 
 function Get-MediShieldConfigStringValue {
@@ -318,6 +318,22 @@ function Update-MediShieldApplicationConfig {
             $existingConfig = $existingConfig.Replace($auditKeyLine.Value, $insert)
             [void] $messages.Add(
                 'Added separate audit-anchor and request-throttle keys to existing configuration'
+            )
+            $configChanged = $true
+        }
+
+        $previousIdleDefault = [regex]::Matches(
+            $existingConfig,
+            "(?m)^(?<prefix>\s*'idle_timeout_seconds'\s*=>\s*)1200(?<suffix>\s*,.*)$"
+        )
+        if ($previousIdleDefault.Count -eq 1) {
+            $existingConfig = [regex]::Replace(
+                $existingConfig,
+                "(?m)^(?<prefix>\s*'idle_timeout_seconds'\s*=>\s*)1200(?<suffix>\s*,.*)$",
+                '${prefix}300${suffix}'
+            )
+            [void] $messages.Add(
+                'Updated the previous 20-minute idle-session default to 5 minutes'
             )
             $configChanged = $true
         }

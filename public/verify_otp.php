@@ -204,7 +204,7 @@ layout_header('Verify code');
         <label class="ms-label" for="otp">Verification code</label>
         <input class="ms-input" type="text" id="otp" name="otp"
                inputmode="latin" autocapitalize="characters" maxlength="12"
-               required autofocus>
+               required>
         <p class="ms-help">The code expires a few minutes after it is sent.</p>
 
         <button class="ms-btn ms-btn-primary ms-btn-block" type="submit">Verify</button>
